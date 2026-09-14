@@ -1,38 +1,28 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { Tabs, TabList, TabTrigger, TabSlot } from 'expo-router/ui';
+import { StyleSheet } from 'react-native';
 
-import { Colors } from '@/constants/theme';
+import { AppTabBar } from '@/components/app-tab-bar';
 
 export default function AppTabs() {
-  const colors = Colors.light;
-
   return (
-    <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}>
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Главная</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="garderob">
-        <NativeTabs.Trigger.Label>Гардероб</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="create-outfit">
-        <NativeTabs.Trigger.Label>Создать образ</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-    </NativeTabs>
+    <Tabs>
+      <TabSlot style={styles.slot} />
+      <AppTabBar />
+      <TabList style={styles.hiddenTabList}>
+        <TabTrigger name="home" href="/" />
+        <TabTrigger name="garderob" href="/garderob" />
+        <TabTrigger name="create-outfit" href="/create-outfit" />
+        <TabTrigger name="profile" href="/profile" />
+      </TabList>
+    </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  slot: {
+    flex: 1,
+  },
+  hiddenTabList: {
+    display: 'none',
+  },
+});

@@ -1,86 +1,25 @@
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
-import { router } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  Alert,
-  FlatList,
-  Modal,
-  Pressable,
-  StyleSheet,
-  useWindowDimensions,
-} from 'react-native';
+import { FlatList, Modal, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWardrobe } from '@/contexts/wardrobe-context';
+import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
 
 const GRID_GAP = Spacing.two;
 const NUM_COLUMNS = 2;
 
 export default function GarderobScreen() {
   const { items } = useWardrobe();
+  const { takePhoto, pickFromGallery } = useAddWardrobeItem();
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const { width: windowWidth } = useWindowDimensions();
 
   const contentWidth = Math.min(windowWidth, MaxContentWidth);
   const cardWidth = (contentWidth - Spacing.four * 2 - GRID_GAP) / NUM_COLUMNS;
-
-  const openAddItemScreen = useCallback((uri: string) => {
-    router.push({
-      pathname: '/garderob/add-item',
-      params: { uri },
-    });
-  }, []);
-
-  const pickFromGallery = useCallback(async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert(
-        'Нужен доступ к фотографиям',
-        'Разреши доступ к галерее в настройках, чтобы добавлять вещи в гардероб.',
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: false,
-      quality: 0.8,
-    });
-
-    if (result.canceled || result.assets.length === 0) {
-      return;
-    }
-
-    openAddItemScreen(result.assets[0].uri);
-  }, [openAddItemScreen]);
-
-  const takePhoto = useCallback(async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert(
-        'Нужен доступ к камере',
-        'Для съёмки вещи приложению нужен доступ к камере. Разрешение можно изменить в настройках iPhone.',
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-    });
-
-    if (result.canceled || result.assets.length === 0) {
-      return;
-    }
-
-    openAddItemScreen(result.assets[0].uri);
-  }, [openAddItemScreen]);
 
   const handleSelectCamera = useCallback(async () => {
     setIsAddSheetVisible(false);
