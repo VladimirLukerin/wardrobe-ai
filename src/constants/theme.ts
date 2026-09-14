@@ -61,5 +61,6 @@ export const Spacing = {
   six: 64,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
+/** Space reserved above the custom bottom tab bar (incl. elevated camera button). */
+export const BottomTabInset = Platform.select({ ios: 72, android: 88 }) ?? 0;
 export const MaxContentWidth = 800;

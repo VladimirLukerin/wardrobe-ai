@@ -16,6 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWardrobe } from '@/contexts/wardrobe-context';
+import { captureWardrobePhoto } from '@/utils/capture-wardrobe-photo';
 
 const GRID_GAP = Spacing.two;
 const NUM_COLUMNS = 2;
@@ -59,33 +60,10 @@ export default function GarderobScreen() {
     openAddItemScreen(result.assets[0].uri);
   }, [openAddItemScreen]);
 
-  const takePhoto = useCallback(async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert(
-        'Нужен доступ к камере',
-        'Для съёмки вещи приложению нужен доступ к камере. Разрешение можно изменить в настройках iPhone.',
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-    });
-
-    if (result.canceled || result.assets.length === 0) {
-      return;
-    }
-
-    openAddItemScreen(result.assets[0].uri);
-  }, [openAddItemScreen]);
-
   const handleSelectCamera = useCallback(async () => {
     setIsAddSheetVisible(false);
-    await takePhoto();
-  }, [takePhoto]);
+    await captureWardrobePhoto();
+  }, []);
 
   const handleSelectGallery = useCallback(async () => {
     setIsAddSheetVisible(false);
