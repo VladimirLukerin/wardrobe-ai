@@ -11,9 +11,15 @@ import StylistSettingsSheet from '@/components/stylist-settings-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
+import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
 import { useFamily } from '@/contexts/family-context';
+import { useOutfitsSync } from '@/contexts/outfits-sync-context';
+import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useStylePreferences } from '@/contexts/style-preferences-context';
+import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
+import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
+import { assessLocalAccountState } from '@/services/account-switch';
 
 const PROFILE = {
   completion: 70,
@@ -24,14 +30,6 @@ const STYLE_TOOLTIP =
   'Оценивайте образы, чтобы мы лучше понимали ваши предпочтения.';
 
 const LOGOUT_TITLE = 'Выйти из профиля?';
-const LOGOUT_MESSAGE = 'Функция выхода будет доступна после подключения аккаунта.';
-
-function showLogoutConfirmation() {
-  Alert.alert(LOGOUT_TITLE, LOGOUT_MESSAGE, [
-    { text: 'Отмена', style: 'cancel' },
-    { text: 'Понятно' },
-  ]);
-}
 
 const MINI_AVATAR_SIZE = 48;
 const FAMILY_ROW_HEIGHT = MINI_AVATAR_SIZE + Spacing.one + 16;
@@ -46,10 +44,50 @@ export default function ProfileScreen() {
   const [isBodyParametersSheetVisible, setIsBodyParametersSheetVisible] = useState(false);
   const [isStylistSettingsSheetVisible, setIsStylistSettingsSheetVisible] = useState(false);
   const [isAccountSheetVisible, setIsAccountSheetVisible] = useState(false);
+  const { user, logoutFromProfile } = useAccount();
   const { displayName } = useAccountProfile();
+  const { status: preferencesSyncStatus } = usePreferencesSync();
+  const { status: wardrobeSyncStatus } = useWardrobeSync();
+  const { status: outfitsSyncStatus } = useOutfitsSync();
+  const { status: wearHistorySyncStatus } = useWearHistorySync();
   const { styles: preferredStyles, colors: preferredColors, hasStylePreferences } =
     useStylePreferences();
   const { members } = useFamily();
+
+  const handleLogoutPress = async () => {
+    const assessment = await assessLocalAccountState();
+    const hasPendingSync =
+      preferencesSyncStatus === 'pending' ||
+      wardrobeSyncStatus === 'pending' ||
+      outfitsSyncStatus === 'pending' ||
+      wearHistorySyncStatus === 'pending' ||
+      assessment.hasPendingSyncMetadata;
+
+    const messageParts: string[] = [];
+
+    if (!user?.emailVerified && !user?.phoneVerified) {
+      messageParts.push(
+        'Без подтверждённого email или телефона восстановить этот аккаунт после выхода будет невозможно.',
+      );
+    }
+
+    if (hasPendingSync) {
+      messageParts.push('Есть несинхронизированные изменения.');
+    }
+
+    messageParts.push('Вы выйдете из текущего аккаунта и начнёте с нового локального профиля.');
+
+    Alert.alert(LOGOUT_TITLE, messageParts.join('\n\n'), [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Выйти',
+        style: 'destructive',
+        onPress: () => {
+          void logoutFromProfile();
+        },
+      },
+    ]);
+  };
 
   const toggleTooltip = () => {
     setIsTooltipVisible((visible) => !visible);
@@ -223,7 +261,9 @@ export default function ProfileScreen() {
 
           <View style={styles.logoutBlock}>
             <Pressable
-              onPress={showLogoutConfirmation}
+              onPress={() => {
+                void handleLogoutPress();
+              }}
               style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
               <ThemedText style={styles.logoutText}>Выйти из профиля</ThemedText>
             </Pressable>

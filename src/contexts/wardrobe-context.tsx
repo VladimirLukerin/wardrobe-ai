@@ -14,6 +14,11 @@ import {
   type WardrobeItemImageFields,
 } from '@/constants/wardrobe-item';
 import { loadWardrobeItems, saveWardrobeItems } from '@/storage/wardrobe-storage';
+import {
+  markWardrobeItemDeleted,
+  markWardrobeItemUpdated,
+} from '@/storage/wardrobe-sync-storage';
+import { queueWardrobeSyncFromMutation } from '@/utils/wardrobe-sync-queue';
 
 export type WardrobeItem = WardrobeItemImageFields & {
   id: string;
@@ -31,6 +36,18 @@ type AddWardrobeItemInput = Omit<WardrobeItem, 'id'>;
 
 type UpdateWardrobeItemInput = Partial<Omit<WardrobeItem, 'id'>>;
 
+export type WardrobeItemMetadataPatch = {
+  name: string;
+  baseName: string;
+  category: string;
+  color: string;
+  pattern: string;
+  printDescription: string | null;
+  style: string;
+  isFavorite: boolean;
+  imageProcessingStatus: ImageProcessingStatus;
+};
+
 type WardrobeContextValue = {
   items: WardrobeItem[];
   isHydrated: boolean;
@@ -38,6 +55,13 @@ type WardrobeContextValue = {
   updateItem: (id: string, updates: UpdateWardrobeItemInput) => void;
   removeItem: (id: string) => void;
   toggleFavorite: (id: string) => void;
+  applySyncedItemMetadata: (id: string, metadata: WardrobeItemMetadataPatch) => void;
+  applySyncedItemRemoval: (id: string) => void;
+  applySyncedWardrobeItem: (item: WardrobeItem) => void;
+  applySyncedImageUris: (
+    id: string,
+    imageUris: { originalImageUri?: string; processedImageUri?: string },
+  ) => void;
 };
 
 const WardrobeContext = createContext<WardrobeContextValue | null>(null);
@@ -86,6 +110,82 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const applySyncedItemMetadata = useCallback(
+    (id: string, metadata: WardrobeItemMetadataPatch) => {
+      setItems((current) => {
+        const nextItems = current.map((item) => {
+          if (item.id !== id) {
+            return item;
+          }
+
+          return normalizeWardrobeItem({
+            ...item,
+            ...metadata,
+          });
+        });
+
+        persistItems(nextItems);
+        return nextItems;
+      });
+    },
+    [persistItems],
+  );
+
+  const applySyncedItemRemoval = useCallback(
+    (id: string) => {
+      setItems((current) => {
+        const nextItems = current.filter((item) => item.id !== id);
+        persistItems(nextItems);
+        return nextItems;
+      });
+    },
+    [persistItems],
+  );
+
+  const applySyncedWardrobeItem = useCallback(
+    (item: WardrobeItem) => {
+      setItems((current) => {
+        const existingIndex = current.findIndex((entry) => entry.id === item.id);
+        const normalizedItem = normalizeWardrobeItem(item);
+        const nextItems =
+          existingIndex === -1
+            ? [...current, normalizedItem]
+            : current.map((entry, index) => (index === existingIndex ? normalizedItem : entry));
+
+        persistItems(nextItems);
+        return nextItems;
+      });
+    },
+    [persistItems],
+  );
+
+  const applySyncedImageUris = useCallback(
+    (
+      id: string,
+      imageUris: { originalImageUri?: string; processedImageUri?: string },
+    ) => {
+      setItems((current) => {
+        const nextItems = current.map((item) => {
+          if (item.id !== id) {
+            return item;
+          }
+
+          return normalizeWardrobeItem({
+            ...item,
+            ...(imageUris.originalImageUri ? { originalImageUri: imageUris.originalImageUri } : {}),
+            ...(imageUris.processedImageUri
+              ? { processedImageUri: imageUris.processedImageUri }
+              : {}),
+          });
+        });
+
+        persistItems(nextItems);
+        return nextItems;
+      });
+    },
+    [persistItems],
+  );
+
   const addItem = useCallback(
     (item: AddWardrobeItemInput): WardrobeItem => {
       const imageFields = normalizeWardrobeItemImageFields(item);
@@ -100,6 +200,9 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         persistItems(nextItems);
         return nextItems;
       });
+
+      void markWardrobeItemUpdated(nextItem.id);
+      queueWardrobeSyncFromMutation();
 
       return nextItem;
     },
@@ -124,6 +227,9 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         persistItems(nextItems);
         return nextItems;
       });
+
+      void markWardrobeItemUpdated(id);
+      queueWardrobeSyncFromMutation();
     },
     [persistItems],
   );
@@ -131,23 +237,38 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
   const toggleFavorite = useCallback(
     (id: string) => {
       setItems((current) => {
-        const nextItems = current.map((item) =>
-          item.id === id ? { ...item, isFavorite: !item.isFavorite } : item,
-        );
+        const nextItems = current.map((item) => {
+          if (item.id !== id) {
+            return item;
+          }
+
+          return normalizeWardrobeItem({
+            ...item,
+            isFavorite: !(item.isFavorite === true),
+          });
+        });
+
         persistItems(nextItems);
         return nextItems;
       });
+
+      void markWardrobeItemUpdated(id);
+      queueWardrobeSyncFromMutation();
     },
     [persistItems],
   );
 
   const removeItem = useCallback(
     (id: string) => {
+      void markWardrobeItemDeleted(id);
+
       setItems((current) => {
         const nextItems = current.filter((item) => item.id !== id);
         persistItems(nextItems);
         return nextItems;
       });
+
+      queueWardrobeSyncFromMutation();
     },
     [persistItems],
   );
@@ -160,8 +281,23 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       updateItem,
       removeItem,
       toggleFavorite,
+      applySyncedItemMetadata,
+      applySyncedItemRemoval,
+      applySyncedWardrobeItem,
+      applySyncedImageUris,
     }),
-    [items, isHydrated, addItem, updateItem, removeItem, toggleFavorite],
+    [
+      items,
+      isHydrated,
+      addItem,
+      updateItem,
+      removeItem,
+      toggleFavorite,
+      applySyncedItemMetadata,
+      applySyncedItemRemoval,
+      applySyncedWardrobeItem,
+      applySyncedImageUris,
+    ],
   );
 
   return <WardrobeContext.Provider value={value}>{children}</WardrobeContext.Provider>;

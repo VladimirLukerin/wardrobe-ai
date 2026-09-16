@@ -16,9 +16,11 @@ import {
   loadProfileBodyParameters,
   saveProfileBodyParameters,
 } from '@/storage/profile-storage';
+import { markLocalPreferencesUpdated } from '@/storage/preferences-sync-storage';
 
 type BodyParametersContextValue = BodyParameters & {
   setBodyParameters: (parameters: BodyParameters) => void;
+  applySyncedBodyParameters: (parameters: BodyParameters) => void;
   hasBodyParameters: boolean;
   isHydrated: boolean;
 };
@@ -57,9 +59,15 @@ export function BodyParametersProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const applySyncedBodyParameters = useCallback((next: BodyParameters) => {
+    setParameters(next);
+    void saveProfileBodyParameters(next);
+  }, []);
+
   const setBodyParameters = useCallback((next: BodyParameters) => {
     setParameters(next);
     void saveProfileBodyParameters(next);
+    void markLocalPreferencesUpdated();
   }, []);
 
   const hasBodyParameters = hasAnyParameters(parameters);
@@ -68,10 +76,11 @@ export function BodyParametersProvider({ children }: { children: ReactNode }) {
     () => ({
       ...parameters,
       setBodyParameters,
+      applySyncedBodyParameters,
       hasBodyParameters,
       isHydrated,
     }),
-    [parameters, setBodyParameters, hasBodyParameters, isHydrated],
+    [parameters, setBodyParameters, applySyncedBodyParameters, hasBodyParameters, isHydrated],
   );
 
   return (

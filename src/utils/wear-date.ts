@@ -12,6 +12,27 @@ export function isSameLocalCalendarDay(a: string | Date, b: string | Date): bool
   return getLocalCalendarDateKey(a) === getLocalCalendarDateKey(b);
 }
 
+export function formatFeedCreatedAt(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+
+  if (isSameLocalCalendarDay(date, now)) {
+    return 'Сегодня';
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (isSameLocalCalendarDay(date, yesterday)) {
+    return 'Вчера';
+  }
+
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+  });
+}
+
 export function formatWearEventDate(iso: string): string {
   const date = new Date(iso);
   const now = new Date();

@@ -13,6 +13,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ItemWearStatisticsSheet } from '@/components/item-wear-statistics-sheet';
@@ -38,10 +44,6 @@ function getPrintDisplayValue(pattern: string, printDescription: string | null):
   }
 
   return pattern;
-}
-
-function showComingSoon() {
-  Alert.alert('Скоро появится');
 }
 
 type InfoRowProps = {
@@ -215,9 +217,27 @@ export default function WardrobeItemDetailScreen() {
     }
   }, [item]);
 
+  const favoriteScale = useSharedValue(1);
+
+  const favoriteAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: favoriteScale.value }],
+  }));
+
   const handleBack = useCallback(() => {
     router.back();
   }, []);
+
+  const handleToggleFavorite = useCallback(() => {
+    if (!item) {
+      return;
+    }
+
+    favoriteScale.value = withSequence(
+      withSpring(0.9, { damping: 14, stiffness: 400 }),
+      withSpring(1, { damping: 12, stiffness: 300 }),
+    );
+    toggleFavorite(item.id);
+  }, [favoriteScale, item, toggleFavorite]);
 
   const handleDeletePress = useCallback(() => {
     setIsMenuVisible(false);
@@ -413,13 +433,21 @@ export default function WardrobeItemDetailScreen() {
               </Pressable>
 
               <Pressable
-                onPress={() => toggleFavorite(item.id)}
+                onPress={handleToggleFavorite}
                 accessibilityRole="button"
                 accessibilityLabel={item.isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
                 accessibilityState={{ selected: !!item.isFavorite }}
-                style={({ pressed }) => [styles.actionCard, pressed && styles.buttonPressed]}>
-                <ThemedText style={styles.actionCardEmoji}>{item.isFavorite ? '♥' : '♡'}</ThemedText>
-                <ThemedText style={styles.actionCardText}>{item.isFavorite ? 'В избранном' : 'Избранное'}</ThemedText>
+                style={({ pressed }) => [
+                  styles.actionCard,
+                  item.isFavorite && styles.actionCardFavoriteActive,
+                  pressed && styles.buttonPressed,
+                ]}>
+                <Animated.View style={[styles.actionCardInner, favoriteAnimatedStyle]}>
+                  <ThemedText style={styles.actionCardEmoji}>{item.isFavorite ? '♥' : '♡'}</ThemedText>
+                  <ThemedText style={styles.actionCardText}>
+                    {item.isFavorite ? 'В избранном' : 'Избранное'}
+                  </ThemedText>
+                </Animated.View>
               </Pressable>
             </View>
 
@@ -634,6 +662,16 @@ const styles = StyleSheet.create({
   actionCardPrimary: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.light.backgroundSelected,
+  },
+  actionCardFavoriteActive: {
+    backgroundColor: Colors.light.backgroundSelected,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.light.textSecondary,
+  },
+  actionCardInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
   },
   actionCardWide: {
     minHeight: 64,

@@ -31,12 +31,18 @@ function parseSavedOutfit(raw: unknown): SavedOutfit | null {
     return null;
   }
 
+  const updatedAt =
+    typeof data.updatedAt === 'string' && data.updatedAt.trim().length > 0
+      ? data.updatedAt
+      : data.createdAt;
+
   return {
     id: data.id,
     title: data.title.trim() || 'Образ',
     itemIds: data.itemIds,
     description: data.description.trim(),
     createdAt: data.createdAt,
+    updatedAt,
     source: data.source === 'manual' ? 'manual' : data.source === 'ai' ? 'ai' : undefined,
   };
 }

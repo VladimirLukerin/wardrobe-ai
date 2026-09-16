@@ -19,6 +19,7 @@ import {
   type StylistPreferences,
 } from '@/constants/stylist-preferences';
 import { Colors, Spacing } from '@/constants/theme';
+import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
 
 type StylistSettingsSheetProps = {
@@ -113,6 +114,7 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
     wardrobeMode,
     avoidRepeatedOutfits,
   } = useStylistPreferences();
+  const { queuePreferencesSync } = usePreferencesSync();
 
   const [draft, setDraft] = useState<StylistPreferences>(DEFAULT_STYLIST_PREFERENCES);
   const wasVisibleRef = useRef(false);
@@ -177,6 +179,7 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
 
   const handleSave = () => {
     setStylistPreferences(draft);
+    queuePreferencesSync();
     onClose();
   };
 

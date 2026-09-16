@@ -31,6 +31,7 @@ function SavedOutfitCard({
   wardrobeById,
   isWornToday,
   duplicateHintVisible,
+  onOpenDetail,
   onOpenMenu,
   onWearToday,
 }: {
@@ -38,6 +39,7 @@ function SavedOutfitCard({
   wardrobeById: Map<string, WardrobeItem>;
   isWornToday: boolean;
   duplicateHintVisible: boolean;
+  onOpenDetail: () => void;
   onOpenMenu: () => void;
   onWearToday: () => void;
 }) {
@@ -53,9 +55,13 @@ function SavedOutfitCard({
   return (
     <View style={styles.outfitCard}>
       <View style={styles.outfitCardHeader}>
-        <ThemedText style={styles.outfitTitle} numberOfLines={2}>
-          {outfit.title}
-        </ThemedText>
+        <Pressable
+          onPress={onOpenDetail}
+          style={({ pressed }) => [styles.outfitTitlePressable, pressed && styles.buttonPressed]}>
+          <ThemedText style={styles.outfitTitle} numberOfLines={2}>
+            {outfit.title}
+          </ThemedText>
+        </Pressable>
         <Pressable
           onPress={onOpenMenu}
           style={({ pressed }) => [styles.menuButton, pressed && styles.buttonPressed]}
@@ -64,7 +70,9 @@ function SavedOutfitCard({
         </Pressable>
       </View>
 
-      <HomeOutfitPreview items={outfitItems} onReplace={setReplacementTarget} compact />
+      <Pressable onPress={onOpenDetail} style={({ pressed }) => pressed && styles.buttonPressed}>
+        <HomeOutfitPreview items={outfitItems} onReplace={setReplacementTarget} compact />
+      </Pressable>
       <OutfitReplacementSheet targetId={replacementTarget} itemIds={outfit.itemIds} wardrobe={items} updateExisting
         onClose={() => setReplacementTarget(null)} onSelect={(target, replacement) => {
           replaceSavedItem(outfit.id, target, replacement);
@@ -280,6 +288,12 @@ export default function CreateOutfitScreen() {
                 wardrobeById={wardrobeById}
                 isWornToday={isOutfitWornToday(outfit.id)}
                 duplicateHintVisible={duplicateHintOutfitId === outfit.id}
+                onOpenDetail={() =>
+                  router.push({
+                    pathname: '/create-outfit/[id]',
+                    params: { id: outfit.id },
+                  })
+                }
                 onOpenMenu={() => setMenuOutfitId(outfit.id)}
                 onWearToday={() => handleWearToday(outfit)}
               />
@@ -392,8 +406,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: Spacing.two,
   },
-  outfitTitle: {
+  outfitTitlePressable: {
     flex: 1,
+  },
+  outfitTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: Colors.light.text,

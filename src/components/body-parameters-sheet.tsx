@@ -35,6 +35,7 @@ import {
 } from '@/constants/body-parameters';
 import { Colors, Spacing } from '@/constants/theme';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
+import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useUserLocation, type AutoLocationStatus } from '@/hooks/use-user-location';
 import {
   CITY_SEARCH_MIN_QUERY_LENGTH,
@@ -498,6 +499,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
     fitPreference,
     weatherSensitivity,
   } = useBodyParameters();
+  const { queuePreferencesSync } = usePreferencesSync();
 
   const { status: autoLocationStatus, detectLocation, resetStatus, syncStatusFromLocation } =
     useUserLocation();
@@ -631,6 +633,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
 
   const handleSave = () => {
     setBodyParameters(draft);
+    queuePreferencesSync();
     onClose();
   };
 

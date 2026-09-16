@@ -10,7 +10,19 @@ import {
   RemoveBackgroundError,
   removeClothingBackground,
 } from './providers/remove-background';
+import { getDatabase } from './db/database';
 import { currentWeatherHandler } from './current-weather';
+import { requireAuth } from './middleware/auth';
+import { authRouter, meHandler } from './routes/auth';
+import { emailLoginRouter } from './routes/email-login';
+import { emailLinkRouter } from './routes/email-link';
+import { phoneLoginRouter } from './routes/phone-login';
+import { phoneLinkRouter } from './routes/phone-link';
+import { outfitsRouter } from './routes/outfits';
+import { wearHistoryRouter } from './routes/wear-history';
+import { preferencesRouter } from './routes/preferences';
+import { wardrobeImagesRouter } from './routes/wardrobe-images';
+import { wardrobeRouter } from './routes/wardrobe';
 import { suggestOutfitsHandler } from './suggest-outfits';
 
 const PORT = 3000;
@@ -75,15 +87,26 @@ type ClothingAnalysisResult = {
   confidence: number;
 };
 
+getDatabase();
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-app.use((req, res, next) => {
-  console.log(`[HTTP] ${req.method} ${req.url}`);
-  next();
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+
+    res.on('finish', () => {
+      console.log(
+        `[${req.method}] ${req.path} -> ${res.statusCode} ${Date.now() - startedAt}ms`,
+      );
+    });
+
+    next();
+  });
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -95,6 +118,18 @@ const upload = multer({
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+app.use('/auth', authRouter);
+app.use('/auth', emailLoginRouter);
+app.use('/auth', phoneLoginRouter);
+app.use('/me', preferencesRouter);
+app.use('/me', emailLinkRouter);
+app.use('/me', phoneLinkRouter);
+app.use('/me', outfitsRouter);
+app.use('/me', wearHistoryRouter);
+app.use('/me', wardrobeRouter);
+app.use('/me/wardrobe', wardrobeImagesRouter);
+app.get('/me', requireAuth, meHandler);
 
 app.post('/analyze-clothing', upload.single('image'), async (req, res) => {
   try {

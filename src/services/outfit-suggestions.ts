@@ -2,9 +2,14 @@ import { shortenOutfitDescription } from '@/utils/outfit-description';
 import { fetch } from 'expo/fetch';
 
 import { SUGGEST_OUTFITS_ENDPOINT } from '@/config/api';
-import type { WeatherSensitivity } from '@/constants/body-parameters';
-import type { StyleExperiment } from '@/constants/stylist-preferences';
-import type { WardrobeItem } from '@/contexts/wardrobe-context';
+import {
+  logStylistContextDiagnostics,
+  type BehavioralContextPayload,
+  type StylistContextPayload,
+  type StylistUserParameters,
+} from '@/utils/build-stylist-context';
+import type { StylistPreferences } from '@/constants/stylist-preferences';
+import type { WardrobeSuggestionItemPayload } from '@/utils/build-wardrobe-suggestion-payload';
 
 export type OutfitSuggestion = {
   id: string;
@@ -46,11 +51,14 @@ export class OutfitSuggestionError extends Error {
 
 export type SuggestOutfitsInput = {
   selectedItemId?: string;
-  wardrobe: WardrobeItem[];
-  styleExperiment: StyleExperiment;
-  considerWeather: boolean;
-  location: SuggestOutfitsLocation | null;
-  weatherSensitivity: WeatherSensitivity | null;
+  stylistContext: StylistContextPayload;
+};
+
+export type {
+  BehavioralContextPayload,
+  StylistContextPayload,
+  StylistUserParameters,
+  WardrobeSuggestionItemPayload,
 };
 
 function isNetworkFailure(error: unknown): boolean {
@@ -70,18 +78,6 @@ function isNetworkFailure(error: unknown): boolean {
   }
 
   return false;
-}
-
-function toWardrobePayload(item: WardrobeItem) {
-  return {
-    id: item.id,
-    name: item.name,
-    category: item.category,
-    color: item.color,
-    pattern: item.pattern,
-    printDescription: item.printDescription,
-    style: item.style,
-  };
 }
 
 function parseWeather(value: unknown): OutfitWeather | null {
@@ -167,12 +163,10 @@ function parseSuggestOutfitsResponse(data: unknown): SuggestOutfitsResult {
 
 export async function suggestOutfits({
   selectedItemId,
-  wardrobe,
-  styleExperiment,
-  considerWeather,
-  location,
-  weatherSensitivity,
+  stylistContext,
 }: SuggestOutfitsInput): Promise<SuggestOutfitsResult> {
+  logStylistContextDiagnostics(stylistContext);
+
   let response: Response;
 
   try {
@@ -183,11 +177,15 @@ export async function suggestOutfits({
       },
       body: JSON.stringify({
         ...(selectedItemId ? { selectedItemId } : {}),
-        wardrobe: wardrobe.map(toWardrobePayload),
-        styleExperiment,
-        considerWeather,
-        location,
-        weatherSensitivity,
+        wardrobe: stylistContext.wardrobe,
+        stylistPreferences: stylistContext.stylistPreferences,
+        userParameters: stylistContext.userParameters,
+        behavioralContext: stylistContext.behavioralContext,
+        location: stylistContext.location,
+        // Legacy top-level fields for backward compatibility with older server builds.
+        styleExperiment: stylistContext.stylistPreferences.styleExperiment,
+        considerWeather: stylistContext.stylistPreferences.considerWeather,
+        weatherSensitivity: stylistContext.userParameters.weatherSensitivity,
       }),
     });
   } catch (error) {

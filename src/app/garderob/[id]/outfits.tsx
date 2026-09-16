@@ -21,7 +21,9 @@ import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
 import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
 import { useOutfits } from '@/contexts/outfits-context';
+import { useWearHistory } from '@/contexts/wear-history-context';
 import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
+import { buildStylistContext } from '@/utils/build-stylist-context';
 import {
   suggestOutfits,
   type OutfitSuggestion,
@@ -94,10 +96,18 @@ export default function OutfitSuggestionsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { items, isHydrated } = useWardrobe();
-  const { styleExperiment, considerWeather, isHydrated: isStylistHydrated } =
-    useStylistPreferences();
+  const { savedOutfits } = useOutfits();
+  const { wearEvents, getItemWearCount, getItemLastWornAt } = useWearHistory();
+  const {
+    styleExperiment,
+    considerWeather,
+    wardrobeMode,
+    avoidRepeatedOutfits,
+    isHydrated: isStylistHydrated,
+  } = useStylistPreferences();
   const {
     weatherSensitivity,
+    fitPreference,
     locationMode,
     manualLocation,
     autoLocation,
@@ -146,13 +156,23 @@ export default function OutfitSuggestionsScreen() {
     setWeather(null);
 
     try {
+      const stylistContext = buildStylistContext({
+        wardrobe: items,
+        savedOutfits,
+        wearEvents,
+        wearHistory: { getItemWearCount, getItemLastWornAt },
+        stylistPreferences: {
+          styleExperiment,
+          considerWeather,
+          wardrobeMode,
+          avoidRepeatedOutfits,
+        },
+        userParameters: { fitPreference, weatherSensitivity },
+        location: requestLocation,
+      });
       const result = await suggestOutfits({
         selectedItemId: id,
-        wardrobe: items,
-        styleExperiment,
-        considerWeather,
-        location: requestLocation,
-        weatherSensitivity,
+        stylistContext,
       });
 
       if (requestId !== requestRef.current) {
@@ -175,13 +195,20 @@ export default function OutfitSuggestionsScreen() {
       setLoadState('error');
     }
   }, [
+    avoidRepeatedOutfits,
     considerWeather,
+    fitPreference,
+    getItemLastWornAt,
+    getItemWearCount,
     hasEnoughItems,
     id,
     items,
     requestLocation,
+    savedOutfits,
     selectedItem,
     styleExperiment,
+    wardrobeMode,
+    wearEvents,
     weatherSensitivity,
   ]);
 

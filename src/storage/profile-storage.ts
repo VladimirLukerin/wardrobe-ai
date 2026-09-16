@@ -28,7 +28,7 @@ import {
   type StyleExperiment,
   type WardrobeMode,
 } from '@/constants/stylist-preferences';
-import { generateLocalUserId, isValidLocalUserId } from '@/utils/generate-local-user-id';
+import { isValidPublicId } from '@/utils/public-id';
 
 const PROFILE_BODY_PARAMETERS_KEY = '@wardrobe-ai/profile/body-parameters';
 const PROFILE_STYLIST_PREFERENCES_KEY = '@wardrobe-ai/profile/stylist-preferences';
@@ -189,10 +189,22 @@ function parseAccountProfile(raw: unknown): AccountProfile | null {
       ? data.displayName.trim()
       : DEFAULT_DISPLAY_NAME;
 
-  if (typeof data.localUserId === 'string' && isValidLocalUserId(data.localUserId)) {
+  const publicId =
+    typeof data.publicId === 'string' && isValidPublicId(data.publicId)
+      ? data.publicId
+      : undefined;
+  const serverUserId =
+    typeof data.serverUserId === 'string' && data.serverUserId.trim().length > 0
+      ? data.serverUserId.trim()
+      : undefined;
+  const localUserId = typeof data.localUserId === 'string' ? data.localUserId : '';
+
+  if (publicId || localUserId || displayName) {
     return {
-      localUserId: data.localUserId,
+      localUserId: publicId ?? localUserId,
       displayName,
+      publicId,
+      serverUserId,
     };
   }
 
@@ -214,14 +226,10 @@ export async function loadProfileAccount(): Promise<AccountProfile> {
     // Fall through to create a new local account profile.
   }
 
-  const account: AccountProfile = {
-    localUserId: generateLocalUserId(),
-    displayName: DEFAULT_ACCOUNT_PROFILE.displayName,
+  return {
+    ...DEFAULT_ACCOUNT_PROFILE,
+    displayName: DEFAULT_DISPLAY_NAME,
   };
-
-  await saveProfileAccount(account);
-
-  return account;
 }
 
 export async function saveProfileAccount(account: AccountProfile): Promise<void> {

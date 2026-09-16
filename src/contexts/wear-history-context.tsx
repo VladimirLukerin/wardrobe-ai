@@ -11,7 +11,9 @@ import {
 import type { SavedOutfit } from '@/constants/saved-outfit';
 import type { WearEvent } from '@/constants/wear-event';
 import { loadWearHistory, saveWearHistory } from '@/storage/wear-history-storage';
+import { markWearEventDeleted, markWearEventUpdated } from '@/storage/wear-history-sync-storage';
 import { getLocalCalendarDateKey } from '@/utils/wear-date';
+import { queueWearHistorySyncFromMutation } from '@/utils/wear-history-sync-queue';
 
 export type MarkOutfitWornResult = 'created' | 'already_today';
 
@@ -26,6 +28,8 @@ type WearHistoryContextValue = {
   getItemWearCount: (itemId: string) => number;
   getItemLastWornAt: (itemId: string) => string | null;
   getItemWearEvents: (itemId: string) => WearEvent[];
+  applySyncedWearEvent: (event: WearEvent) => void;
+  applySyncedWearEventRemoval: (id: string) => void;
 };
 
 const WearHistoryContext = createContext<WearHistoryContextValue | null>(null);
@@ -83,10 +87,41 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
     [wearEvents],
   );
 
+  const applySyncedWearEvent = useCallback(
+    (event: WearEvent) => {
+      setWearEvents((current) => {
+        const existingIndex = current.findIndex((entry) => entry.id === event.id);
+        const nextEvents =
+          existingIndex === -1
+            ? sortWearEventsDesc([event, ...current])
+            : sortWearEventsDesc(
+                current.map((entry, index) => (index === existingIndex ? event : entry)),
+              );
+
+        persistWearHistory(nextEvents);
+        return nextEvents;
+      });
+    },
+    [persistWearHistory],
+  );
+
+  const applySyncedWearEventRemoval = useCallback(
+    (id: string) => {
+      setWearEvents((current) => {
+        const nextEvents = current.filter((event) => event.id !== id);
+        persistWearHistory(nextEvents);
+        return nextEvents;
+      });
+    },
+    [persistWearHistory],
+  );
+
   const markOutfitWorn = useCallback(
     (outfit: SavedOutfit): MarkOutfitWornResult => {
       const todayKey = getLocalCalendarDateKey(new Date());
       let result: MarkOutfitWornResult = 'already_today';
+      let createdEventId: string | null = null;
+      let createdEventWornAt: string | null = null;
 
       setWearEvents((current) => {
         const alreadyWornToday = current.some(
@@ -107,11 +142,18 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
           wornAt: new Date().toISOString(),
         };
 
+        createdEventId = nextEvent.id;
+        createdEventWornAt = nextEvent.wornAt;
         const nextEvents = sortWearEventsDesc([nextEvent, ...current]);
         persistWearHistory(nextEvents);
         result = 'created';
         return nextEvents;
       });
+
+      if (createdEventId && createdEventWornAt) {
+        void markWearEventUpdated(createdEventId, createdEventWornAt);
+        queueWearHistorySyncFromMutation();
+      }
 
       return result;
     },
@@ -120,6 +162,8 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
 
   const removeWearEvent = useCallback(
     (id: string) => {
+      void markWearEventDeleted(id);
+
       setWearEvents((current) => {
         const nextEvents = current.filter((event) => event.id !== id);
 
@@ -130,6 +174,8 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
         persistWearHistory(nextEvents);
         return nextEvents;
       });
+
+      queueWearHistorySyncFromMutation();
     },
     [persistWearHistory],
   );
@@ -180,6 +226,8 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
       getItemWearCount,
       getItemLastWornAt,
       getItemWearEvents,
+      applySyncedWearEvent,
+      applySyncedWearEventRemoval,
     }),
     [
       wearEvents,
@@ -192,6 +240,8 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
       getItemWearCount,
       getItemLastWornAt,
       getItemWearEvents,
+      applySyncedWearEvent,
+      applySyncedWearEventRemoval,
     ],
   );
 

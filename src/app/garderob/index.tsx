@@ -71,9 +71,16 @@ export default function GarderobScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ThemedText type="subtitle" style={styles.title}>
-          Мой гардероб
-        </ThemedText>
+        <View style={styles.titleRow}>
+          <ThemedText type="subtitle" style={styles.title}>
+            Мой гардероб
+          </ThemedText>
+          <Pressable
+            onPress={() => router.push('/garderob/statistics')}
+            style={({ pressed }) => [styles.statisticsLink, pressed && styles.buttonPressed]}>
+            <ThemedText style={styles.statisticsLinkText}>Статистика</ThemedText>
+          </Pressable>
+        </View>
 
         <Pressable
           onPress={() => setIsAddSheetVisible(true)}
@@ -197,9 +204,25 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
   },
-  title: {
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: Spacing.three,
     marginBottom: Spacing.four,
+    gap: Spacing.two,
+  },
+  title: {
+    flex: 1,
+  },
+  statisticsLink: {
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+  },
+  statisticsLinkText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: Colors.light.textSecondary,
   },
   addButton: {
     borderWidth: 1.5,

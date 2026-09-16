@@ -22,8 +22,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
+import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
+import { useOutfitsSync, type OutfitsSyncStatus } from '@/contexts/outfits-sync-context';
+import { usePreferencesSync, type PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
+import { useWearHistorySync, type WearHistorySyncStatus } from '@/contexts/wear-history-sync-context';
+import { useWardrobeSync, type WardrobeSyncStatus } from '@/contexts/wardrobe-sync-context';
+import EmailLinkSheet from '@/components/email-link-sheet';
+import EmailLoginSheet from '@/components/email-login-sheet';
+import PhoneLinkSheet from '@/components/phone-link-sheet';
+import PhoneLoginSheet from '@/components/phone-login-sheet';
 import { copyToClipboard } from '@/utils/copy-to-clipboard';
+import { formatPhoneMaskedForDisplay } from '@/utils/format-phone-for-display';
 
 type AccountSheetProps = {
   visible: boolean;
@@ -32,6 +42,47 @@ type AccountSheetProps = {
 
 function SectionTitle({ children }: { children: string }) {
   return <ThemedText style={styles.sectionTitle}>{children}</ThemedText>;
+}
+
+function resolveCombinedSyncStatus(
+  preferencesStatus: PreferencesSyncStatus,
+  wardrobeStatus: WardrobeSyncStatus,
+  outfitsStatus: OutfitsSyncStatus,
+  wearHistoryStatus: WearHistorySyncStatus,
+  hasAccountError: boolean,
+): 'synced' | 'pending' | 'offline' | null {
+  if (hasAccountError) {
+    return 'offline';
+  }
+
+  if (
+    preferencesStatus === 'pending' ||
+    wardrobeStatus === 'pending' ||
+    outfitsStatus === 'pending' ||
+    wearHistoryStatus === 'pending'
+  ) {
+    return 'pending';
+  }
+
+  if (
+    preferencesStatus === 'offline' ||
+    wardrobeStatus === 'offline' ||
+    outfitsStatus === 'offline' ||
+    wearHistoryStatus === 'offline'
+  ) {
+    return 'offline';
+  }
+
+  if (
+    preferencesStatus === 'synced' &&
+    wardrobeStatus === 'synced' &&
+    outfitsStatus === 'synced' &&
+    wearHistoryStatus === 'synced'
+  ) {
+    return 'synced';
+  }
+
+  return null;
 }
 
 type ActionRowProps = {
@@ -64,11 +115,27 @@ function ActionRow({ label, destructive = false, isLast = false, onPress }: Acti
 
 export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   const insets = useSafeAreaInsets();
-  const { localUserId, displayName, setDisplayName, isHydrated } = useAccountProfile();
+  const { publicId, isServerAccount, error: accountError, user } = useAccount();
+  const { displayName, setDisplayName, isHydrated } = useAccountProfile();
+  const { status: preferencesSyncStatus, queuePreferencesSync } = usePreferencesSync();
+  const { status: wardrobeSyncStatus } = useWardrobeSync();
+  const { status: outfitsSyncStatus } = useOutfitsSync();
+  const { status: wearHistorySyncStatus } = useWearHistorySync();
+  const combinedSyncStatus = resolveCombinedSyncStatus(
+    preferencesSyncStatus,
+    wardrobeSyncStatus,
+    outfitsSyncStatus,
+    wearHistorySyncStatus,
+    Boolean(accountError),
+  );
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(displayName);
   const [isCopying, setIsCopying] = useState(false);
+  const [isEmailLinkVisible, setIsEmailLinkVisible] = useState(false);
+  const [isEmailLoginVisible, setIsEmailLoginVisible] = useState(false);
+  const [isPhoneLinkVisible, setIsPhoneLinkVisible] = useState(false);
+  const [isPhoneLoginVisible, setIsPhoneLoginVisible] = useState(false);
 
   const translateY = useSharedValue(0);
   const bottomInset = Math.max(insets.bottom, Spacing.three);
@@ -113,13 +180,13 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   }, [visible, isHydrated, displayName, translateY]);
 
   const handleCopyId = async () => {
-    if (!localUserId || isCopying) {
+    if (!publicId || isCopying) {
       return;
     }
 
     setIsCopying(true);
 
-    const copied = await copyToClipboard(localUserId);
+    const copied = await copyToClipboard(publicId);
 
     setIsCopying(false);
 
@@ -128,7 +195,7 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
       return;
     }
 
-    Alert.alert('Не удалось скопировать', `Ваш ID: ${localUserId}`);
+    Alert.alert('Не удалось скопировать', `Ваш ID: ${publicId}`);
   };
 
   const handleStartEditingName = () => {
@@ -144,11 +211,24 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
     }
 
     setDisplayName(trimmedName);
+    queuePreferencesSync();
     setIsEditingName(false);
   };
 
-  const handleConnectAccount = () => {
-    Alert.alert('Подключить аккаунт', 'Авторизация будет доступна позже.');
+  const handleConnectEmail = () => {
+    setIsEmailLinkVisible(true);
+  };
+
+  const handleLoginByEmail = () => {
+    setIsEmailLoginVisible(true);
+  };
+
+  const handleConnectPhone = () => {
+    setIsPhoneLinkVisible(true);
+  };
+
+  const handleLoginByPhone = () => {
+    setIsPhoneLoginVisible(true);
   };
 
   const handleDeleteAccount = () => {
@@ -194,15 +274,15 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
                 <View style={styles.section}>
                   <SectionTitle>ID ПОЛЬЗОВАТЕЛЯ</SectionTitle>
                   <View style={styles.idRow}>
-                    <ThemedText style={styles.idValue}>{localUserId || '—'}</ThemedText>
+                    <ThemedText style={styles.idValue}>{publicId || '—'}</ThemedText>
                     <Pressable
                       onPress={() => {
                         void handleCopyId();
                       }}
-                      disabled={!localUserId || isCopying}
+                      disabled={!publicId || isCopying}
                       style={({ pressed }) => [
                         styles.copyButton,
-                        (!localUserId || isCopying) && styles.copyButtonDisabled,
+                        (!publicId || isCopying) && styles.copyButtonDisabled,
                         pressed && styles.pressed,
                       ]}>
                       <SymbolView
@@ -254,17 +334,91 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
                 </View>
 
                 <View style={styles.section}>
-                  <SectionTitle>СПОСОБ ВХОДА</SectionTitle>
-                  <ThemedText style={styles.staticValue}>Не подключён</ThemedText>
-                  <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
-                    Вход через Apple, Google или email будет добавлен позже.
+                  <SectionTitle>EMAIL</SectionTitle>
+                  {user?.emailVerified && user.email ? (
+                    <View style={styles.emailRow}>
+                      <ThemedText style={styles.staticValue}>{user.email}</ThemedText>
+                      <ThemedText themeColor="textSecondary" style={styles.verifiedLabel}>
+                        ✓ Подтверждён
+                      </ThemedText>
+                    </View>
+                  ) : (
+                    <View style={styles.emailRow}>
+                      <ThemedText themeColor="textSecondary" style={styles.staticValue}>
+                        Не подключён
+                      </ThemedText>
+                      <Pressable
+                        onPress={handleConnectEmail}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                        <ThemedText style={styles.editButtonText}>Подключить</ThemedText>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.section}>
+                  <SectionTitle>ТЕЛЕФОН</SectionTitle>
+                  {user?.phoneVerified && user.phone ? (
+                    <View style={styles.emailRow}>
+                      <ThemedText style={styles.staticValue}>
+                        {formatPhoneMaskedForDisplay(user.phone)}
+                      </ThemedText>
+                      <ThemedText themeColor="textSecondary" style={styles.verifiedLabel}>
+                        ✓ Подтверждён
+                      </ThemedText>
+                    </View>
+                  ) : (
+                    <View style={styles.emailRow}>
+                      <ThemedText themeColor="textSecondary" style={styles.staticValue}>
+                        Не подключён
+                      </ThemedText>
+                      <Pressable
+                        onPress={handleConnectPhone}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                        <ThemedText style={styles.editButtonText}>Подключить</ThemedText>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.section}>
+                  <SectionTitle>СТАТУС АККАУНТА</SectionTitle>
+                  <ThemedText style={styles.staticValue}>
+                    {isServerAccount ? 'Аккаунт создан' : 'Ожидает подключения'}
                   </ThemedText>
+                  {accountError ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      {accountError}
+                    </ThemedText>
+                  ) : null}
+                  {combinedSyncStatus === 'synced' ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Синхронизировано
+                    </ThemedText>
+                  ) : null}
+                  {combinedSyncStatus === 'pending' ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Изменения ожидают синхронизации
+                    </ThemedText>
+                  ) : null}
+                  {combinedSyncStatus === 'offline' ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Нет соединения с сервером
+                    </ThemedText>
+                  ) : null}
                 </View>
 
                 <View style={styles.section}>
                   <SectionTitle>УПРАВЛЕНИЕ АККАУНТОМ</SectionTitle>
                   <View style={styles.actionGroup}>
-                    <ActionRow label="Подключить аккаунт" onPress={handleConnectAccount} />
+                    {!user?.emailVerified ? (
+                      <ActionRow label="Войти по email" onPress={handleLoginByEmail} />
+                    ) : null}
+                    {!user?.phoneVerified ? (
+                      <ActionRow label="Войти по телефону" onPress={handleLoginByPhone} />
+                    ) : null}
                     <ActionRow
                       label="Удалить аккаунт"
                       destructive
@@ -278,6 +432,10 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
           </KeyboardAvoidingView>
         </Animated.View>
       </GestureHandlerRootView>
+      <EmailLinkSheet visible={isEmailLinkVisible} onClose={() => setIsEmailLinkVisible(false)} />
+      <EmailLoginSheet visible={isEmailLoginVisible} onClose={() => setIsEmailLoginVisible(false)} />
+      <PhoneLinkSheet visible={isPhoneLinkVisible} onClose={() => setIsPhoneLinkVisible(false)} />
+      <PhoneLoginSheet visible={isPhoneLoginVisible} onClose={() => setIsPhoneLoginVisible(false)} />
     </Modal>
   );
 }
@@ -438,6 +596,16 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 22,
     color: Colors.light.text,
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  verifiedLabel: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   actionGroup: {
     borderRadius: 14,

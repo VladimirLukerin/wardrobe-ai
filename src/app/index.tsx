@@ -14,6 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { HomeBrandHeader } from '@/components/home-brand-header';
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
+import { HomeOutfitFeed } from '@/components/home-outfit-feed';
+import { HomeWardrobeSummary } from '@/components/home-wardrobe-summary';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
@@ -182,7 +184,14 @@ function CompactSavedOutfitCard({
   }
 
   return (
-    <View style={styles.compactOutfitCard}>
+    <Pressable
+      onPress={() =>
+        router.push({
+          pathname: '/create-outfit/[id]',
+          params: { id: outfit.id },
+        })
+      }
+      style={({ pressed }) => [styles.compactOutfitCard, pressed && styles.buttonPressed]}>
       <View style={styles.compactThumbGrid}>
         {outfitItems.map((item) => (
           <View key={item.id} style={styles.compactThumbWrap}>
@@ -197,7 +206,7 @@ function CompactSavedOutfitCard({
       <ThemedText style={styles.compactOutfitTitle} numberOfLines={2}>
         {outfit.title}
       </ThemedText>
-    </View>
+    </Pressable>
   );
 }
 
@@ -352,7 +361,9 @@ export default function HomeScreen() {
             )}
           </View>
 
+          <HomeOutfitFeed />
 
+          <HomeWardrobeSummary />
 
           {visibleSavedOutfits.length > 0 && (
             <View style={styles.section}>
