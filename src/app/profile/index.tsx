@@ -366,7 +366,17 @@ export default function ProfileScreen() {
               </View>
 
               {members.map((member) => (
-                <View key={member.publicId} style={styles.familyMember}>
+                <Pressable
+                  key={member.publicId}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/profile/family/[publicId]',
+                      params: { publicId: member.publicId, displayName: getFamilyMemberLabel(member) },
+                    })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`Открыть профиль: ${getFamilyMemberLabel(member)}`}
+                  style={({ pressed }) => [styles.familyMember, pressed && styles.pressed]}>
                   <View style={styles.miniAvatar}>
                     <ThemedText style={styles.miniAvatarLetter}>
                       {getInitial(getFamilyMemberLabel(member))}
@@ -375,7 +385,7 @@ export default function ProfileScreen() {
                   <ThemedText style={styles.memberLabel} numberOfLines={1}>
                     {getFamilyMemberLabel(member)}
                   </ThemedText>
-                </View>
+                </Pressable>
               ))}
 
               <Pressable
