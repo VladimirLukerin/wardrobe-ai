@@ -1,5 +1,5 @@
 import { WEAR_HISTORY_ENDPOINT, WEAR_HISTORY_SYNC_ENDPOINT } from '@/config/api';
-import { AccountApiError } from '@/services/account';
+import { AccountApiError, apiFetch } from '@/services/account';
 
 export type WearEventMetadata = {
   id: string;
@@ -49,7 +49,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchWearHistorySnapshot(token: string): Promise<WearHistorySnapshot> {
-  const response = await fetch(WEAR_HISTORY_ENDPOINT, {
+  const response = await apiFetch(WEAR_HISTORY_ENDPOINT, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -67,7 +67,7 @@ export async function postWearHistorySync(
     deletedEvents: WearHistorySyncDeletePayload[];
   },
 ): Promise<WearHistorySnapshot> {
-  const response = await fetch(WEAR_HISTORY_SYNC_ENDPOINT, {
+  const response = await apiFetch(WEAR_HISTORY_SYNC_ENDPOINT, {
     method: 'POST',
     headers: {
       Accept: 'application/json',

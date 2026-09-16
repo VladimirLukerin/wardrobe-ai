@@ -10,6 +10,7 @@ import {
 } from '@/utils/build-stylist-context';
 import type { StylistPreferences } from '@/constants/stylist-preferences';
 import type { WardrobeSuggestionItemPayload } from '@/utils/build-wardrobe-suggestion-payload';
+import { isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
 
 export type OutfitSuggestion = {
   id: string;
@@ -60,25 +61,6 @@ export type {
   StylistUserParameters,
   WardrobeSuggestionItemPayload,
 };
-
-function isNetworkFailure(error: unknown): boolean {
-  if (error instanceof TypeError) {
-    return true;
-  }
-
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes('network request failed') ||
-      message.includes('failed to fetch') ||
-      message.includes('network error') ||
-      message.includes('timeout')
-    );
-  }
-
-  return false;
-}
 
 function parseWeather(value: unknown): OutfitWeather | null {
   if (value === null || value === undefined) {
@@ -190,9 +172,11 @@ export async function suggestOutfits({
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
+      warnNetworkFailure('SUGGEST OUTFITS', error);
       throw new OutfitSuggestionError('network');
     }
 
+    // Not a connectivity problem: surface it as a real error for developers.
     console.error('Failed to suggest outfits:', error);
     throw new OutfitSuggestionError('server');
   }
@@ -202,10 +186,18 @@ export async function suggestOutfits({
   try {
     payload = await response.json();
   } catch {
+    if (__DEV__) {
+      console.warn(`[SUGGEST OUTFITS] invalid JSON response (status ${response.status})`);
+    }
+
     throw new OutfitSuggestionError('server');
   }
 
   if (!response.ok) {
+    if (__DEV__) {
+      console.warn(`[SUGGEST OUTFITS] server responded with status ${response.status}`);
+    }
+
     throw new OutfitSuggestionError('server');
   }
 

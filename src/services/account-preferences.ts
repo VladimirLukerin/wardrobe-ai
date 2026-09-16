@@ -1,7 +1,7 @@
 import { CURRENT_USER_PREFERENCES_ENDPOINT } from '@/config/api';
 import type { BodyParameters } from '@/constants/body-parameters';
 import type { StylistPreferences } from '@/constants/stylist-preferences';
-import { AccountApiError } from '@/services/account';
+import { AccountApiError, apiFetch } from '@/services/account';
 
 export type ServerPreferences = {
   displayName: string | null;
@@ -33,7 +33,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function getPreferences(token: string): Promise<ServerPreferences> {
-  const response = await fetch(CURRENT_USER_PREFERENCES_ENDPOINT, {
+  const response = await apiFetch(CURRENT_USER_PREFERENCES_ENDPOINT, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -48,7 +48,7 @@ export async function putPreferences(
   token: string,
   input: PutPreferencesInput,
 ): Promise<ServerPreferences> {
-  const response = await fetch(CURRENT_USER_PREFERENCES_ENDPOINT, {
+  const response = await apiFetch(CURRENT_USER_PREFERENCES_ENDPOINT, {
     method: 'PUT',
     headers: {
       Accept: 'application/json',

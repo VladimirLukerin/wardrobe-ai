@@ -8,6 +8,7 @@ import {
   wardrobeProcessedImageUploadEndpoint,
 } from '@/config/api';
 import { AccountApiError } from '@/services/account';
+import { NETWORK_ERROR_MESSAGE, isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
 
 export type WardrobeImageUploadResponse = {
   kind: 'original' | 'processed';
@@ -19,25 +20,6 @@ export type WardrobeImageDownloadResult = {
   bytes: Uint8Array;
   contentType: string;
 };
-
-function isNetworkFailure(error: unknown): boolean {
-  if (error instanceof TypeError) {
-    return true;
-  }
-
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes('network request failed') ||
-      message.includes('failed to fetch') ||
-      message.includes('network error') ||
-      message.includes('timeout')
-    );
-  }
-
-  return false;
-}
 
 async function parseUploadResponse(response: Response): Promise<WardrobeImageUploadResponse> {
   const payload = (await response.json().catch(() => null)) as
@@ -85,7 +67,8 @@ async function uploadWardrobeImage({
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Network request failed');
+      warnNetworkFailure('IMAGE CLIENT', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -139,7 +122,8 @@ async function downloadWardrobeImage(
     }
 
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Network request failed');
+      warnNetworkFailure('IMAGE CLIENT', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;

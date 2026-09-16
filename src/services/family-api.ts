@@ -6,7 +6,7 @@ import {
   familyMemberEndpoint,
 } from '@/config/api';
 import type { FamilyInvite, FamilyMember, OutgoingFamilyInvite } from '@/constants/family';
-import { AccountApiError } from '@/services/account';
+import { AccountApiError, apiFetch } from '@/services/account';
 
 export type FamilySnapshot = {
   members: FamilyMember[];
@@ -33,7 +33,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchFamilySnapshot(token: string): Promise<FamilySnapshot> {
-  const response = await fetch(FAMILY_ENDPOINT, {
+  const response = await apiFetch(FAMILY_ENDPOINT, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -45,7 +45,7 @@ export async function fetchFamilySnapshot(token: string): Promise<FamilySnapshot
 }
 
 export async function fetchFamilyInvitesSnapshot(token: string): Promise<FamilyInvitesSnapshot> {
-  const response = await fetch(FAMILY_INVITES_ENDPOINT, {
+  const response = await apiFetch(FAMILY_INVITES_ENDPOINT, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -60,7 +60,7 @@ export async function postFamilyInvite(
   token: string,
   publicId: string,
 ): Promise<OutgoingFamilyInvite> {
-  const response = await fetch(`${FAMILY_ENDPOINT}/invite`, {
+  const response = await apiFetch(`${FAMILY_ENDPOINT}/invite`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -74,7 +74,7 @@ export async function postFamilyInvite(
 }
 
 export async function postFamilyInviteAccept(token: string, inviteId: string): Promise<void> {
-  const response = await fetch(familyInviteAcceptEndpoint(inviteId), {
+  const response = await apiFetch(familyInviteAcceptEndpoint(inviteId), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -86,7 +86,7 @@ export async function postFamilyInviteAccept(token: string, inviteId: string): P
 }
 
 export async function postFamilyInviteReject(token: string, inviteId: string): Promise<void> {
-  const response = await fetch(familyInviteRejectEndpoint(inviteId), {
+  const response = await apiFetch(familyInviteRejectEndpoint(inviteId), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -98,7 +98,7 @@ export async function postFamilyInviteReject(token: string, inviteId: string): P
 }
 
 export async function deleteFamilyMember(token: string, memberPublicId: string): Promise<void> {
-  const response = await fetch(familyMemberEndpoint(memberPublicId), {
+  const response = await apiFetch(familyMemberEndpoint(memberPublicId), {
     method: 'DELETE',
     headers: {
       Accept: 'application/json',

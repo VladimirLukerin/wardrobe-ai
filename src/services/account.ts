@@ -1,4 +1,9 @@
 import { ANONYMOUS_AUTH_ENDPOINT, CURRENT_USER_ENDPOINT, LOGOUT_ENDPOINT } from '@/config/api';
+import {
+  NETWORK_ERROR_MESSAGE,
+  isNetworkFailure,
+  warnNetworkFailure,
+} from '@/utils/network-error';
 
 export type ServerUser = {
   id: string;
@@ -30,6 +35,28 @@ export class AccountApiError extends Error {
     this.status = status;
     this.code = code;
   }
+
+  /** status 0 = request never reached the server (offline, refused, timeout). */
+  static isNetwork(error: unknown): error is AccountApiError {
+    return error instanceof AccountApiError && error.status === 0;
+  }
+}
+
+/**
+ * fetch() that converts connectivity failures into AccountApiError(status 0, code 'network').
+ * Anything else (programming errors) is rethrown untouched.
+ */
+export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (isNetworkFailure(error)) {
+      warnNetworkFailure('API', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
+    }
+
+    throw error;
+  }
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -60,7 +87,7 @@ export async function createAnonymousAccount(
   const body =
     displayName && displayName.trim().length > 0 ? { displayName: displayName.trim() } : {};
 
-  const response = await fetch(ANONYMOUS_AUTH_ENDPOINT, {
+  const response = await apiFetch(ANONYMOUS_AUTH_ENDPOINT, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -78,7 +105,7 @@ export async function createAnonymousAccount(
 }
 
 export async function getCurrentUser(token: string): Promise<ServerUser> {
-  const response = await fetch(CURRENT_USER_ENDPOINT, {
+  const response = await apiFetch(CURRENT_USER_ENDPOINT, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -95,7 +122,7 @@ export async function updateCurrentUserDisplayName(
   token: string,
   displayName: string,
 ): Promise<ServerUser> {
-  const response = await fetch(CURRENT_USER_ENDPOINT, {
+  const response = await apiFetch(CURRENT_USER_ENDPOINT, {
     method: 'PATCH',
     headers: {
       Accept: 'application/json',
@@ -111,7 +138,7 @@ export async function updateCurrentUserDisplayName(
 }
 
 export async function logoutSession(token: string): Promise<void> {
-  const response = await fetch(LOGOUT_ENDPOINT, {
+  const response = await apiFetch(LOGOUT_ENDPOINT, {
     method: 'POST',
     headers: {
       Accept: 'application/json',

@@ -7,6 +7,7 @@ import {
   EMAIL_LOGIN_VERIFY_ENDPOINT,
 } from '@/config/api';
 import { AccountApiError, type ServerUser } from '@/services/account';
+import { NETWORK_ERROR_MESSAGE, isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
 import { getAuthToken } from '@/storage/auth-token-storage';
 
 export type EmailLinkRequestCodeResponse = {
@@ -24,25 +25,6 @@ export type EmailLoginVerifyResponse = {
   user: ServerUser;
   token: string;
 };
-
-function isNetworkFailure(error: unknown): boolean {
-  if (error instanceof TypeError) {
-    return true;
-  }
-
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes('network request failed') ||
-      message.includes('failed to fetch') ||
-      message.includes('network error') ||
-      message.includes('timeout')
-    );
-  }
-
-  return false;
-}
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => null)) as
@@ -87,7 +69,8 @@ export async function requestEmailLinkCode(email: string): Promise<EmailLinkRequ
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -123,7 +106,8 @@ export async function verifyEmailLinkCode({
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -146,7 +130,8 @@ export async function requestEmailLoginCode(email: string): Promise<EmailLinkReq
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -175,7 +160,8 @@ export async function verifyEmailLoginCode({
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -205,7 +191,8 @@ export async function devBypassEmailLinkCode(challengeId: string): Promise<Email
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -230,7 +217,8 @@ export async function devBypassEmailLoginCode(
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;

@@ -1,6 +1,6 @@
 import { WARDROBE_SYNC_ENDPOINT, WARDROBE_ENDPOINT } from '@/config/api';
 import type { ImageProcessingStatus } from '@/constants/wardrobe-item';
-import { AccountApiError } from '@/services/account';
+import { AccountApiError, apiFetch } from '@/services/account';
 
 export type WardrobeItemImagesMetadata = {
   originalAvailable: boolean;
@@ -70,7 +70,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchWardrobeSnapshot(token: string): Promise<WardrobeSnapshot> {
-  const response = await fetch(WARDROBE_ENDPOINT, {
+  const response = await apiFetch(WARDROBE_ENDPOINT, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -88,7 +88,7 @@ export async function postWardrobeSync(
     deletedItems: WardrobeSyncDeletePayload[];
   },
 ): Promise<WardrobeSnapshot> {
-  const response = await fetch(WARDROBE_SYNC_ENDPOINT, {
+  const response = await apiFetch(WARDROBE_SYNC_ENDPOINT, {
     method: 'POST',
     headers: {
       Accept: 'application/json',

@@ -2,6 +2,7 @@ import { File, Paths } from 'expo-file-system';
 import { fetch } from 'expo/fetch';
 
 import { PROCESS_CLOTHING_IMAGE_ENDPOINT } from '@/config/api';
+import { isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
 import {
   getPhotoGuardRejectMessage,
   isPhotoGuardRejectReason,
@@ -82,25 +83,6 @@ function createProcessedImageFile(): File {
   return new File(Paths.document, `wardrobe-processed-${Date.now()}.png`);
 }
 
-function isNetworkFailure(error: unknown): boolean {
-  if (error instanceof TypeError) {
-    return true;
-  }
-
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes('network request failed') ||
-      message.includes('failed to fetch') ||
-      message.includes('network error') ||
-      message.includes('timeout')
-    );
-  }
-
-  return false;
-}
-
 async function createImageFingerprint(imageUri: string): Promise<string> {
   const sourceFile = new File(imageUri);
 
@@ -131,9 +113,11 @@ async function requestClothingProcessing(imageUri: string): Promise<ClothingImag
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
+      warnNetworkFailure('PHOTO PROCESSING', error);
       throw new ClothingImageProcessingError('network');
     }
 
+    // Not a connectivity problem: surface it as a real error for developers.
     console.error('Failed to process clothing image:', error);
     throw new ClothingImageProcessingError('server');
   }
@@ -171,7 +155,7 @@ async function requestClothingProcessing(imageUri: string): Promise<ClothingImag
     }
 
     if (__DEV__) {
-      console.error('Clothing image processing failed with status:', response.status, message);
+      console.warn(`[PHOTO PROCESSING] server responded with status ${response.status}: ${message}`);
     }
 
     throw new ClothingImageProcessingError('server', message);

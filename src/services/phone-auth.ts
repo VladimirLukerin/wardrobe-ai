@@ -7,6 +7,7 @@ import {
   PHONE_LOGIN_VERIFY_ENDPOINT,
 } from '@/config/api';
 import { AccountApiError, type ServerUser } from '@/services/account';
+import { NETWORK_ERROR_MESSAGE, isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
 import { getAuthToken } from '@/storage/auth-token-storage';
 
 export type PhoneLinkRequestCodeResponse = {
@@ -24,25 +25,6 @@ export type PhoneLoginVerifyResponse = {
   user: ServerUser;
   token: string;
 };
-
-function isNetworkFailure(error: unknown): boolean {
-  if (error instanceof TypeError) {
-    return true;
-  }
-
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes('network request failed') ||
-      message.includes('failed to fetch') ||
-      message.includes('network error') ||
-      message.includes('timeout')
-    );
-  }
-
-  return false;
-}
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => null)) as
@@ -87,7 +69,8 @@ export async function requestPhoneLinkCode(phone: string): Promise<PhoneLinkRequ
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -123,7 +106,8 @@ export async function verifyPhoneLinkCode({
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -146,7 +130,8 @@ export async function requestPhoneLoginCode(phone: string): Promise<PhoneLinkReq
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -175,7 +160,8 @@ export async function verifyPhoneLoginCode({
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -205,7 +191,8 @@ export async function devBypassPhoneLinkCode(challengeId: string): Promise<Phone
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;
@@ -230,7 +217,8 @@ export async function devBypassPhoneLoginCode(
     });
   } catch (error) {
     if (isNetworkFailure(error)) {
-      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
     }
 
     throw error;

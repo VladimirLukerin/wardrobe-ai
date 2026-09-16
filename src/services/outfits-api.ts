@@ -1,6 +1,6 @@
 import { OUTFITS_ENDPOINT, OUTFITS_SYNC_ENDPOINT } from '@/config/api';
 import type { SavedOutfitSource } from '@/constants/saved-outfit';
-import { AccountApiError } from '@/services/account';
+import { AccountApiError, apiFetch } from '@/services/account';
 
 export type SavedOutfitMetadata = {
   id: string;
@@ -54,7 +54,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchOutfitsSnapshot(token: string): Promise<OutfitsSnapshot> {
-  const response = await fetch(OUTFITS_ENDPOINT, {
+  const response = await apiFetch(OUTFITS_ENDPOINT, {
     method: 'GET',
     headers: {
       Accept: 'application/json',
@@ -72,7 +72,7 @@ export async function postOutfitsSync(
     deletedOutfits: OutfitsSyncDeletePayload[];
   },
 ): Promise<OutfitsSnapshot> {
-  const response = await fetch(OUTFITS_SYNC_ENDPOINT, {
+  const response = await apiFetch(OUTFITS_SYNC_ENDPOINT, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
