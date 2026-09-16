@@ -1,4 +1,4 @@
-import { logPhotoDecision } from './photo-processing-error';
+import { logPhotoDecision, logPrimaryItem } from './photo-processing-error';
 
 export const PHOTO_REJECT_REASONS = {
   MULTIPLE_ITEMS: 'multiple_items',
@@ -10,6 +10,13 @@ export type PhotoRejectReason = (typeof PHOTO_REJECT_REASONS)[keyof typeof PHOTO
 
 export type PhotoBackgroundSignal = 'simple' | 'moderate' | 'busy';
 
+export type NormalizedBoundingBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export function isPhotoRejectReason(value: unknown): value is PhotoRejectReason {
   return (
     value === PHOTO_REJECT_REASONS.MULTIPLE_ITEMS ||
@@ -20,6 +27,39 @@ export function isPhotoRejectReason(value: unknown): value is PhotoRejectReason 
 
 export function isPhotoBackgroundSignal(value: unknown): value is PhotoBackgroundSignal {
   return value === 'simple' || value === 'moderate' || value === 'busy';
+}
+
+export function isValidNormalizedBoundingBox(
+  value: NormalizedBoundingBox | null | undefined,
+): value is NormalizedBoundingBox {
+  if (!value) {
+    return false;
+  }
+
+  const { x, y, width, height } = value;
+
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height)
+  ) {
+    return false;
+  }
+
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+
+  if (x < 0 || y < 0) {
+    return false;
+  }
+
+  if (x + width > 1.000001 || y + height > 1.000001) {
+    return false;
+  }
+
+  return true;
 }
 
 export const PHOTO_CONFIDENCE_ACCEPT = 0.6;
@@ -42,6 +82,7 @@ export type PhotoRecognitionSignals = {
   ambiguousMultipleItems: boolean;
   itemTooSmallOrObscured: boolean;
   item: ClothingItemMetadata | null;
+  boundingBox: NormalizedBoundingBox | null;
 };
 
 export type PhotoValidationRecognitionResult = {
@@ -50,6 +91,9 @@ export type PhotoValidationRecognitionResult = {
   rejectMessage: string | null;
   confidence: number;
   item: ClothingItemMetadata | null;
+  clothingCount: number;
+  primaryItemClear: boolean;
+  boundingBox: NormalizedBoundingBox | null;
 };
 
 export function getPhotoRejectMessage(reason: PhotoRejectReason): string {
@@ -74,7 +118,12 @@ export function decidePhotoOutcome(signals: PhotoRecognitionSignals): PhotoValid
     ambiguousMultipleItems,
     itemTooSmallOrObscured,
     item,
+    boundingBox,
   } = signals;
+
+  const boundingBoxValid = isValidNormalizedBoundingBox(boundingBox);
+
+  logPrimaryItem(clothingCount, primaryItemClear);
 
   let rejectReason: PhotoRejectReason | null = null;
 
@@ -82,7 +131,9 @@ export function decidePhotoOutcome(signals: PhotoRecognitionSignals): PhotoValid
     rejectReason = PHOTO_REJECT_REASONS.NOT_CLOTHING;
   } else if (itemTooSmallOrObscured) {
     rejectReason = PHOTO_REJECT_REASONS.ITEM_NOT_CLEAR;
-  } else if (ambiguousMultipleItems || (clothingCount > 1 && !primaryItemClear)) {
+  } else if (ambiguousMultipleItems) {
+    rejectReason = PHOTO_REJECT_REASONS.MULTIPLE_ITEMS;
+  } else if (clothingCount > 1 && (!primaryItemClear || !boundingBoxValid)) {
     rejectReason = PHOTO_REJECT_REASONS.MULTIPLE_ITEMS;
   } else if (!primaryItemClear) {
     rejectReason = PHOTO_REJECT_REASONS.ITEM_NOT_CLEAR;
@@ -105,6 +156,9 @@ export function decidePhotoOutcome(signals: PhotoRecognitionSignals): PhotoValid
       rejectMessage: getPhotoRejectMessage(rejectReason),
       confidence,
       item: null,
+      clothingCount,
+      primaryItemClear,
+      boundingBox: null,
     };
   }
 
@@ -122,5 +176,8 @@ export function decidePhotoOutcome(signals: PhotoRecognitionSignals): PhotoValid
     rejectMessage: null,
     confidence,
     item,
+    clothingCount,
+    primaryItemClear,
+    boundingBox: boundingBoxValid ? boundingBox : null,
   };
 }

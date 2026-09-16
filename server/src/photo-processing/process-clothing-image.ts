@@ -11,8 +11,15 @@ import {
   logBackgroundRemovalSkipped,
   logPhotoTiming,
   logPhotoTimingTotal,
+  logPrimaryCrop,
+  logPrimaryCropSizes,
 } from './photo-processing-error';
 import { createProcessingImage } from './create-processing-image';
+import {
+  cropProcessingImageToPrimaryItem,
+  PRIMARY_ITEM_CROP_PADDING_RATIO,
+  shouldCropToPrimaryItem,
+} from './crop-primary-item';
 import { getPhotoRejectMessage, isPhotoRejectReason } from './photo-decision';
 import { prepareUploadedImage, type PreparedUploadedImage } from './prepare-uploaded-image';
 import { validateAndRecognizeClothingPhoto } from './photo-validation-recognition';
@@ -48,8 +55,26 @@ async function runProcessingPipeline(prepared: PreparedUploadedImage) {
   const processing = await createProcessingImage(prepared);
   logPhotoTiming('processingResize', Date.now() - processingResizeStartedAt);
 
+  let processingForBackground = processing;
+
+  if (shouldCropToPrimaryItem(recognition.clothingCount, recognition.boundingBox)) {
+    processingForBackground = await cropProcessingImageToPrimaryItem(
+      processing,
+      recognition.boundingBox!,
+    );
+  } else {
+    logPrimaryCrop('invalid', PRIMARY_ITEM_CROP_PADDING_RATIO);
+    logPrimaryCropSizes(
+      { width: processing.width, height: processing.height },
+      { width: processing.width, height: processing.height },
+    );
+  }
+
   const backgroundRemovalStartedAt = Date.now();
-  const removedBackground = await removeClothingBackground(processing.buffer, processing.mimeType);
+  const removedBackground = await removeClothingBackground(
+    processingForBackground.buffer,
+    processingForBackground.mimeType,
+  );
   logPhotoTiming('backgroundRemoval', Date.now() - backgroundRemovalStartedAt);
 
   let processedImage: Buffer;

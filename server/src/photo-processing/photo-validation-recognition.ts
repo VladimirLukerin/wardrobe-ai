@@ -3,7 +3,9 @@ import OpenAI from 'openai';
 import {
   decidePhotoOutcome,
   isPhotoBackgroundSignal,
+  isValidNormalizedBoundingBox,
   type ClothingItemMetadata,
+  type NormalizedBoundingBox,
   type PhotoBackgroundSignal,
   type PhotoRecognitionSignals,
   type PhotoValidationRecognitionResult,
@@ -101,6 +103,27 @@ function parseItemMetadata(value: unknown): ClothingItemMetadata | null {
   };
 }
 
+function parseBoundingBox(value: unknown): NormalizedBoundingBox | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  const box = value as Record<string, unknown>;
+
+  const parsed: NormalizedBoundingBox = {
+    x: typeof box.x === 'number' ? box.x : Number.NaN,
+    y: typeof box.y === 'number' ? box.y : Number.NaN,
+    width: typeof box.width === 'number' ? box.width : Number.NaN,
+    height: typeof box.height === 'number' ? box.height : Number.NaN,
+  };
+
+  return isValidNormalizedBoundingBox(parsed) ? parsed : null;
+}
+
 function parseRecognitionSignals(payload: unknown): PhotoRecognitionSignals {
   if (typeof payload !== 'object' || payload === null) {
     throw new Error('Invalid recognition payload.');
@@ -127,6 +150,7 @@ function parseRecognitionSignals(payload: unknown): PhotoRecognitionSignals {
     ambiguousMultipleItems: data.ambiguousMultipleItems === true,
     itemTooSmallOrObscured: data.itemTooSmallOrObscured === true,
     item: parseItemMetadata(data.item),
+    boundingBox: parseBoundingBox(data.boundingBox),
   };
 }
 
@@ -174,6 +198,11 @@ export async function validateAndRecognizeClothingPhoto(
               'Если принт различим, pattern="Принт" и заполни printDescription.',
               'Если принта нет или он неразличим, pattern="Без принта" и printDescription=null.',
               'Не выдумывай printDescription, если не уверен.',
+              'boundingBox — нормализованный прямоугольник ОСНОВНОЙ вещи относительно всего кадра:',
+              'x, y, width, height от 0 до 1, где (x,y) — левый верхний угол.',
+              'boundingBox должен охватывать всю основную вещь целиком, включая рукава, воротник, низ и края.',
+              'Если в кадре несколько вещей — обязательно укажи boundingBox основной вещи.',
+              'Если в кадре одна вещь — тоже постарайся указать boundingBox; null только если не уверен.',
             ].join(' '),
           },
           {
@@ -198,6 +227,22 @@ export async function validateAndRecognizeClothingPhoto(
             primaryItemClear: { type: 'boolean' },
             ambiguousMultipleItems: { type: 'boolean' },
             itemTooSmallOrObscured: { type: 'boolean' },
+            boundingBox: {
+              anyOf: [
+                {
+                  type: 'object',
+                  properties: {
+                    x: { type: 'number' },
+                    y: { type: 'number' },
+                    width: { type: 'number' },
+                    height: { type: 'number' },
+                  },
+                  required: ['x', 'y', 'width', 'height'],
+                  additionalProperties: false,
+                },
+                { type: 'null' },
+              ],
+            },
             item: {
               anyOf: [
                 {
@@ -231,6 +276,7 @@ export async function validateAndRecognizeClothingPhoto(
             'primaryItemClear',
             'ambiguousMultipleItems',
             'itemTooSmallOrObscured',
+            'boundingBox',
             'item',
           ],
           additionalProperties: false,

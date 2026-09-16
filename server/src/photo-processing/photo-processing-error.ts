@@ -101,3 +101,33 @@ export function logPhotoImageSizes(
     `[PHOTO IMAGE] prepared=${prepared.width}x${prepared.height} processing=${processing.width}x${processing.height}`,
   );
 }
+
+export function logPrimaryItem(clothingCount: number, primaryItemClear: boolean): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  console.log(`[PRIMARY ITEM] count=${clothingCount} clear=${primaryItemClear}`);
+}
+
+export function logPrimaryCrop(
+  bbox: 'valid' | 'invalid',
+  paddingRatio: number,
+): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  console.log(`[PRIMARY CROP] bbox=${bbox} padding=${Math.round(paddingRatio * 100)}%`);
+}
+
+export function logPrimaryCropSizes(
+  input: { width: number; height: number },
+  output: { width: number; height: number },
+): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  console.log(`[PRIMARY CROP] input=${input.width}x${input.height} output=${output.width}x${output.height}`);
+}
