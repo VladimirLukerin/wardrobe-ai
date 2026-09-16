@@ -4,9 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import type { FamilyInvite, FamilyMember, OutgoingFamilyInvite } from '@/constants/family';
 import { useAccount } from '@/contexts/account-context';
@@ -27,9 +29,13 @@ type FamilyContextValue = {
   members: FamilyMember[];
   incomingInvites: FamilyInvite[];
   outgoingInvites: OutgoingFamilyInvite[];
+  pendingIncomingCount: number;
+  invitePopup: FamilyInvite | null;
   status: FamilyStatus;
   error: string | null;
   refreshFamily: () => Promise<void>;
+  refreshFamilyIfStale: () => Promise<void>;
+  dismissInvitePopup: (inviteId: string) => void;
   inviteMember: (publicId: string) => Promise<void>;
   acceptInvite: (inviteId: string) => Promise<void>;
   rejectInvite: (inviteId: string) => Promise<void>;
@@ -40,6 +46,13 @@ const FamilyContext = createContext<FamilyContextValue | null>(null);
 
 const LOAD_ERROR = 'Не удалось загрузить семью';
 
+// Passive triggers (foreground, screen focus) can fire back-to-back; skip if we just refreshed.
+const PASSIVE_REFRESH_MIN_INTERVAL_MS = 3000;
+
+function isBackgroundState(state: AppStateStatus | null): boolean {
+  return state === 'background' || state === 'inactive';
+}
+
 export function FamilyProvider({ children }: { children: ReactNode }) {
   const { isServerAccount, accountSessionKey } = useAccount();
 
@@ -48,53 +61,120 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
   const [outgoingInvites, setOutgoingInvites] = useState<OutgoingFamilyInvite[]>([]);
   const [status, setStatus] = useState<FamilyStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  // Session-only: lives in memory for the lifetime of the provider, never persisted.
+  const [dismissedPopupInviteIds, setDismissedPopupInviteIds] = useState<string[]>([]);
+
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+  const lastRefreshAtRef = useRef(0);
+  const hasLoadedRef = useRef(false);
 
   const refreshFamily = useCallback(async () => {
-    if (!isServerAccount) {
-      setMembers([]);
-      setIncomingInvites([]);
-      setOutgoingInvites([]);
-      setStatus('idle');
-      setError(null);
+    if (refreshInFlightRef.current) {
+      await refreshInFlightRef.current;
       return;
     }
 
-    const token = await getAuthToken();
+    const run = (async () => {
+      if (!isServerAccount) {
+        setMembers([]);
+        setIncomingInvites([]);
+        setOutgoingInvites([]);
+        setStatus('idle');
+        setError(null);
+        hasLoadedRef.current = false;
+        return;
+      }
 
-    if (!token) {
-      setMembers([]);
-      setIncomingInvites([]);
-      setOutgoingInvites([]);
-      setStatus('idle');
+      const token = await getAuthToken();
+
+      if (!token) {
+        setMembers([]);
+        setIncomingInvites([]);
+        setOutgoingInvites([]);
+        setStatus('idle');
+        setError(null);
+        hasLoadedRef.current = false;
+        return;
+      }
+
+      if (!hasLoadedRef.current) {
+        setStatus('loading');
+      }
+
       setError(null);
-      return;
-    }
 
-    setStatus('loading');
-    setError(null);
+      try {
+        const [familySnapshot, invitesSnapshot] = await Promise.all([
+          fetchFamilySnapshot(token),
+          fetchFamilyInvitesSnapshot(token),
+        ]);
+
+        setMembers(familySnapshot.members);
+        setIncomingInvites(invitesSnapshot.incoming);
+        setOutgoingInvites(invitesSnapshot.outgoing);
+        setStatus('loaded');
+        hasLoadedRef.current = true;
+        lastRefreshAtRef.current = Date.now();
+
+        if (__DEV__) {
+          console.log(
+            `[FAMILY] refreshed: ${familySnapshot.members.length} members, ${invitesSnapshot.incoming.length} incoming`,
+          );
+        }
+      } catch (loadError) {
+        const message =
+          loadError instanceof AccountApiError ? loadError.message : LOAD_ERROR;
+
+        setStatus('error');
+        setError(message);
+      }
+    })();
+
+    refreshInFlightRef.current = run;
 
     try {
-      const [familySnapshot, invitesSnapshot] = await Promise.all([
-        fetchFamilySnapshot(token),
-        fetchFamilyInvitesSnapshot(token),
-      ]);
-
-      setMembers(familySnapshot.members);
-      setIncomingInvites(invitesSnapshot.incoming);
-      setOutgoingInvites(invitesSnapshot.outgoing);
-      setStatus('loaded');
-    } catch (loadError) {
-      const message =
-        loadError instanceof AccountApiError ? loadError.message : LOAD_ERROR;
-
-      setStatus('error');
-      setError(message);
+      await run;
+    } finally {
+      refreshInFlightRef.current = null;
     }
   }, [isServerAccount]);
 
+  const refreshFamilyIfStale = useCallback(async () => {
+    if (Date.now() - lastRefreshAtRef.current < PASSIVE_REFRESH_MIN_INTERVAL_MS) {
+      return;
+    }
+
+    await refreshFamily();
+  }, [refreshFamily]);
+
   useEffect(() => {
+    hasLoadedRef.current = false;
+    lastRefreshAtRef.current = 0;
+    setDismissedPopupInviteIds([]);
     void refreshFamily();
   }, [refreshFamily, accountSessionKey]);
+
+  useEffect(() => {
+    let previousState: AppStateStatus | null = AppState.currentState;
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && isBackgroundState(previousState)) {
+        void refreshFamilyIfStale();
+      }
+
+      previousState = nextState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [refreshFamilyIfStale]);
+
+  const dismissInvitePopup = useCallback((inviteId: string) => {
+    setDismissedPopupInviteIds((current) =>
+      current.includes(inviteId) ? current : [...current, inviteId],
+    );
+  }, []);
 
   const inviteMember = useCallback(
     async (publicId: string) => {
@@ -114,8 +194,10 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
         const withoutDuplicate = current.filter((item) => item.id !== invite.id);
         return [...withoutDuplicate, invite];
       });
+
+      await refreshFamily();
     },
-    [],
+    [refreshFamily],
   );
 
   const acceptInvite = useCallback(async (inviteId: string) => {
@@ -131,6 +213,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
       console.log('[FAMILY] invite accepted');
     }
 
+    setIncomingInvites((current) => current.filter((invite) => invite.id !== inviteId));
     await refreshFamily();
   }, [refreshFamily]);
 
@@ -148,7 +231,8 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
     }
 
     setIncomingInvites((current) => current.filter((invite) => invite.id !== inviteId));
-  }, []);
+    await refreshFamily();
+  }, [refreshFamily]);
 
   const removeMember = useCallback(
     async (memberPublicId: string) => {
@@ -169,14 +253,23 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
     [refreshFamily],
   );
 
+  const invitePopup = useMemo(
+    () => incomingInvites.find((invite) => !dismissedPopupInviteIds.includes(invite.id)) ?? null,
+    [incomingInvites, dismissedPopupInviteIds],
+  );
+
   const value = useMemo(
     () => ({
       members,
       incomingInvites,
       outgoingInvites,
+      pendingIncomingCount: incomingInvites.length,
+      invitePopup,
       status,
       error,
       refreshFamily,
+      refreshFamilyIfStale,
+      dismissInvitePopup,
       inviteMember,
       acceptInvite,
       rejectInvite,
@@ -186,9 +279,12 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
       members,
       incomingInvites,
       outgoingInvites,
+      invitePopup,
       status,
       error,
       refreshFamily,
+      refreshFamilyIfStale,
+      dismissInvitePopup,
       inviteMember,
       acceptInvite,
       rejectInvite,

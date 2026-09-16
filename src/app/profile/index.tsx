@@ -1,6 +1,6 @@
 import { SymbolView } from 'expo-symbols';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,6 +22,7 @@ import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useStylePreferences } from '@/contexts/style-preferences-context';
 import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
+import { AccountApiError } from '@/services/account';
 import { assessLocalAccountState } from '@/services/account-switch';
 import { isAccountProtected } from '@/utils/account-is-protected';
 
@@ -58,9 +59,38 @@ export default function ProfileScreen() {
   const { status: wearHistorySyncStatus } = useWearHistorySync();
   const { styles: preferredStyles, colors: preferredColors, hasStylePreferences } =
     useStylePreferences();
-  const { members, incomingInvites, outgoingInvites, status, error, refreshFamily, acceptInvite, rejectInvite } =
-    useFamily();
+  const {
+    members,
+    incomingInvites,
+    outgoingInvites,
+    pendingIncomingCount,
+    status,
+    error,
+    refreshFamily,
+    refreshFamilyIfStale,
+    acceptInvite,
+    rejectInvite,
+  } = useFamily();
   const isProtected = isAccountProtected(user);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshFamilyIfStale();
+    }, [refreshFamilyIfStale]),
+  );
+
+  const handleInviteAction = async (action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (actionError) {
+      const message =
+        actionError instanceof AccountApiError
+          ? actionError.message
+          : 'Не удалось обработать приглашение';
+
+      Alert.alert('Ошибка', message);
+    }
+  };
 
   const handleLogoutPress = async () => {
     const assessment = await assessLocalAccountState();
@@ -238,7 +268,14 @@ export default function ProfileScreen() {
           </Pressable>
 
           <View style={styles.familyBlock}>
-            <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
+            <View style={styles.familyHeader}>
+              <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
+              {pendingIncomingCount > 0 ? (
+                <View style={styles.familyBadge}>
+                  <ThemedText style={styles.familyBadgeText}>{pendingIncomingCount}</ThemedText>
+                </View>
+              ) : null}
+            </View>
 
             {status === 'loading' && members.length === 0 ? (
               <ThemedText themeColor="textSecondary" style={styles.familyStatusText}>
@@ -269,14 +306,14 @@ export default function ProfileScreen() {
                 <View style={styles.familyInviteActions}>
                   <Pressable
                     onPress={() => {
-                      void acceptInvite(invite.id);
+                      void handleInviteAction(() => acceptInvite(invite.id));
                     }}
                     style={({ pressed }) => [styles.familyAcceptButton, pressed && styles.pressed]}>
                     <ThemedText style={styles.familyAcceptButtonText}>Принять</ThemedText>
                   </Pressable>
                   <Pressable
                     onPress={() => {
-                      void rejectInvite(invite.id);
+                      void handleInviteAction(() => rejectInvite(invite.id));
                     }}
                     style={({ pressed }) => [styles.familyRejectButton, pressed && styles.pressed]}>
                     <ThemedText style={styles.familyRejectButtonText}>Отклонить</ThemedText>
@@ -636,11 +673,31 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.light.backgroundSelected,
     gap: Spacing.three,
   },
+  familyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
   familyTitle: {
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 0.6,
     color: Colors.light.text,
+  },
+  familyBadge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DC2626',
+  },
+  familyBadgeText: {
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   familyStatusText: {
     fontSize: 14,
