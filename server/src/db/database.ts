@@ -98,6 +98,39 @@ function runMigrations(db: Database.Database): void {
   migrateWardrobeImageColumns(db);
   migrateEmailVerification(db);
   migratePhoneVerification(db);
+  migrateFamilyTables(db);
+}
+
+function migrateFamilyTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS family_invites (
+      id TEXT PRIMARY KEY,
+      sender_user_id TEXT NOT NULL,
+      recipient_user_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (sender_user_id) REFERENCES users(id),
+      FOREIGN KEY (recipient_user_id) REFERENCES users(id),
+      CHECK (sender_user_id != recipient_user_id)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_family_invites_pending_pair
+      ON family_invites(sender_user_id, recipient_user_id)
+      WHERE status = 'pending';
+
+    CREATE TABLE IF NOT EXISTS family_members (
+      user_id TEXT NOT NULL,
+      member_user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, member_user_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (member_user_id) REFERENCES users(id),
+      CHECK (user_id != member_user_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_family_members_user_id ON family_members(user_id);
+  `);
 }
 
 function migrateEmailVerification(db: Database.Database): void {

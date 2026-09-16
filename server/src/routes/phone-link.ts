@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { normalizePhone } from '../auth/normalize-phone';
+import { ensureDevOtpBypassEnabled, withDevBypassFlag } from '../auth/dev-otp-bypass';
 import {
   generateOtpCode,
   hashPhoneOtpCode,
@@ -140,11 +141,13 @@ phoneLinkRouter.post('/phone/request-code', requireAuth, async (req: Request, re
       expiresInMinutes: OTP_TTL_SECONDS / 60,
     });
 
-    res.status(201).json({
-      challengeId: challenge.id,
-      expiresInSeconds: OTP_TTL_SECONDS,
-      resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS,
-    });
+    res.status(201).json(
+      withDevBypassFlag({
+        challengeId: challenge.id,
+        expiresInSeconds: OTP_TTL_SECONDS,
+        resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS,
+      }),
+    );
   } catch (error) {
     console.error('Failed to request phone verification code:', error);
     res.status(500).json({ error: 'Не удалось отправить код подтверждения.' });
@@ -245,6 +248,85 @@ phoneLinkRouter.post('/phone/verify', requireAuth, (req: Request, res: Response)
     }
 
     console.error('Failed to verify phone link code:', error);
+    res.status(500).json({ error: 'Не удалось подтвердить телефон.' });
+  }
+});
+
+phoneLinkRouter.post('/phone/dev-bypass', requireAuth, (req: Request, res: Response) => {
+  if (!req.authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  if (!ensureDevOtpBypassEnabled(res)) {
+    return;
+  }
+
+  if (!ensurePhoneVerificationEnabled(res)) {
+    return;
+  }
+
+  const challengeId =
+    typeof req.body?.challengeId === 'string' ? req.body.challengeId.trim() : '';
+
+  if (!challengeId) {
+    res.status(400).json({ error: 'Challenge id is required.' });
+    return;
+  }
+
+  const challenge = findPhoneVerificationChallengeById(challengeId);
+
+  if (!challenge || challenge.user_id !== req.authUser.id) {
+    res.status(404).json({ error: 'Код подтверждения не найден.' });
+    return;
+  }
+
+  if (challenge.purpose !== 'link') {
+    res.status(400).json({ error: 'Неверный код подтверждения.' });
+    return;
+  }
+
+  if (challenge.consumed_at) {
+    res.status(410).json({ error: 'Код уже использован.' });
+    return;
+  }
+
+  if (new Date(challenge.expires_at).getTime() <= Date.now()) {
+    res.status(410).json({ error: 'Срок действия кода истёк.' });
+    return;
+  }
+
+  const existingVerifiedUser = findUserByVerifiedPhone(challenge.phone);
+
+  if (existingVerifiedUser && existingVerifiedUser.id !== req.authUser.id) {
+    sendDomainError(res, 409, 'PHONE_ALREADY_IN_USE', 'Этот номер уже привязан к другому аккаунту.');
+    return;
+  }
+
+  try {
+    const updatedUser = setVerifiedPhone(req.authUser.id, challenge.phone);
+
+    if (!updatedUser) {
+      res.status(500).json({ error: 'Не удалось подтвердить телефон.' });
+      return;
+    }
+
+    consumePhoneVerificationChallenge(challenge.id);
+
+    console.log('[PHONE LINK] dev bypass completed');
+
+    res.json({
+      user: toUserResponse(updatedUser),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('UNIQUE constraint failed: users.phone')) {
+      sendDomainError(res, 409, 'PHONE_ALREADY_IN_USE', 'Этот номер уже привязан к другому аккаунту.');
+      return;
+    }
+
+    console.error('Failed to dev-bypass phone link:', error);
     res.status(500).json({ error: 'Не удалось подтвердить телефон.' });
   }
 });

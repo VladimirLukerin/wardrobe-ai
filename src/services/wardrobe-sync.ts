@@ -22,6 +22,7 @@ export type WardrobeSyncPlan = {
   itemsToPush: WardrobeSyncItemPayload[];
   deletedItemsToPush: WardrobeSyncDeletePayload[];
   metadataToApply: Array<{ id: string; metadata: WardrobeMetadataPatch; updatedAt: string }>;
+  serverItemsToRestore: Array<{ id: string; metadata: WardrobeMetadataPatch }>;
   localItemsToRemove: string[];
   pullCount: number;
 };
@@ -78,6 +79,7 @@ export function buildWardrobeSyncPlan({
 
   const itemsToPush: WardrobeSyncItemPayload[] = [];
   const metadataToApply: WardrobeSyncPlan['metadataToApply'] = [];
+  const serverItemsToRestore: WardrobeSyncPlan['serverItemsToRestore'] = [];
   const localItemsToRemove: string[] = [];
   let pullCount = 0;
 
@@ -117,6 +119,18 @@ export function buildWardrobeSyncPlan({
       }
     }
 
+    for (const serverItem of serverSnapshot.items) {
+      if (localItemsById.has(serverItem.id) || metadata.deletedItems[serverItem.id]) {
+        continue;
+      }
+
+      serverItemsToRestore.push({
+        id: serverItem.id,
+        metadata: toMetadataPatch(serverItem),
+      });
+      pullCount += 1;
+    }
+
     for (const [itemId, serverDeleted] of serverDeletedById.entries()) {
       const localItem = localItemsById.get(itemId);
       const localDeleted = metadata.deletedItems[itemId];
@@ -145,6 +159,7 @@ export function buildWardrobeSyncPlan({
     itemsToPush,
     deletedItemsToPush,
     metadataToApply,
+    serverItemsToRestore,
     localItemsToRemove,
     pullCount,
   };

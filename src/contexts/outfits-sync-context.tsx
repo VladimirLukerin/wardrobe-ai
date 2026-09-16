@@ -49,6 +49,7 @@ function isWardrobeInitialSyncComplete(status: ReturnType<typeof useWardrobeSync
 
 export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
   const {
+    accountSessionKey,
     isHydrated: isAccountHydrated,
     isServerAccount,
     isRestoringAccount,
@@ -101,7 +102,11 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const syncSessionKey = accountSessionKey;
+
     const syncPromise = (async () => {
+      const isCurrentSession = () => syncSessionKey === accountSessionKey;
+
       const token = await getAuthToken();
 
       if (!token) {
@@ -135,7 +140,20 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
 
         if (plan.outfitsToApply.length > 0) {
           console.log(`[OUTFITS SYNC] pull ${plan.pullCount}`);
+
+          if (!isCurrentSession()) {
+            return;
+          }
+
           applyServerOutfits(plan.outfitsToApply);
+
+          if (__DEV__) {
+            console.log(`[OUTFITS RESTORE] ${plan.outfitsToApply.length}`);
+          }
+        }
+
+        if (!isCurrentSession()) {
+          return;
         }
 
         for (const outfitId of plan.localOutfitsToRemove) {
@@ -176,6 +194,11 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
         });
 
         await saveOutfitsSyncMetadata(nextMetadata);
+
+        if (!isCurrentSession()) {
+          return;
+        }
+
         setStatus('synced');
       } catch (error) {
         console.log('[OUTFITS SYNC] offline');
@@ -198,6 +221,7 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
     }
   }, [
     accountError,
+    accountSessionKey,
     applyServerOutfits,
     applySyncedOutfitRemoval,
     isReady,
@@ -237,6 +261,14 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
     initialSyncStartedRef.current = true;
     void runOutfitsSync();
   }, [isReady, runOutfitsSync]);
+
+  useEffect(() => {
+    if (!isReady || !isRestoringAccount) {
+      return;
+    }
+
+    void runOutfitsSync();
+  }, [isReady, isRestoringAccount, runOutfitsSync]);
 
   useEffect(() => {
     if (!isReady) {

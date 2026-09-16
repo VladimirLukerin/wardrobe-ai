@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -72,10 +73,12 @@ function createWardrobeItemId(originalImageUri: string): string {
 
 function normalizeWardrobeItem(item: WardrobeItem): WardrobeItem {
   const imageFields = normalizeWardrobeItemImageFields(item);
+  const originalImageUri = imageFields.originalImageUri || imageFields.processedImageUri || '';
 
   return {
     ...item,
     ...imageFields,
+    originalImageUri,
     isFavorite: item.isFavorite === true,
   };
 }
@@ -83,9 +86,14 @@ function normalizeWardrobeItem(item: WardrobeItem): WardrobeItem {
 export function WardrobeProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<WardrobeItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const persistQueueRef = useRef(Promise.resolve());
 
   const persistItems = useCallback((nextItems: WardrobeItem[]) => {
-    void saveWardrobeItems(nextItems);
+    if (__DEV__) {
+      console.log(`[WARDROBE PERSIST] items=${nextItems.length}`);
+    }
+
+    persistQueueRef.current = persistQueueRef.current.catch(() => {}).then(() => saveWardrobeItems(nextItems));
   }, []);
 
   useEffect(() => {
@@ -94,8 +102,24 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     loadWardrobeItems()
       .then((stored) => {
         if (isMounted) {
-          setItems(stored.map(normalizeWardrobeItem));
+          const normalizedItems = stored.map(normalizeWardrobeItem);
+
+          setItems((current) => {
+            if (current.length > 0 && normalizedItems.length === 0) {
+              if (__DEV__) {
+                console.log('[WARDROBE HYDRATE] skip stale empty snapshot');
+              }
+
+              return current;
+            }
+
+            return normalizedItems;
+          });
           setIsHydrated(true);
+
+          if (__DEV__) {
+            console.log(`[WARDROBE HYDRATE] items=${normalizedItems.length}`);
+          }
         }
       })
       .catch(() => {
@@ -144,6 +168,10 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
   const applySyncedWardrobeItem = useCallback(
     (item: WardrobeItem) => {
+      if (__DEV__) {
+        console.log(`[WARDROBE RESTORE] item=${item.id}`);
+      }
+
       setItems((current) => {
         const existingIndex = current.findIndex((entry) => entry.id === item.id);
         const normalizedItem = normalizeWardrobeItem(item);
@@ -165,8 +193,14 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       imageUris: { originalImageUri?: string; processedImageUri?: string },
     ) => {
       setItems((current) => {
-        const nextItems = current.map((item) => {
-          if (item.id !== id) {
+        const existingIndex = current.findIndex((entry) => entry.id === id);
+
+        if (existingIndex === -1) {
+          return current;
+        }
+
+        const nextItems = current.map((item, index) => {
+          if (index !== existingIndex) {
             return item;
           }
 

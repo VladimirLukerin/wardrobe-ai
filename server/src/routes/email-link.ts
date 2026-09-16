@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { normalizeEmail } from '../auth/normalize-email';
+import { ensureDevOtpBypassEnabled, withDevBypassFlag } from '../auth/dev-otp-bypass';
 import {
   generateOtpCode,
   hashOtpCode,
@@ -143,11 +144,13 @@ emailLinkRouter.post('/email/request-code', requireAuth, async (req: Request, re
       expiresInMinutes: OTP_TTL_SECONDS / 60,
     });
 
-    res.status(201).json({
-      challengeId: challenge.id,
-      expiresInSeconds: OTP_TTL_SECONDS,
-      resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS,
-    });
+    res.status(201).json(
+      withDevBypassFlag({
+        challengeId: challenge.id,
+        expiresInSeconds: OTP_TTL_SECONDS,
+        resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS,
+      }),
+    );
   } catch (error) {
     console.error('Failed to request email verification code:', error);
     res.status(500).json({ error: 'Не удалось отправить код подтверждения.' });
@@ -248,6 +251,85 @@ emailLinkRouter.post('/email/verify', requireAuth, (req: Request, res: Response)
     }
 
     console.error('Failed to verify email link code:', error);
+    res.status(500).json({ error: 'Не удалось подтвердить email.' });
+  }
+});
+
+emailLinkRouter.post('/email/dev-bypass', requireAuth, (req: Request, res: Response) => {
+  if (!req.authUser) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  if (!ensureDevOtpBypassEnabled(res)) {
+    return;
+  }
+
+  if (!ensureEmailVerificationEnabled(res)) {
+    return;
+  }
+
+  const challengeId =
+    typeof req.body?.challengeId === 'string' ? req.body.challengeId.trim() : '';
+
+  if (!challengeId) {
+    res.status(400).json({ error: 'Challenge id is required.' });
+    return;
+  }
+
+  const challenge = findEmailVerificationChallengeById(challengeId);
+
+  if (!challenge || challenge.user_id !== req.authUser.id) {
+    res.status(404).json({ error: 'Код подтверждения не найден.' });
+    return;
+  }
+
+  if (challenge.purpose !== 'link') {
+    res.status(400).json({ error: 'Неверный код подтверждения.' });
+    return;
+  }
+
+  if (challenge.consumed_at) {
+    res.status(410).json({ error: 'Код уже использован.' });
+    return;
+  }
+
+  if (new Date(challenge.expires_at).getTime() <= Date.now()) {
+    res.status(410).json({ error: 'Срок действия кода истёк.' });
+    return;
+  }
+
+  const existingVerifiedUser = findUserByVerifiedEmail(challenge.email);
+
+  if (existingVerifiedUser && existingVerifiedUser.id !== req.authUser.id) {
+    sendDomainError(res, 409, 'EMAIL_ALREADY_IN_USE', 'Этот email уже привязан к другому аккаунту.');
+    return;
+  }
+
+  try {
+    const updatedUser = linkVerifiedEmailToUser(req.authUser.id, challenge.email);
+
+    if (!updatedUser) {
+      res.status(500).json({ error: 'Не удалось подтвердить email.' });
+      return;
+    }
+
+    consumeEmailVerificationChallenge(challenge.id);
+
+    console.log('[EMAIL LINK] dev bypass completed');
+
+    res.json({
+      user: toUserResponse(updatedUser),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('UNIQUE constraint failed: users.email')) {
+      sendDomainError(res, 409, 'EMAIL_ALREADY_IN_USE', 'Этот email уже привязан к другому аккаунту.');
+      return;
+    }
+
+    console.error('Failed to dev-bypass email link:', error);
     res.status(500).json({ error: 'Не удалось подтвердить email.' });
   }
 });

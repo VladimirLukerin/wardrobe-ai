@@ -24,6 +24,7 @@ import {
   saveCachedAccountUser,
   saveValidatedAccountUser,
 } from '@/storage/account-cache-storage';
+import { clearOnboardingCompleted } from '@/storage/onboarding-storage';
 import { clearAuthToken, getAuthToken, setAuthToken } from '@/storage/auth-token-storage';
 
 type AccountContextValue = {
@@ -33,6 +34,7 @@ type AccountContextValue = {
   isSyncing: boolean;
   isServerAccount: boolean;
   isRestoringAccount: boolean;
+  needsAuthEntry: boolean;
   accountSessionKey: number;
   error: string | null;
   refreshAccount: () => Promise<void>;
@@ -40,6 +42,8 @@ type AccountContextValue = {
   switchToAuthenticatedAccount: (user: ServerUser, token: string) => Promise<void>;
   finishAccountRestore: () => void;
   logoutFromProfile: () => Promise<void>;
+  startGuestSession: () => Promise<boolean>;
+  devResetTestAccount: () => Promise<void>;
 };
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -72,7 +76,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isServerAccount, setIsServerAccount] = useState(false);
   const [isRestoringAccount, setIsRestoringAccount] = useState(false);
+  const [needsAuthEntry, setNeedsAuthEntry] = useState(false);
   const [accountSessionKey, setAccountSessionKey] = useState(0);
+  const [pendingProviderRemount, setPendingProviderRemount] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const bootstrapStartedRef = useRef(false);
@@ -80,8 +86,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const applyServerUser = useCallback(
     (nextUser: ServerUser) => {
+      if (__DEV__) {
+        console.log(`[ACCOUNT] user ${nextUser.id}`);
+      }
+
       setUser(nextUser);
       setIsServerAccount(true);
+      setNeedsAuthEntry(false);
       setError(null);
       syncServerIdentity({
         publicId: nextUser.publicId,
@@ -92,6 +103,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     },
     [syncServerIdentity],
   );
+
+  const enterAuthEntry = useCallback(() => {
+    setUser(null);
+    setIsServerAccount(false);
+    setIsRestoringAccount(false);
+    setNeedsAuthEntry(true);
+    setError(null);
+  }, []);
 
   const bootstrapAccount = useCallback(
     async (forceRefresh = false) => {
@@ -122,56 +141,39 @@ export function AccountProvider({ children }: { children: ReactNode }) {
           } catch (requestError) {
             if (requestError instanceof AccountApiError && requestError.status === 401) {
               await clearAuthToken();
-            } else {
-              const cache = await loadAccountCache();
+              enterAuthEntry();
+              return;
+            }
 
-              if (cache?.user) {
-                applyServerUser(cache.user);
-                setError(OFFLINE_ERROR);
-                return;
-              }
+            const cache = await loadAccountCache();
 
-              const cachedId = getCachedPublicId(cachedPublicId, localUserId);
-
-              if (cachedId) {
-                setIsServerAccount(Boolean(cachedPublicId));
-                setError(OFFLINE_ERROR);
-                return;
-              }
-
+            if (cache?.user) {
+              applyServerUser(cache.user);
               setError(OFFLINE_ERROR);
               return;
             }
-          }
-        }
 
-        try {
-          const created = await createAnonymousAccount(displayName);
-          await setAuthToken(created.token);
-          await saveValidatedAccountUser(created.user);
-          applyServerUser(created.user);
-        } catch (createError) {
-          const cachedId = getCachedPublicId(cachedPublicId, localUserId);
+            const cachedId = getCachedPublicId(cachedPublicId, localUserId);
 
-          if (cachedId) {
-            setIsServerAccount(Boolean(cachedPublicId));
+            if (cachedId) {
+              setIsServerAccount(Boolean(cachedPublicId));
+              setError(OFFLINE_ERROR);
+              return;
+            }
+
             setError(OFFLINE_ERROR);
+            enterAuthEntry();
             return;
           }
-
-          if (createError instanceof AccountApiError) {
-            setError(createError.message);
-            return;
-          }
-
-          setError(OFFLINE_ERROR);
         }
+
+        enterAuthEntry();
       } finally {
         setIsSyncing(false);
         setIsHydrated(true);
       }
     },
-    [applyServerUser, cachedPublicId, displayName, isProfileHydrated, localUserId],
+    [applyServerUser, cachedPublicId, enterAuthEntry, isProfileHydrated, localUserId],
   );
 
   useEffect(() => {
@@ -198,6 +200,19 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     void bootstrapAccount(false);
   }, [bootstrapAccount, isProfileHydrated]);
 
+  useEffect(() => {
+    if (!pendingProviderRemount || needsAuthEntry) {
+      return;
+    }
+
+    if (__DEV__) {
+      console.log('[AUTH ENTRY] provider remount after guest');
+    }
+
+    setAccountSessionKey((current) => current + 1);
+    setPendingProviderRemount(false);
+  }, [needsAuthEntry, pendingProviderRemount]);
+
   const refreshAccount = useCallback(async () => {
     await bootstrapAccount(true);
   }, [bootstrapAccount]);
@@ -210,6 +225,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   );
 
   const finishAccountRestore = useCallback(() => {
+    if (__DEV__) {
+      console.log('[RESTORE] complete');
+    }
+
     setIsRestoringAccount(false);
   }, []);
 
@@ -224,15 +243,22 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setIsRestoringAccount(true);
-
       try {
+        if (__DEV__) {
+          console.log('[ACCOUNT SWITCH] start');
+        }
+
         await prepareLocalStateForAccountSwitch();
         await setAuthToken(nextToken);
         await saveValidatedAccountUser(nextUser);
         applyServerUser(nextUser);
+        setIsRestoringAccount(true);
         setAccountSessionKey((current) => current + 1);
         setError(null);
+
+        if (__DEV__) {
+          console.log('[ACCOUNT SWITCH] done');
+        }
       } catch (switchError) {
         setIsRestoringAccount(false);
         throw switchError;
@@ -241,12 +267,35 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [applyServerUser, user?.id],
   );
 
+  const startGuestSession = useCallback(async (): Promise<boolean> => {
+    setIsSyncing(true);
+
+    try {
+      const created = await createAnonymousAccount(displayName);
+      await setAuthToken(created.token);
+      await saveValidatedAccountUser(created.user);
+      applyServerUser(created.user);
+      setPendingProviderRemount(true);
+      return true;
+    } catch (createError) {
+      if (createError instanceof AccountApiError) {
+        setError(createError.message);
+        return false;
+      }
+
+      setError(OFFLINE_ERROR);
+      return false;
+    } finally {
+      setIsSyncing(false);
+      setIsHydrated(true);
+    }
+  }, [applyServerUser, displayName]);
+
   const logoutFromProfile = useCallback(async () => {
     setIsSyncing(true);
 
     try {
       const token = await getAuthToken();
-      const logoutDisplayName = displayName.trim() || user?.displayName?.trim() || undefined;
 
       if (token) {
         try {
@@ -259,16 +308,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       await clearAuthToken();
       await prepareLocalStateForAccountSwitch();
 
-      setUser(null);
-      setIsServerAccount(false);
-      setIsRestoringAccount(false);
-      setError(null);
       setAccountSessionKey((current) => current + 1);
-
-      const created = await createAnonymousAccount(logoutDisplayName);
-      await setAuthToken(created.token);
-      await saveValidatedAccountUser(created.user);
-      applyServerUser(created.user);
+      enterAuthEntry();
     } catch (logoutError) {
       if (logoutError instanceof AccountApiError) {
         setError(logoutError.message);
@@ -280,7 +321,37 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setIsSyncing(false);
       setIsHydrated(true);
     }
-  }, [applyServerUser, displayName, user?.displayName]);
+  }, [enterAuthEntry]);
+
+  const devResetTestAccount = useCallback(async () => {
+    if (!__DEV__) {
+      return;
+    }
+
+    setIsSyncing(true);
+
+    try {
+      const token = await getAuthToken();
+
+      if (token) {
+        try {
+          await logoutSession(token);
+        } catch {
+          // Best-effort server logout; local reset still proceeds.
+        }
+      }
+
+      await clearAuthToken();
+      await prepareLocalStateForAccountSwitch();
+      await clearOnboardingCompleted();
+
+      setAccountSessionKey((current) => current + 1);
+      enterAuthEntry();
+    } finally {
+      setIsSyncing(false);
+      setIsHydrated(true);
+    }
+  }, [enterAuthEntry]);
 
   const publicId = user?.publicId ?? getCachedPublicId(cachedPublicId, localUserId);
 
@@ -292,6 +363,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       isSyncing,
       isServerAccount,
       isRestoringAccount,
+      needsAuthEntry,
       accountSessionKey,
       error,
       refreshAccount,
@@ -299,6 +371,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       switchToAuthenticatedAccount,
       finishAccountRestore,
       logoutFromProfile,
+      startGuestSession,
+      devResetTestAccount,
     }),
     [
       user,
@@ -307,6 +381,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       isSyncing,
       isServerAccount,
       isRestoringAccount,
+      needsAuthEntry,
       accountSessionKey,
       error,
       refreshAccount,
@@ -314,6 +389,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       switchToAuthenticatedAccount,
       finishAccountRestore,
       logoutFromProfile,
+      startGuestSession,
+      devResetTestAccount,
     ],
   );
 

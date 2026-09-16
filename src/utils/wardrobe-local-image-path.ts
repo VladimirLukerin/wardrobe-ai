@@ -36,7 +36,7 @@ export async function getWardrobeItemImageDirectory(
   const hash = await buildWardrobeLocalStorageHash(userId, itemId);
   const directory = new Directory(Paths.document, WARDROBE_ROOT, hash);
 
-  directory.create({ idempotent: true });
+  directory.create({ idempotent: true, intermediates: true });
 
   return directory;
 }

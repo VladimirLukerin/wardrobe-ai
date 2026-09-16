@@ -11,7 +11,6 @@ export const API_BASE_URL =
 
 console.log('[API] API_BASE_URL:', API_BASE_URL);
 
-export const ANALYZE_CLOTHING_ENDPOINT = `${API_BASE_URL}/analyze-clothing`;
 export const PROCESS_CLOTHING_IMAGE_ENDPOINT = `${API_BASE_URL}/process-clothing-image`;
 export const SUGGEST_OUTFITS_ENDPOINT = `${API_BASE_URL}/suggest-outfits`;
 export const CURRENT_WEATHER_ENDPOINT = `${API_BASE_URL}/current-weather`;
@@ -25,27 +24,57 @@ export const OUTFITS_ENDPOINT = `${API_BASE_URL}/me/outfits`;
 export const OUTFITS_SYNC_ENDPOINT = `${API_BASE_URL}/me/outfits/sync`;
 export const WEAR_HISTORY_ENDPOINT = `${API_BASE_URL}/me/wear-history`;
 export const WEAR_HISTORY_SYNC_ENDPOINT = `${API_BASE_URL}/me/wear-history/sync`;
+export const FAMILY_ENDPOINT = `${API_BASE_URL}/me/family`;
+export const FAMILY_INVITES_ENDPOINT = `${API_BASE_URL}/me/family/invites`;
+
+export function familyInviteEndpoint(inviteId: string): string {
+  return `${API_BASE_URL}/me/family/invites/${encodeURIComponent(inviteId)}`;
+}
+
+export function familyMemberEndpoint(memberPublicId: string): string {
+  return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}`;
+}
+
+export function familyInviteAcceptEndpoint(inviteId: string): string {
+  return `${familyInviteEndpoint(inviteId)}/accept`;
+}
+
+export function familyInviteRejectEndpoint(inviteId: string): string {
+  return `${familyInviteEndpoint(inviteId)}/reject`;
+}
+
 export const EMAIL_LINK_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/me/email/request-code`;
 export const EMAIL_LINK_VERIFY_ENDPOINT = `${API_BASE_URL}/me/email/verify`;
 export const EMAIL_LOGIN_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/auth/email/request-code`;
 export const EMAIL_LOGIN_VERIFY_ENDPOINT = `${API_BASE_URL}/auth/email/verify`;
+export const EMAIL_LOGIN_DEV_BYPASS_ENDPOINT = `${API_BASE_URL}/auth/email/dev-bypass`;
 export const PHONE_LINK_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/me/phone/request-code`;
 export const PHONE_LINK_VERIFY_ENDPOINT = `${API_BASE_URL}/me/phone/verify`;
+export const PHONE_LINK_DEV_BYPASS_ENDPOINT = `${API_BASE_URL}/me/phone/dev-bypass`;
 export const PHONE_LOGIN_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/auth/phone/request-code`;
 export const PHONE_LOGIN_VERIFY_ENDPOINT = `${API_BASE_URL}/auth/phone/verify`;
+export const PHONE_LOGIN_DEV_BYPASS_ENDPOINT = `${API_BASE_URL}/auth/phone/dev-bypass`;
+export const EMAIL_LINK_DEV_BYPASS_ENDPOINT = `${API_BASE_URL}/me/email/dev-bypass`;
+
+function wardrobeImageEndpoint(path: 'original' | 'processed', itemId: string): string {
+  const url = new URL(`${API_BASE_URL}/me/wardrobe/images/${path}`);
+  url.searchParams.set('itemId', itemId);
+
+  return url.toString();
+}
 
 export function wardrobeOriginalImageUploadEndpoint(itemId: string): string {
-  return `${API_BASE_URL}/me/wardrobe/${encodeURIComponent(itemId)}/images/original`;
+  return wardrobeImageEndpoint('original', itemId);
 }
 
 export function wardrobeProcessedImageUploadEndpoint(itemId: string): string {
-  return `${API_BASE_URL}/me/wardrobe/${encodeURIComponent(itemId)}/images/processed`;
+  return wardrobeImageEndpoint('processed', itemId);
 }
 
 export function wardrobeOriginalImageDownloadEndpoint(itemId: string): string {
-  return `${API_BASE_URL}/me/wardrobe/${encodeURIComponent(itemId)}/images/original`;
+  return wardrobeImageEndpoint('original', itemId);
 }
 
 export function wardrobeProcessedImageDownloadEndpoint(itemId: string): string {
-  return `${API_BASE_URL}/me/wardrobe/${encodeURIComponent(itemId)}/images/processed`;
+  return wardrobeImageEndpoint('processed', itemId);
 }

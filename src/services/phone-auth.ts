@@ -1,6 +1,8 @@
 import {
+  PHONE_LINK_DEV_BYPASS_ENDPOINT,
   PHONE_LINK_REQUEST_CODE_ENDPOINT,
   PHONE_LINK_VERIFY_ENDPOINT,
+  PHONE_LOGIN_DEV_BYPASS_ENDPOINT,
   PHONE_LOGIN_REQUEST_CODE_ENDPOINT,
   PHONE_LOGIN_VERIFY_ENDPOINT,
 } from '@/config/api';
@@ -11,6 +13,7 @@ export type PhoneLinkRequestCodeResponse = {
   challengeId: string;
   expiresInSeconds: number;
   resendAfterSeconds: number;
+  devBypassAvailable?: boolean;
 };
 
 export type PhoneLinkVerifyResponse = {
@@ -169,6 +172,61 @@ export async function verifyPhoneLoginCode({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ challengeId, code }),
+    });
+  } catch (error) {
+    if (isNetworkFailure(error)) {
+      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+    }
+
+    throw error;
+  }
+
+  return parseJsonResponse<PhoneLoginVerifyResponse>(response);
+}
+
+export async function devBypassPhoneLinkCode(challengeId: string): Promise<PhoneLinkVerifyResponse> {
+  const token = await getAuthToken();
+
+  if (!token) {
+    throw new AccountApiError(0, 'Нет соединения с сервером');
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(PHONE_LINK_DEV_BYPASS_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ challengeId }),
+    });
+  } catch (error) {
+    if (isNetworkFailure(error)) {
+      throw new AccountApiError(0, 'Не удалось подключиться к серверу');
+    }
+
+    throw error;
+  }
+
+  return parseJsonResponse<PhoneLinkVerifyResponse>(response);
+}
+
+export async function devBypassPhoneLoginCode(
+  challengeId: string,
+): Promise<PhoneLoginVerifyResponse> {
+  let response: Response;
+
+  try {
+    response = await fetch(PHONE_LOGIN_DEV_BYPASS_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ challengeId }),
     });
   } catch (error) {
     if (isNetworkFailure(error)) {

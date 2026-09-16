@@ -54,6 +54,36 @@ export function hasPreferencesPendingChanges(metadata: PreferencesSyncMetadata):
   return metadata.localUpdatedAt !== metadata.serverUpdatedAt;
 }
 
+export function shouldSkipWardrobeServerSync(
+  metadata: WardrobeSyncMetadata,
+  localItemCount: number,
+  isRestoringAccount: boolean,
+): boolean {
+  if (isRestoringAccount) {
+    return false;
+  }
+
+  if (localItemCount === 0) {
+    return false;
+  }
+
+  const serverItemCount = Object.keys(metadata.serverUpdatedAtById).length;
+
+  if (serverItemCount > localItemCount) {
+    return false;
+  }
+
+  if (!isSyncFresh(metadata.lastServerSyncAt)) {
+    return false;
+  }
+
+  if (hasWardrobePendingChanges(metadata)) {
+    return false;
+  }
+
+  return true;
+}
+
 export function getPreferencesLastSyncedAt(metadata: PreferencesSyncMetadata): string | null {
   if (metadata.lastServerSyncAt) {
     return metadata.lastServerSyncAt;

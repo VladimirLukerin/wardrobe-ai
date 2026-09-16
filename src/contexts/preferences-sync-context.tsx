@@ -252,6 +252,14 @@ export function PreferencesSyncProvider({ children }: { children: ReactNode }) {
     void runPreferencesSync();
   }, [isReady, runPreferencesSync]);
 
+  useEffect(() => {
+    if (!isReady || !isRestoringAccount) {
+      return;
+    }
+
+    void runPreferencesSync();
+  }, [isReady, isRestoringAccount, runPreferencesSync]);
+
   const previousAccountErrorRef = useRef<string | null>(null);
 
   useEffect(() => {

@@ -29,10 +29,11 @@ import { usePreferencesSync, type PreferencesSyncStatus } from '@/contexts/prefe
 import { useWearHistorySync, type WearHistorySyncStatus } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync, type WardrobeSyncStatus } from '@/contexts/wardrobe-sync-context';
 import EmailLinkSheet from '@/components/email-link-sheet';
-import EmailLoginSheet from '@/components/email-login-sheet';
+import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
+import AccountSaveSheet from '@/components/account-save-sheet';
 import PhoneLinkSheet from '@/components/phone-link-sheet';
-import PhoneLoginSheet from '@/components/phone-login-sheet';
 import { copyToClipboard } from '@/utils/copy-to-clipboard';
+import { isAccountProtected } from '@/utils/account-is-protected';
 import { formatPhoneMaskedForDisplay } from '@/utils/format-phone-for-display';
 
 type AccountSheetProps = {
@@ -133,9 +134,11 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   const [nameDraft, setNameDraft] = useState(displayName);
   const [isCopying, setIsCopying] = useState(false);
   const [isEmailLinkVisible, setIsEmailLinkVisible] = useState(false);
-  const [isEmailLoginVisible, setIsEmailLoginVisible] = useState(false);
   const [isPhoneLinkVisible, setIsPhoneLinkVisible] = useState(false);
-  const [isPhoneLoginVisible, setIsPhoneLoginVisible] = useState(false);
+  const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
+  const [isLoginChoiceVisible, setIsLoginChoiceVisible] = useState(false);
+
+  const accountIsProtected = isAccountProtected(user);
 
   const translateY = useSharedValue(0);
   const bottomInset = Math.max(insets.bottom, Spacing.three);
@@ -219,16 +222,16 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
     setIsEmailLinkVisible(true);
   };
 
-  const handleLoginByEmail = () => {
-    setIsEmailLoginVisible(true);
-  };
-
   const handleConnectPhone = () => {
     setIsPhoneLinkVisible(true);
   };
 
-  const handleLoginByPhone = () => {
-    setIsPhoneLoginVisible(true);
+  const handleSaveAccount = () => {
+    setIsSaveAccountVisible(true);
+  };
+
+  const handleLoginExisting = () => {
+    setIsLoginChoiceVisible(true);
   };
 
   const handleDeleteAccount = () => {
@@ -271,6 +274,20 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled">
               <View style={styles.formContent}>
+                {!accountIsProtected ? (
+                  <View style={styles.unprotectedBlock}>
+                    <ThemedText style={styles.unprotectedTitle}>Аккаунт не защищён</ThemedText>
+                    <ThemedText themeColor="textSecondary" style={styles.unprotectedText}>
+                      Подключите email или телефон, чтобы восстановить гардероб на другом устройстве.
+                    </ThemedText>
+                    <Pressable
+                      onPress={handleSaveAccount}
+                      style={({ pressed }) => [styles.unprotectedButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.unprotectedButtonText}>Сохранить аккаунт</ThemedText>
+                    </Pressable>
+                  </View>
+                ) : null}
+
                 <View style={styles.section}>
                   <SectionTitle>ID ПОЛЬЗОВАТЕЛЯ</SectionTitle>
                   <View style={styles.idRow}>
@@ -413,11 +430,8 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
                 <View style={styles.section}>
                   <SectionTitle>УПРАВЛЕНИЕ АККАУНТОМ</SectionTitle>
                   <View style={styles.actionGroup}>
-                    {!user?.emailVerified ? (
-                      <ActionRow label="Войти по email" onPress={handleLoginByEmail} />
-                    ) : null}
-                    {!user?.phoneVerified ? (
-                      <ActionRow label="Войти по телефону" onPress={handleLoginByPhone} />
+                    {!accountIsProtected ? (
+                      <ActionRow label="Войти в существующий аккаунт" onPress={handleLoginExisting} />
                     ) : null}
                     <ActionRow
                       label="Удалить аккаунт"
@@ -433,9 +447,12 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
         </Animated.View>
       </GestureHandlerRootView>
       <EmailLinkSheet visible={isEmailLinkVisible} onClose={() => setIsEmailLinkVisible(false)} />
-      <EmailLoginSheet visible={isEmailLoginVisible} onClose={() => setIsEmailLoginVisible(false)} />
       <PhoneLinkSheet visible={isPhoneLinkVisible} onClose={() => setIsPhoneLinkVisible(false)} />
-      <PhoneLoginSheet visible={isPhoneLoginVisible} onClose={() => setIsPhoneLoginVisible(false)} />
+      <AccountSaveSheet visible={isSaveAccountVisible} onClose={() => setIsSaveAccountVisible(false)} />
+      <AccountLoginChoiceSheet
+        visible={isLoginChoiceVisible}
+        onClose={() => setIsLoginChoiceVisible(false)}
+      />
     </Modal>
   );
 }
@@ -503,6 +520,35 @@ const styles = StyleSheet.create({
   },
   formContent: {
     gap: Spacing.five,
+  },
+  unprotectedBlock: {
+    borderRadius: 16,
+    backgroundColor: Colors.light.backgroundElement,
+    padding: Spacing.four,
+    gap: Spacing.two,
+  },
+  unprotectedTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  unprotectedText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  unprotectedButton: {
+    marginTop: Spacing.one,
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.light.text,
+    paddingHorizontal: Spacing.three,
+  },
+  unprotectedButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.background,
   },
   section: {
     gap: Spacing.two,

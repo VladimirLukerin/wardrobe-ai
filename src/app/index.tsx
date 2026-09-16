@@ -1,7 +1,7 @@
 import { getOutfitDescription } from '@/utils/outfit-description';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,6 +12,8 @@ import {
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import AccountSaveSheet from '@/components/account-save-sheet';
+import { HomeAccountReminderCard } from '@/components/home-account-reminder-card';
 import { HomeBrandHeader } from '@/components/home-brand-header';
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
 import { HomeOutfitFeed } from '@/components/home-outfit-feed';
@@ -22,17 +24,22 @@ import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
 import type { SavedOutfit } from '@/constants/saved-outfit';
 import { Colors, OutfitColors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
+import { useAccount } from '@/contexts/account-context';
 import { useOutfits } from '@/contexts/outfits-context';
 import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
 import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
 import type { OutfitSuggestion, OutfitWeather } from '@/services/outfit-suggestions';
 import { useHomeDailyData } from '@/contexts/home-daily-content-context';
 import { getActiveLocation } from '@/utils/get-active-location';
+import { isAccountProtected } from '@/utils/account-is-protected';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { formatWeatherTemperature, getWeatherCodeLabel } from '@/utils/weather-code';
 
 const SAVED_OUTFITS_PREVIEW_COUNT = 3;
 const WARDROBE_PREVIEW_COUNT = 4;
+const HOME_ACCOUNT_REMINDER_MIN_ITEMS = 5;
+
+let homeAccountReminderDismissed = false;
 
 function HomeWeatherBlock({
   locationName,
@@ -211,7 +218,10 @@ function CompactSavedOutfitCard({
 }
 
 export default function HomeScreen() {
+  const { user } = useAccount();
   const { items, isHydrated: isWardrobeHydrated } = useWardrobe();
+  const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
+  const [isReminderDismissed, setIsReminderDismissed] = useState(homeAccountReminderDismissed);
   const { savedOutfits, isHydrated: isOutfitsHydrated, isOutfitSaved, toggleSavedOutfit } =
     useOutfits();
   const { considerWeather, isHydrated: isStylistHydrated } =
@@ -285,6 +295,17 @@ export default function HomeScreen() {
     });
   };
 
+  const showAccountReminder =
+    isFullyHydrated &&
+    items.length >= HOME_ACCOUNT_REMINDER_MIN_ITEMS &&
+    !isAccountProtected(user) &&
+    !isReminderDismissed;
+
+  const handleDismissAccountReminder = () => {
+    homeAccountReminderDismissed = true;
+    setIsReminderDismissed(true);
+  };
+
   return (
     <ThemedView style={styles.container}>
       {!isFullyHydrated ? (
@@ -302,6 +323,15 @@ export default function HomeScreen() {
             ]}
             showsVerticalScrollIndicator={false}>
             <HomeBrandHeader />
+
+          {showAccountReminder ? (
+            <View style={styles.section}>
+              <HomeAccountReminderCard
+                onSaveAccount={() => setIsSaveAccountVisible(true)}
+                onDismiss={handleDismissAccountReminder}
+              />
+            </View>
+          ) : null}
 
           {considerWeather && activeLocation && (
             <HomeWeatherBlock
@@ -421,6 +451,10 @@ export default function HomeScreen() {
         </Animated.View>
       </SafeAreaView>
       )}
+      <AccountSaveSheet
+        visible={isSaveAccountVisible}
+        onClose={() => setIsSaveAccountVisible(false)}
+      />
     </ThemedView>
   );
 }

@@ -16,7 +16,8 @@ import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAccount } from '@/contexts/account-context';
 import { AccountApiError } from '@/services/account';
-import { requestEmailLinkCode, verifyEmailLinkCode } from '@/services/email-auth';
+import { devBypassEmailLinkCode, requestEmailLinkCode, verifyEmailLinkCode } from '@/services/email-auth';
+import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type EmailLinkSheetProps = {
   visible: boolean;
@@ -120,6 +121,23 @@ export default function EmailLinkSheet({ visible, onClose }: EmailLinkSheetProps
 
     try {
       const response = await requestEmailLinkCode(trimmedEmail);
+
+      if (isDevOtpBypassAvailable(response)) {
+        setIsVerifying(true);
+
+        try {
+          const verifyResponse = await devBypassEmailLinkCode(response.challengeId);
+          applyAuthenticatedUser(verifyResponse.user);
+          onClose();
+          return;
+        } catch (error) {
+          setErrorMessage(resolveVerifyError(error));
+          return;
+        } finally {
+          setIsVerifying(false);
+        }
+      }
+
       setChallengeId(response.challengeId);
       setResendAfterSeconds(response.resendAfterSeconds);
       setStep('code');

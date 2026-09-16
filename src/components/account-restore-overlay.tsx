@@ -4,9 +4,6 @@ import { ActivityIndicator, Modal, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAccount } from '@/contexts/account-context';
-import { useOutfitsSync } from '@/contexts/outfits-sync-context';
-import { usePreferencesSync } from '@/contexts/preferences-sync-context';
-import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
 
 function isSyncSettled(status: string): boolean {
@@ -15,33 +12,17 @@ function isSyncSettled(status: string): boolean {
 
 export function AccountRestoreOverlay() {
   const { isRestoringAccount, finishAccountRestore } = useAccount();
-  const { status: preferencesStatus } = usePreferencesSync();
   const { status: wardrobeStatus } = useWardrobeSync();
-  const { status: outfitsStatus } = useOutfitsSync();
-  const { status: wearHistoryStatus } = useWearHistorySync();
 
   useEffect(() => {
     if (!isRestoringAccount) {
       return;
     }
 
-    const allSettled =
-      isSyncSettled(preferencesStatus) &&
-      isSyncSettled(wardrobeStatus) &&
-      isSyncSettled(outfitsStatus) &&
-      isSyncSettled(wearHistoryStatus);
-
-    if (allSettled) {
+    if (isSyncSettled(wardrobeStatus)) {
       finishAccountRestore();
     }
-  }, [
-    finishAccountRestore,
-    isRestoringAccount,
-    outfitsStatus,
-    preferencesStatus,
-    wardrobeStatus,
-    wearHistoryStatus,
-  ]);
+  }, [finishAccountRestore, isRestoringAccount, wardrobeStatus]);
 
   useEffect(() => {
     if (!isRestoringAccount) {
@@ -50,7 +31,7 @@ export function AccountRestoreOverlay() {
 
     const timeout = setTimeout(() => {
       finishAccountRestore();
-    }, 30000);
+    }, 15000);
 
     return () => {
       clearTimeout(timeout);

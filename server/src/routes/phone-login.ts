@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { normalizePhone } from '../auth/normalize-phone';
+import { ensureDevOtpBypassEnabled, withDevBypassFlag } from '../auth/dev-otp-bypass';
 import {
   generateOtpCode,
   hashPhoneOtpCode,
@@ -84,7 +85,7 @@ phoneLoginRouter.post('/phone/request-code', async (req: Request, res: Response)
 
   if (!targetUser) {
     console.log('[PHONE LOGIN] request accepted without verified account');
-    res.status(201).json(buildNeutralChallengeResponse(crypto.randomUUID()));
+    res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(crypto.randomUUID())));
     return;
   }
 
@@ -146,7 +147,7 @@ phoneLoginRouter.post('/phone/request-code', async (req: Request, res: Response)
 
     console.log('[PHONE LOGIN] verification code sent');
 
-    res.status(201).json(buildNeutralChallengeResponse(challenge.id));
+    res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(challenge.id)));
   } catch (error) {
     console.error('Failed to request phone login code:', error);
     res.status(500).json({ error: 'Не удалось отправить код подтверждения.' });
@@ -221,6 +222,63 @@ phoneLoginRouter.post('/phone/verify', (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Failed to verify phone login code:', error);
+    res.status(500).json({ error: 'Не удалось выполнить вход.' });
+  }
+});
+
+phoneLoginRouter.post('/phone/dev-bypass', (req: Request, res: Response) => {
+  if (!ensureDevOtpBypassEnabled(res)) {
+    return;
+  }
+
+  if (!ensurePhoneVerificationEnabled(res)) {
+    return;
+  }
+
+  const challengeId =
+    typeof req.body?.challengeId === 'string' ? req.body.challengeId.trim() : '';
+
+  if (!challengeId) {
+    res.status(400).json({ error: 'Challenge id is required.' });
+    return;
+  }
+
+  const challenge = findPhoneVerificationChallengeById(challengeId);
+
+  if (!challenge || challenge.purpose !== 'login') {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  if (challenge.consumed_at) {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  if (new Date(challenge.expires_at).getTime() <= Date.now()) {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  const targetUser = findUserById(challenge.user_id);
+
+  if (!targetUser || targetUser.phone_verified !== 1 || targetUser.phone !== challenge.phone) {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  try {
+    const { token } = createSessionForUser(targetUser.id);
+    consumePhoneVerificationChallenge(challenge.id);
+
+    console.log('[PHONE LOGIN] dev bypass completed');
+
+    res.json({
+      user: toUserResponse(targetUser),
+      token,
+    });
+  } catch (error) {
+    console.error('Failed to dev-bypass phone login:', error);
     res.status(500).json({ error: 'Не удалось выполнить вход.' });
   }
 });

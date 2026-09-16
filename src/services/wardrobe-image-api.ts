@@ -134,11 +134,19 @@ async function downloadWardrobeImage(
       },
     });
   } catch (error) {
+    if (__DEV__) {
+      console.log('[IMAGE CLIENT] HTTP status=network-error');
+    }
+
     if (isNetworkFailure(error)) {
       throw new AccountApiError(0, 'Network request failed');
     }
 
     throw error;
+  }
+
+  if (__DEV__) {
+    console.log(`[IMAGE CLIENT] HTTP status=${response.status}`);
   }
 
   if (!response.ok) {
@@ -147,6 +155,10 @@ async function downloadWardrobeImage(
 
   const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
   const bytes = await response.bytes();
+
+  if (__DEV__) {
+    console.log(`[IMAGE CLIENT] bytes=${bytes.byteLength}`);
+  }
 
   if (bytes.byteLength === 0) {
     throw new AccountApiError(500, 'Empty image response');

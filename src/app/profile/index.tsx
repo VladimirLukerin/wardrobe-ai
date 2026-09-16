@@ -4,12 +4,15 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
+import AccountSaveSheet from '@/components/account-save-sheet';
 import AccountSheet from '@/components/account-sheet';
 import AddMemberSheet from '@/components/add-member-sheet';
 import BodyParametersSheet from '@/components/body-parameters-sheet';
 import StylistSettingsSheet from '@/components/stylist-settings-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { getFamilyMemberLabel } from '@/constants/family';
 import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
@@ -20,6 +23,7 @@ import { useStylePreferences } from '@/contexts/style-preferences-context';
 import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
 import { assessLocalAccountState } from '@/services/account-switch';
+import { isAccountProtected } from '@/utils/account-is-protected';
 
 const PROFILE = {
   completion: 70,
@@ -44,7 +48,9 @@ export default function ProfileScreen() {
   const [isBodyParametersSheetVisible, setIsBodyParametersSheetVisible] = useState(false);
   const [isStylistSettingsSheetVisible, setIsStylistSettingsSheetVisible] = useState(false);
   const [isAccountSheetVisible, setIsAccountSheetVisible] = useState(false);
-  const { user, logoutFromProfile } = useAccount();
+  const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
+  const [isLoginChoiceVisible, setIsLoginChoiceVisible] = useState(false);
+  const { user, logoutFromProfile, devResetTestAccount } = useAccount();
   const { displayName } = useAccountProfile();
   const { status: preferencesSyncStatus } = usePreferencesSync();
   const { status: wardrobeSyncStatus } = useWardrobeSync();
@@ -52,7 +58,9 @@ export default function ProfileScreen() {
   const { status: wearHistorySyncStatus } = useWearHistorySync();
   const { styles: preferredStyles, colors: preferredColors, hasStylePreferences } =
     useStylePreferences();
-  const { members } = useFamily();
+  const { members, incomingInvites, outgoingInvites, status, error, refreshFamily, acceptInvite, rejectInvite } =
+    useFamily();
+  const isProtected = isAccountProtected(user);
 
   const handleLogoutPress = async () => {
     const assessment = await assessLocalAccountState();
@@ -75,7 +83,7 @@ export default function ProfileScreen() {
       messageParts.push('Есть несинхронизированные изменения.');
     }
 
-    messageParts.push('Вы выйдете из текущего аккаунта и начнёте с нового локального профиля.');
+    messageParts.push('Вы вернётесь на экран входа. Локальные данные этого профиля будут удалены с устройства.');
 
     Alert.alert(LOGOUT_TITLE, messageParts.join('\n\n'), [
       { text: 'Отмена', style: 'cancel' },
@@ -87,6 +95,23 @@ export default function ProfileScreen() {
         },
       },
     ]);
+  };
+
+  const handleDevResetPress = () => {
+    Alert.alert(
+      'Сбросить тестовый аккаунт?',
+      'Локальные данные, onboarding и session будут удалены с устройства. Серверные данные не затрагиваются.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Сбросить',
+          style: 'destructive',
+          onPress: () => {
+            void devResetTestAccount();
+          },
+        },
+      ],
+    );
   };
 
   const toggleTooltip = () => {
@@ -107,43 +132,73 @@ export default function ProfileScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
-            <View style={styles.avatar}>
-              <ThemedText style={styles.avatarLetter}>{getInitial(displayName)}</ThemedText>
-            </View>
-
-            <ThemedText style={styles.name}>{displayName}</ThemedText>
-
-            <View style={styles.styleSection}>
-              <View style={styles.styleRow}>
-                <ThemedText themeColor="textSecondary" style={styles.styleHint}>
-                  {STYLE_HINT}
-                </ThemedText>
-                <Pressable
-                  onPress={toggleTooltip}
-                  hitSlop={8}
-                  style={({ pressed }) => pressed && styles.pressed}>
-                  <SymbolView
-                    name={{ ios: 'info.circle', android: 'info', web: 'info' }}
-                    size={16}
-                    tintColor={Colors.light.textSecondary}
-                  />
-                </Pressable>
-              </View>
-
-              {isTooltipVisible && (
-                <View style={styles.tooltip}>
-                  <ThemedText style={styles.tooltipText}>{STYLE_TOOLTIP}</ThemedText>
+            {isProtected ? (
+              <>
+                <View style={styles.avatar}>
+                  <ThemedText style={styles.avatarLetter}>{getInitial(displayName)}</ThemedText>
                 </View>
-              )}
-            </View>
 
-            <ThemedText themeColor="textSecondary" style={styles.completionText}>
-              Профиль заполнен на {PROFILE.completion}%
-            </ThemedText>
+                <ThemedText style={styles.name}>{displayName}</ThemedText>
 
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${PROFILE.completion}%` }]} />
-            </View>
+                <View style={styles.styleSection}>
+                  <View style={styles.styleRow}>
+                    <ThemedText themeColor="textSecondary" style={styles.styleHint}>
+                      {STYLE_HINT}
+                    </ThemedText>
+                    <Pressable
+                      onPress={toggleTooltip}
+                      hitSlop={8}
+                      style={({ pressed }) => pressed && styles.pressed}>
+                      <SymbolView
+                        name={{ ios: 'info.circle', android: 'info', web: 'info' }}
+                        size={16}
+                        tintColor={Colors.light.textSecondary}
+                      />
+                    </Pressable>
+                  </View>
+
+                  {isTooltipVisible && (
+                    <View style={styles.tooltip}>
+                      <ThemedText style={styles.tooltipText}>{STYLE_TOOLTIP}</ThemedText>
+                    </View>
+                  )}
+                </View>
+
+                <ThemedText themeColor="textSecondary" style={styles.completionText}>
+                  Профиль заполнен на {PROFILE.completion}%
+                </ThemedText>
+
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${PROFILE.completion}%` }]} />
+                </View>
+              </>
+            ) : (
+              <>
+                <ThemedText style={styles.name}>Гостевой профиль</ThemedText>
+
+                <View style={styles.guestCard}>
+                  <ThemedText style={styles.guestCardTitle}>Аккаунт не защищён</ThemedText>
+                  <ThemedText themeColor="textSecondary" style={styles.guestCardText}>
+                    Подключите email или телефон, чтобы сохранить гардероб и восстановить его на
+                    другом устройстве.
+                  </ThemedText>
+
+                  <Pressable
+                    onPress={() => setIsSaveAccountVisible(true)}
+                    style={({ pressed }) => [styles.guestPrimaryButton, pressed && styles.pressed]}>
+                    <ThemedText style={styles.guestPrimaryButtonText}>Сохранить аккаунт</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setIsLoginChoiceVisible(true)}
+                    style={({ pressed }) => [styles.guestSecondaryButton, pressed && styles.pressed]}>
+                    <ThemedText style={styles.guestSecondaryButtonText}>
+                      Войти в существующий аккаунт
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              </>
+            )}
           </View>
 
           <Pressable
@@ -185,6 +240,68 @@ export default function ProfileScreen() {
           <View style={styles.familyBlock}>
             <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
 
+            {status === 'loading' && members.length === 0 ? (
+              <ThemedText themeColor="textSecondary" style={styles.familyStatusText}>
+                Загрузка…
+              </ThemedText>
+            ) : null}
+
+            {status === 'error' ? (
+              <View style={styles.familyStatusCard}>
+                <ThemedText themeColor="textSecondary" style={styles.familyStatusText}>
+                  {error ?? 'Не удалось загрузить семью'}
+                </ThemedText>
+                <Pressable
+                  onPress={() => {
+                    void refreshFamily();
+                  }}
+                  style={({ pressed }) => [styles.familyRetryButton, pressed && styles.pressed]}>
+                  <ThemedText style={styles.familyRetryButtonText}>Повторить</ThemedText>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {incomingInvites.map((invite) => (
+              <View key={invite.id} style={styles.familyInviteCard}>
+                <ThemedText style={styles.familyInviteText}>
+                  {getFamilyMemberLabel(invite.sender)} хочет добавить вас в семью
+                </ThemedText>
+                <View style={styles.familyInviteActions}>
+                  <Pressable
+                    onPress={() => {
+                      void acceptInvite(invite.id);
+                    }}
+                    style={({ pressed }) => [styles.familyAcceptButton, pressed && styles.pressed]}>
+                    <ThemedText style={styles.familyAcceptButtonText}>Принять</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      void rejectInvite(invite.id);
+                    }}
+                    style={({ pressed }) => [styles.familyRejectButton, pressed && styles.pressed]}>
+                    <ThemedText style={styles.familyRejectButtonText}>Отклонить</ThemedText>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+
+            {outgoingInvites.map((invite) => (
+              <View key={invite.id} style={styles.familyOutgoingCard}>
+                <ThemedText themeColor="textSecondary" style={styles.familyOutgoingText}>
+                  Приглашение отправлено: {getFamilyMemberLabel(invite.recipient)}
+                </ThemedText>
+              </View>
+            ))}
+
+            {status === 'loaded' &&
+            members.length === 0 &&
+            incomingInvites.length === 0 &&
+            outgoingInvites.length === 0 ? (
+              <ThemedText themeColor="textSecondary" style={styles.familyEmptyText}>
+                Добавьте близких по ID пользователя, чтобы видеть их здесь после принятия приглашения.
+              </ThemedText>
+            ) : null}
+
             <ScrollView
               horizontal
               nestedScrollEnabled
@@ -201,14 +318,14 @@ export default function ProfileScreen() {
               </View>
 
               {members.map((member) => (
-                <View key={member.id} style={styles.familyMember}>
+                <View key={member.publicId} style={styles.familyMember}>
                   <View style={styles.miniAvatar}>
                     <ThemedText style={styles.miniAvatarLetter}>
-                      {getInitial(member.name)}
+                      {getInitial(getFamilyMemberLabel(member))}
                     </ThemedText>
                   </View>
                   <ThemedText style={styles.memberLabel} numberOfLines={1}>
-                    {member.name}
+                    {getFamilyMemberLabel(member)}
                   </ThemedText>
                 </View>
               ))}
@@ -248,25 +365,36 @@ export default function ProfileScreen() {
             />
           </Pressable>
 
-          <Pressable
-            onPress={() => setIsAccountSheetVisible(true)}
-            style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-            <ThemedText style={styles.settingsTitle}>Аккаунт</ThemedText>
-            <SymbolView
-              name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-              size={12}
-              tintColor={Colors.light.textSecondary}
-            />
-          </Pressable>
+          {isProtected ? (
+            <Pressable
+              onPress={() => setIsAccountSheetVisible(true)}
+              style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
+              <ThemedText style={styles.settingsTitle}>Аккаунт</ThemedText>
+              <SymbolView
+                name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                size={12}
+                tintColor={Colors.light.textSecondary}
+              />
+            </Pressable>
+          ) : null}
 
           <View style={styles.logoutBlock}>
-            <Pressable
-              onPress={() => {
-                void handleLogoutPress();
-              }}
-              style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
-              <ThemedText style={styles.logoutText}>Выйти из профиля</ThemedText>
-            </Pressable>
+            {isProtected ? (
+              <Pressable
+                onPress={() => {
+                  void handleLogoutPress();
+                }}
+                style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
+                <ThemedText style={styles.logoutText}>Выйти из профиля</ThemedText>
+              </Pressable>
+            ) : null}
+            {__DEV__ ? (
+              <Pressable
+                onPress={handleDevResetPress}
+                style={({ pressed }) => [styles.devResetButton, pressed && styles.pressed]}>
+                <ThemedText style={styles.devResetText}>Сбросить тестовый аккаунт</ThemedText>
+              </Pressable>
+            ) : null}
           </View>
         </ScrollView>
 
@@ -285,6 +413,14 @@ export default function ProfileScreen() {
         <AccountSheet
           visible={isAccountSheetVisible}
           onClose={() => setIsAccountSheetVisible(false)}
+        />
+        <AccountSaveSheet
+          visible={isSaveAccountVisible}
+          onClose={() => setIsSaveAccountVisible(false)}
+        />
+        <AccountLoginChoiceSheet
+          visible={isLoginChoiceVisible}
+          onClose={() => setIsLoginChoiceVisible(false)}
         />
       </SafeAreaView>
     </ThemedView>
@@ -393,6 +529,52 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: Colors.light.text,
   },
+  guestCard: {
+    width: '100%',
+    marginTop: Spacing.two,
+    borderRadius: 16,
+    backgroundColor: Colors.light.backgroundElement,
+    padding: Spacing.four,
+    gap: Spacing.three,
+  },
+  guestCardTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: Colors.light.text,
+    textAlign: 'center',
+  },
+  guestCardText: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  guestPrimaryButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.light.text,
+    paddingHorizontal: Spacing.three,
+  },
+  guestPrimaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.light.background,
+  },
+  guestSecondaryButton: {
+    minHeight: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.light.backgroundSelected,
+    paddingHorizontal: Spacing.three,
+  },
+  guestSecondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
   myStyleBlock: {
     marginTop: Spacing.five,
     paddingTop: Spacing.four,
@@ -460,6 +642,78 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     color: Colors.light.text,
   },
+  familyStatusText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  familyStatusCard: {
+    gap: Spacing.two,
+  },
+  familyRetryButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: Spacing.one,
+  },
+  familyRetryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  familyInviteCard: {
+    backgroundColor: Colors.light.backgroundElement,
+    borderRadius: 12,
+    padding: Spacing.three,
+    gap: Spacing.three,
+  },
+  familyInviteText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: Colors.light.text,
+  },
+  familyInviteActions: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  familyAcceptButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.light.text,
+  },
+  familyAcceptButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.background,
+  },
+  familyRejectButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.light.backgroundSelected,
+  },
+  familyRejectButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  familyOutgoingCard: {
+    backgroundColor: Colors.light.backgroundElement,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  familyOutgoingText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  familyEmptyText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
   familyRow: {
     gap: Spacing.three,
     paddingRight: Spacing.two,
@@ -519,6 +773,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#DC2626',
+  },
+  devResetButton: {
+    marginTop: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.four,
+  },
+  devResetText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.light.textSecondary,
   },
   pressed: {
     opacity: 0.7,

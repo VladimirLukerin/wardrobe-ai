@@ -16,7 +16,8 @@ import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAccount } from '@/contexts/account-context';
 import { AccountApiError } from '@/services/account';
-import { requestPhoneLinkCode, verifyPhoneLinkCode } from '@/services/phone-auth';
+import { devBypassPhoneLinkCode, requestPhoneLinkCode, verifyPhoneLinkCode } from '@/services/phone-auth';
+import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type PhoneLinkSheetProps = {
   visible: boolean;
@@ -124,6 +125,23 @@ export default function PhoneLinkSheet({ visible, onClose }: PhoneLinkSheetProps
 
     try {
       const response = await requestPhoneLinkCode(trimmedPhone);
+
+      if (isDevOtpBypassAvailable(response)) {
+        setIsVerifying(true);
+
+        try {
+          const verifyResponse = await devBypassPhoneLinkCode(response.challengeId);
+          applyAuthenticatedUser(verifyResponse.user);
+          onClose();
+          return;
+        } catch (error) {
+          setErrorMessage(resolveVerifyError(error));
+          return;
+        } finally {
+          setIsVerifying(false);
+        }
+      }
+
       setChallengeId(response.challengeId);
       setResendAfterSeconds(response.resendAfterSeconds);
       setStep('code');

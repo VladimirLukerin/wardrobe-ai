@@ -11,7 +11,7 @@ export function useAddWardrobeItem() {
     });
   }, []);
 
-  const takePhoto = useCallback(async () => {
+  const capturePhotoUri = useCallback(async (): Promise<string | null> => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
 
     if (!permission.granted) {
@@ -19,7 +19,7 @@ export function useAddWardrobeItem() {
         'Нужен доступ к камере',
         'Для съёмки вещи приложению нужен доступ к камере. Разрешение можно изменить в настройках iPhone.',
       );
-      return;
+      return null;
     }
 
     const result = await ImagePicker.launchCameraAsync({
@@ -28,13 +28,13 @@ export function useAddWardrobeItem() {
     });
 
     if (result.canceled || result.assets.length === 0) {
-      return;
+      return null;
     }
 
-    openAddItemScreen(result.assets[0].uri);
-  }, [openAddItemScreen]);
+    return result.assets[0].uri;
+  }, []);
 
-  const pickFromGallery = useCallback(async () => {
+  const pickGalleryPhotoUri = useCallback(async (): Promise<string | null> => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
@@ -42,7 +42,7 @@ export function useAddWardrobeItem() {
         'Нужен доступ к фотографиям',
         'Разреши доступ к галерее в настройках, чтобы добавлять вещи в гардероб.',
       );
-      return;
+      return null;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -52,14 +52,36 @@ export function useAddWardrobeItem() {
     });
 
     if (result.canceled || result.assets.length === 0) {
+      return null;
+    }
+
+    return result.assets[0].uri;
+  }, []);
+
+  const takePhoto = useCallback(async () => {
+    const uri = await capturePhotoUri();
+
+    if (!uri) {
       return;
     }
 
-    openAddItemScreen(result.assets[0].uri);
-  }, [openAddItemScreen]);
+    openAddItemScreen(uri);
+  }, [capturePhotoUri, openAddItemScreen]);
+
+  const pickFromGallery = useCallback(async () => {
+    const uri = await pickGalleryPhotoUri();
+
+    if (!uri) {
+      return;
+    }
+
+    openAddItemScreen(uri);
+  }, [openAddItemScreen, pickGalleryPhotoUri]);
 
   return {
     openAddItemScreen,
+    capturePhotoUri,
+    pickGalleryPhotoUri,
     takePhoto,
     pickFromGallery,
   };

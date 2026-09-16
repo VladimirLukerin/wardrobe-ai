@@ -59,6 +59,13 @@ export function findUserById(id: string): DbUser | null {
   return row ?? null;
 }
 
+export function findUserByPublicId(publicId: string): DbUser | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT * FROM users WHERE public_id = ?').get(publicId) as DbUser | undefined;
+
+  return row ?? null;
+}
+
 export function findUserByVerifiedEmail(email: string): DbUser | null {
   const db = getDatabase();
   const row = db

@@ -22,11 +22,13 @@ import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
 import { AccountApiError } from '@/services/account';
 import { assessLocalAccountState } from '@/services/account-switch';
-import { requestEmailLoginCode, verifyEmailLoginCode } from '@/services/email-auth';
+import { devBypassEmailLoginCode, requestEmailLoginCode, verifyEmailLoginCode } from '@/services/email-auth';
+import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type EmailLoginSheetProps = {
   visible: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 };
 
 type Step = 'email' | 'code';
@@ -55,7 +57,7 @@ function resolveVerifyError(error: unknown): string {
   return 'Не удалось подтвердить код';
 }
 
-export default function EmailLoginSheet({ visible, onClose }: EmailLoginSheetProps) {
+export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLoginSheetProps) {
   const insets = useSafeAreaInsets();
   const { user, switchToAuthenticatedAccount } = useAccount();
   const { status: preferencesStatus } = usePreferencesSync();
@@ -107,10 +109,11 @@ export default function EmailLoginSheet({ visible, onClose }: EmailLoginSheetPro
 
   const performAccountSwitch = useCallback(
     async (nextUser: Awaited<ReturnType<typeof verifyEmailLoginCode>>) => {
-      await switchToAuthenticatedAccount(nextUser.user, nextUser.token);
       onClose();
+      onSuccess?.();
+      await switchToAuthenticatedAccount(nextUser.user, nextUser.token);
     },
-    [onClose, switchToAuthenticatedAccount],
+    [onClose, onSuccess, switchToAuthenticatedAccount],
   );
 
   const confirmAndSwitch = useCallback(
@@ -176,6 +179,22 @@ export default function EmailLoginSheet({ visible, onClose }: EmailLoginSheetPro
 
     try {
       const response = await requestEmailLoginCode(trimmedEmail);
+
+      if (isDevOtpBypassAvailable(response)) {
+        setIsVerifying(true);
+
+        try {
+          const loginResult = await devBypassEmailLoginCode(response.challengeId);
+          await confirmAndSwitch(loginResult);
+          return;
+        } catch (error) {
+          setErrorMessage(resolveVerifyError(error));
+          return;
+        } finally {
+          setIsVerifying(false);
+        }
+      }
+
       setChallengeId(response.challengeId);
       setResendAfterSeconds(response.resendAfterSeconds);
       setStep('code');

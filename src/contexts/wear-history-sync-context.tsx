@@ -48,6 +48,7 @@ function isOutfitsInitialSyncComplete(status: ReturnType<typeof useOutfitsSync>[
 
 export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
   const {
+    accountSessionKey,
     isHydrated: isAccountHydrated,
     isServerAccount,
     isRestoringAccount,
@@ -100,7 +101,11 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const syncSessionKey = accountSessionKey;
+
     const syncPromise = (async () => {
+      const isCurrentSession = () => syncSessionKey === accountSessionKey;
+
       const token = await getAuthToken();
 
       if (!token) {
@@ -134,7 +139,20 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
 
         if (plan.eventsToApply.length > 0) {
           console.log(`[WEAR SYNC] pull ${plan.pullCount}`);
+
+          if (!isCurrentSession()) {
+            return;
+          }
+
           applyServerEvents(plan.eventsToApply);
+
+          if (__DEV__) {
+            console.log(`[WEAR RESTORE] ${plan.eventsToApply.length}`);
+          }
+        }
+
+        if (!isCurrentSession()) {
+          return;
         }
 
         for (const eventId of plan.localEventsToRemove) {
@@ -172,6 +190,11 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
         });
 
         await saveWearHistorySyncMetadata(nextMetadata);
+
+        if (!isCurrentSession()) {
+          return;
+        }
+
         setStatus('synced');
       } catch (error) {
         console.log('[WEAR SYNC] offline');
@@ -194,6 +217,7 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
     }
   }, [
     accountError,
+    accountSessionKey,
     applyServerEvents,
     applySyncedWearEventRemoval,
     isReady,
@@ -233,6 +257,14 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
     initialSyncStartedRef.current = true;
     void runWearHistorySync();
   }, [isReady, runWearHistorySync]);
+
+  useEffect(() => {
+    if (!isReady || !isRestoringAccount) {
+      return;
+    }
+
+    void runWearHistorySync();
+  }, [isReady, isRestoringAccount, runWearHistorySync]);
 
   useEffect(() => {
     if (!isReady) {

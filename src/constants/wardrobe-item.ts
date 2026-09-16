@@ -18,10 +18,46 @@ export type LegacyWardrobeItemImageFields = {
   uri?: string;
 };
 
+import { localImageFileExists } from '@/utils/wardrobe-local-image-path';
+
+const loggedDisplayImageItems = new Set<string>();
+
 export function getWardrobeItemDisplayImageUri(
-  item: WardrobeItemImageFields & LegacyWardrobeItemImageFields,
+  item: WardrobeItemImageFields & LegacyWardrobeItemImageFields & { id?: string },
 ): string {
-  return item.processedImageUri ?? item.originalImageUri ?? item.uri ?? '';
+  if (item.processedImageUri && localImageFileExists(item.processedImageUri)) {
+    if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
+      loggedDisplayImageItems.add(item.id);
+      console.log('[IMAGE CLIENT] display=processed');
+    }
+
+    return item.processedImageUri;
+  }
+
+  if (item.originalImageUri && localImageFileExists(item.originalImageUri)) {
+    if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
+      loggedDisplayImageItems.add(item.id);
+      console.log('[IMAGE CLIENT] display=original');
+    }
+
+    return item.originalImageUri;
+  }
+
+  if (item.uri && localImageFileExists(item.uri)) {
+    if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
+      loggedDisplayImageItems.add(item.id);
+      console.log('[IMAGE CLIENT] display=original');
+    }
+
+    return item.uri;
+  }
+
+  if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
+    loggedDisplayImageItems.add(item.id);
+    console.log('[IMAGE CLIENT] display=missing');
+  }
+
+  return '';
 }
 
 export function normalizeWardrobeItemImageFields(

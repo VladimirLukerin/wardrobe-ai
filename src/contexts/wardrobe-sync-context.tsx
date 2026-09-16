@@ -11,6 +11,7 @@ import {
 
 import { useAccount } from '@/contexts/account-context';
 import { useWardrobe } from '@/contexts/wardrobe-context';
+import type { WardrobeItem } from '@/contexts/wardrobe-context';
 import { AccountApiError } from '@/services/account';
 import { fetchWardrobeSnapshot, postWardrobeSync } from '@/services/wardrobe-api';
 import { reconcileWardrobeImages } from '@/services/wardrobe-image-sync';
@@ -29,7 +30,7 @@ import {
   registerWardrobeSyncQueue,
   unregisterWardrobeSyncQueue,
 } from '@/utils/wardrobe-sync-queue';
-import { hasWardrobePendingChanges, isSyncFresh } from '@/utils/sync-ttl';
+import { shouldSkipWardrobeServerSync } from '@/utils/sync-ttl';
 
 export type WardrobeSyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error';
 
@@ -43,8 +44,46 @@ const WardrobeSyncContext = createContext<WardrobeSyncContextValue | null>(null)
 
 const PUSH_DEBOUNCE_MS = 1000;
 
+function normalizeRestoredPlaceholder(id: string, metadata: WardrobeMetadataPatch): WardrobeItem {
+  return {
+    id,
+    ...metadata,
+    originalImageUri: '',
+    processedImageUri: undefined,
+  };
+}
+
+function upsertWardrobeItem(current: WardrobeItem[], item: WardrobeItem): WardrobeItem[] {
+  const existingIndex = current.findIndex((entry) => entry.id === item.id);
+
+  if (existingIndex === -1) {
+    return [...current, item];
+  }
+
+  return current.map((entry, index) => (index === existingIndex ? item : entry));
+}
+
+function applyMetadataPatches(
+  current: WardrobeItem[],
+  entries: Array<{ id: string; metadata: WardrobeMetadataPatch }>,
+): WardrobeItem[] {
+  return current.map((item) => {
+    const entry = entries.find((candidate) => candidate.id === item.id);
+
+    if (!entry) {
+      return item;
+    }
+
+    return {
+      ...item,
+      ...entry.metadata,
+    };
+  });
+}
+
 export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
   const {
+    accountSessionKey,
     isHydrated: isAccountHydrated,
     isServerAccount,
     isRestoringAccount,
@@ -57,7 +96,6 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
     applySyncedItemMetadata,
     applySyncedItemRemoval,
     applySyncedWardrobeItem,
-    applySyncedImageUris,
   } = useWardrobe();
 
   const [status, setStatus] = useState<WardrobeSyncStatus>('idle');
@@ -67,6 +105,11 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
   const pushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncInFlightRef = useRef<Promise<void> | null>(null);
   const previousAccountErrorRef = useRef<string | null>(null);
+  const userIdRef = useRef(user?.id ?? null);
+
+  useEffect(() => {
+    userIdRef.current = user?.id ?? null;
+  }, [user?.id]);
 
   const isReady = isAccountHydrated && isWardrobeHydrated && isServerAccount;
 
@@ -95,7 +138,11 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const syncSessionKey = accountSessionKey;
+
     const syncPromise = (async () => {
+      const isCurrentSession = () => syncSessionKey === accountSessionKey;
+
       const token = await getAuthToken();
 
       if (!token) {
@@ -105,80 +152,157 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
       }
 
       const metadata = await loadWardrobeSyncMetadata();
+      const skipMetadataSync = shouldSkipWardrobeServerSync(
+        metadata,
+        items.length,
+        isRestoringAccount,
+      );
 
-      if (
-        !isRestoringAccount &&
-        isSyncFresh(metadata.lastServerSyncAt) &&
-        !hasWardrobePendingChanges(metadata)
-      ) {
+      if (skipMetadataSync) {
+        if (__DEV__) {
+          console.log('[WARDROBE TTL] hit');
+        }
+
         console.log('[WARDROBE SYNC] cache hit');
-        setStatus('synced');
-        return;
+      } else if (__DEV__) {
+        const ttlSkipReason =
+          items.length === 0
+            ? 'empty-local'
+            : Object.keys(metadata.serverUpdatedAtById).length > items.length
+              ? 'incomplete-local'
+              : isRestoringAccount
+                ? 'restoring'
+                : 'pending-or-stale';
+        console.log(`[WARDROBE TTL] skip reason=${ttlSkipReason}`);
       }
 
       setStatus('syncing');
 
+      let syncCompleted = false;
+
       try {
-        const serverSnapshot = await fetchWardrobeSnapshot(token);
+        let resultingSnapshot;
+        let nextMetadata = metadata;
+        let itemsForImageReconcile = items;
 
-        const plan = buildWardrobeSyncPlan({
-          localItems: items,
-          metadata,
-          serverSnapshot,
-        });
+        if (skipMetadataSync) {
+          resultingSnapshot = await fetchWardrobeSnapshot(token);
 
-        if (plan.metadataToApply.length > 0) {
-          console.log(`[WARDROBE SYNC] pull ${plan.pullCount}`);
-          await applyServerMetadata(plan.metadataToApply);
-        }
+          if (!isCurrentSession()) {
+            return;
+          }
+        } else {
+          const serverSnapshot = await fetchWardrobeSnapshot(token);
 
-        for (const itemId of plan.localItemsToRemove) {
-          applySyncedItemRemoval(itemId);
-        }
-
-        const shouldPush =
-          plan.itemsToPush.length > 0 ||
-          plan.deletedItemsToPush.length > 0 ||
-          (serverSnapshot.items.length === 0 &&
-            serverSnapshot.deletedItems.length === 0 &&
-            items.length > 0);
-
-        let resultingSnapshot = serverSnapshot;
-
-        if (shouldPush) {
-          console.log(`[WARDROBE SYNC] push ${plan.itemsToPush.length}`);
-          if (plan.deletedItemsToPush.length > 0) {
-            console.log(`[WARDROBE SYNC] delete ${plan.deletedItemsToPush.length}`);
+          if (!isCurrentSession()) {
+            return;
           }
 
-          resultingSnapshot = await postWardrobeSync(token, {
-            items: plan.itemsToPush,
-            deletedItems: plan.deletedItemsToPush,
+          if (__DEV__) {
+            console.log(`[WARDROBE SYNC] server=${serverSnapshot.items.length} local=${items.length}`);
+          }
+
+          const plan = buildWardrobeSyncPlan({
+            localItems: items,
+            metadata,
+            serverSnapshot,
           });
-        } else if (plan.metadataToApply.length === 0 && plan.localItemsToRemove.length === 0) {
-          console.log('[WARDROBE SYNC] no changes');
+
+          if (!isCurrentSession()) {
+            return;
+          }
+
+          let workingItems = items;
+
+          for (const entry of plan.serverItemsToRestore) {
+            const restoredItem = normalizeRestoredPlaceholder(entry.id, entry.metadata);
+            applySyncedWardrobeItem(restoredItem);
+            workingItems = upsertWardrobeItem(workingItems, restoredItem);
+          }
+
+          if (plan.metadataToApply.length > 0) {
+            console.log(`[WARDROBE SYNC] pull ${plan.pullCount}`);
+            await applyServerMetadata(plan.metadataToApply);
+            workingItems = applyMetadataPatches(workingItems, plan.metadataToApply);
+          }
+
+          if (!isCurrentSession()) {
+            return;
+          }
+
+          for (const itemId of plan.localItemsToRemove) {
+            applySyncedItemRemoval(itemId);
+            workingItems = workingItems.filter((item) => item.id !== itemId);
+          }
+
+          const shouldPush =
+            plan.itemsToPush.length > 0 ||
+            plan.deletedItemsToPush.length > 0 ||
+            (serverSnapshot.items.length === 0 &&
+              serverSnapshot.deletedItems.length === 0 &&
+              items.length > 0);
+
+          resultingSnapshot = serverSnapshot;
+
+          if (shouldPush) {
+            console.log(`[WARDROBE SYNC] push ${plan.itemsToPush.length}`);
+            if (plan.deletedItemsToPush.length > 0) {
+              console.log(`[WARDROBE SYNC] delete ${plan.deletedItemsToPush.length}`);
+            }
+
+            resultingSnapshot = await postWardrobeSync(token, {
+              items: plan.itemsToPush,
+              deletedItems: plan.deletedItemsToPush,
+            });
+          } else if (plan.metadataToApply.length === 0 && plan.localItemsToRemove.length === 0) {
+            console.log('[WARDROBE SYNC] no changes');
+          }
+
+          const acknowledgedDeleteIds = plan.deletedItemsToPush.map((entry) => entry.id);
+          nextMetadata = buildMetadataAfterSync({
+            metadata,
+            serverSnapshot: resultingSnapshot,
+            acknowledgedDeleteIds,
+          });
+
+          if (!isCurrentSession()) {
+            return;
+          }
+
+          await saveWardrobeSyncMetadata(nextMetadata);
+
+          if (!isCurrentSession()) {
+            return;
+          }
+
+          itemsForImageReconcile = workingItems;
+
+          if (__DEV__ && plan.serverItemsToRestore.length > 0) {
+            console.log(`[WARDROBE RESTORE] ${plan.serverItemsToRestore.length}`);
+          }
         }
-
-        const acknowledgedDeleteIds = plan.deletedItemsToPush.map((entry) => entry.id);
-        const nextMetadata = buildMetadataAfterSync({
-          metadata,
-          serverSnapshot: resultingSnapshot,
-          acknowledgedDeleteIds,
-        });
-
-        await saveWardrobeSyncMetadata(nextMetadata);
 
         const imageResult = await reconcileWardrobeImages({
           token,
-          userId: user?.id ?? null,
-          localItems: items,
+          userId: userIdRef.current,
+          localItems: itemsForImageReconcile,
           serverSnapshot: resultingSnapshot,
           wardrobeMetadata: nextMetadata,
           handlers: {
-            applySyncedWardrobeItem,
-            applySyncedImageUris,
+            applySyncedWardrobeItem: (item) => {
+              if (!isCurrentSession()) {
+                return;
+              }
+
+              applySyncedWardrobeItem(item);
+              itemsForImageReconcile = upsertWardrobeItem(itemsForImageReconcile, item);
+            },
           },
         });
+
+        if (!isCurrentSession()) {
+          return;
+        }
 
         if (imageResult.isOffline) {
           setStatus('offline');
@@ -187,6 +311,8 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
         } else {
           setStatus('synced');
         }
+
+        syncCompleted = true;
       } catch (error) {
         console.log('[WARDROBE SYNC] offline');
 
@@ -196,6 +322,10 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
         }
 
         setStatus('pending');
+      } finally {
+        if (!syncCompleted && isCurrentSession()) {
+          setStatus((current) => (current === 'syncing' ? 'pending' : current));
+        }
       }
     })();
 
@@ -208,10 +338,10 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
     }
   }, [
     accountError,
+    accountSessionKey,
     applyServerMetadata,
     applySyncedItemRemoval,
     applySyncedWardrobeItem,
-    applySyncedImageUris,
     isReady,
     isRestoringAccount,
     items,
@@ -250,6 +380,14 @@ export function WardrobeSyncProvider({ children }: { children: ReactNode }) {
     initialSyncStartedRef.current = true;
     void runWardrobeSync();
   }, [isReady, runWardrobeSync]);
+
+  useEffect(() => {
+    if (!isReady || !isRestoringAccount) {
+      return;
+    }
+
+    void runWardrobeSync();
+  }, [isReady, isRestoringAccount, runWardrobeSync]);
 
   useEffect(() => {
     if (!isReady) {

@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import PhotoRetakeSheet from '@/components/photo-retake-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import type { ImageProcessingStatus } from '@/constants/wardrobe-item';
@@ -27,12 +28,20 @@ import {
 } from '@/constants/wardrobe-options';
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWardrobe } from '@/contexts/wardrobe-context';
+import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
 import {
-  analyzeClothingImage,
-  ClothingAnalysisError,
-  LOW_CONFIDENCE_THRESHOLD,
-} from '@/services/clothingAnalysis';
-import { processClothingImage } from '@/services/clothing-image-processing';
+  ClothingImageProcessingError,
+  clearClothingImageProcessingCache,
+  processClothingImage,
+} from '@/services/clothing-image-processing';
+
+const LOW_CONFIDENCE_THRESHOLD = 0.6;
+
+const BACKGROUND_REMOVAL_SHEET_TITLE = 'Не удалось обработать фон';
+const BACKGROUND_REMOVAL_SHEET_MESSAGE =
+  'Попробуйте ещё раз или выберите другую фотографию.';
+
+type RetakeSheetMode = 'photo_guard' | 'background_removal';
 
 type AnalysisStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -185,6 +194,7 @@ function TextEditModal({ visible, title, value, onChange, onClose }: TextEditMod
 export default function AddItemScreen() {
   const { uri } = useLocalSearchParams<{ uri: string }>();
   const { addItem } = useWardrobe();
+  const { capturePhotoUri, pickGalleryPhotoUri } = useAddWardrobeItem();
   const insets = useSafeAreaInsets();
 
   const originalImageUri = uri ?? '';
@@ -203,6 +213,9 @@ export default function AddItemScreen() {
   const [confidence, setConfidence] = useState<number | null>(null);
   const [imageProcessingStatus, setImageProcessingStatus] = useState<ImageProcessingStatus>('idle');
   const [processedImageUri, setProcessedImageUri] = useState<string | undefined>();
+  const [imageProcessingMessage, setImageProcessingMessage] = useState<string | null>(null);
+  const [retakeSheetMode, setRetakeSheetMode] = useState<RetakeSheetMode | null>(null);
+  const [photoRejectMessage, setPhotoRejectMessage] = useState<string | null>(null);
 
   const [activePicker, setActivePicker] = useState<
     'category' | 'color' | 'print' | 'style' | null
@@ -210,16 +223,15 @@ export default function AddItemScreen() {
   const [isNameEditorOpen, setIsNameEditorOpen] = useState(false);
 
   const analysisRequestRef = useRef(0);
-  const imageProcessingRequestRef = useRef(0);
 
   const displayImageUri = processedImageUri ?? originalImageUri;
-  const isAnalyzing = analysisStatus === 'loading';
-  const isProcessingImage = imageProcessingStatus === 'processing';
-  const isSaveDisabled = isProcessingImage;
+  const isProcessingPhoto =
+    analysisStatus === 'loading' || imageProcessingStatus === 'processing';
+  const isSaveDisabled = isProcessingPhoto;
   const printDisplayValue = getPrintDisplayValue(pattern, printDescription);
 
-  const applyAnalysisResult = useCallback(
-    (result: Awaited<ReturnType<typeof analyzeClothingImage>>) => {
+  const applyProcessingResult = useCallback(
+    (result: Awaited<ReturnType<typeof processClothingImage>>) => {
       setName(result.name);
       setBaseName(result.baseName);
       setCategory(result.category);
@@ -227,40 +239,27 @@ export default function AddItemScreen() {
       setPattern(result.pattern);
       setPrintDescription(result.printDescription);
       setStyle(result.style);
-      setConfidence(typeof result.confidence === 'number' ? result.confidence : null);
+      setConfidence(result.confidence);
+      setProcessedImageUri(result.processedImageUri);
     },
     [],
   );
 
-  const runImageProcessing = useCallback(async () => {
-    if (!originalImageUri) {
-      return;
-    }
-
-    const requestId = ++imageProcessingRequestRef.current;
-    setImageProcessingStatus('processing');
+  const replacePhotoUri = useCallback((nextUri: string) => {
+    clearClothingImageProcessingCache(originalImageUri);
+    analysisRequestRef.current += 1;
+    setRetakeSheetMode(null);
+    setPhotoRejectMessage(null);
+    setAnalysisStatus('idle');
+    setAnalysisMessage(null);
+    setConfidence(null);
+    setImageProcessingStatus('idle');
     setProcessedImageUri(undefined);
-
-    try {
-      const result = await processClothingImage(originalImageUri);
-
-      if (requestId !== imageProcessingRequestRef.current) {
-        return;
-      }
-
-      setProcessedImageUri(result.processedImageUri);
-      setImageProcessingStatus('completed');
-    } catch {
-      if (requestId !== imageProcessingRequestRef.current) {
-        return;
-      }
-
-      setProcessedImageUri(undefined);
-      setImageProcessingStatus('failed');
-    }
+    setImageProcessingMessage(null);
+    router.setParams({ uri: nextUri });
   }, [originalImageUri]);
 
-  const runAnalysis = useCallback(async () => {
+  const runPhotoProcessing = useCallback(async () => {
     if (!originalImageUri) {
       return;
     }
@@ -269,43 +268,100 @@ export default function AddItemScreen() {
     setAnalysisStatus('loading');
     setAnalysisMessage(null);
     setConfidence(null);
+    setImageProcessingStatus('processing');
+    setProcessedImageUri(undefined);
+    setImageProcessingMessage(null);
+    setRetakeSheetMode(null);
+    setPhotoRejectMessage(null);
 
     try {
-      const result = await analyzeClothingImage(originalImageUri);
+      const result = await processClothingImage(originalImageUri);
 
       if (requestId !== analysisRequestRef.current) {
         return;
       }
 
-      applyAnalysisResult(result);
+      applyProcessingResult(result);
       setAnalysisStatus('success');
       setAnalysisMessage(null);
-      void runImageProcessing();
+      setImageProcessingStatus('completed');
     } catch (error) {
       if (requestId !== analysisRequestRef.current) {
         return;
       }
 
-      setAnalysisStatus('error');
+      setProcessedImageUri(undefined);
       setConfidence(null);
 
-      if (error instanceof ClothingAnalysisError && error.code === 'network') {
-        setAnalysisMessage('Не удалось подключиться к сервису распознавания.');
+      if (ClothingImageProcessingError.isPhotoGuardReject(error)) {
+        setAnalysisStatus('error');
+        setAnalysisMessage(null);
+        setImageProcessingStatus('failed');
+        setImageProcessingMessage(null);
+        setPhotoRejectMessage(error.message || null);
+        setRetakeSheetMode('photo_guard');
         return;
       }
 
+      if (ClothingImageProcessingError.isBackgroundRemoval(error)) {
+        setAnalysisStatus('error');
+        setAnalysisMessage(null);
+        setImageProcessingStatus('failed');
+        setImageProcessingMessage(null);
+        setRetakeSheetMode('background_removal');
+        return;
+      }
+
+      setAnalysisStatus('error');
+      setImageProcessingStatus('failed');
+      setRetakeSheetMode(null);
+
+      if (error instanceof ClothingImageProcessingError && error.code === 'network') {
+        setAnalysisMessage('Не удалось подключиться к сервису распознавания.');
+        setImageProcessingMessage('Не удалось подключиться к серверу.');
+        return;
+      }
+
+      const message =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'Не удалось обработать фото.';
+
       setAnalysisMessage('Не удалось распознать вещь. Заполните данные вручную.');
+      setImageProcessingMessage(message);
     }
-  }, [originalImageUri, applyAnalysisResult, runImageProcessing]);
+  }, [originalImageUri, applyProcessingResult]);
+
+  const handleRetakePhoto = useCallback(async () => {
+    setRetakeSheetMode(null);
+    const nextUri = await capturePhotoUri();
+
+    if (nextUri) {
+      replacePhotoUri(nextUri);
+    }
+  }, [capturePhotoUri, replacePhotoUri]);
+
+  const handlePickAnotherPhoto = useCallback(async () => {
+    setRetakeSheetMode(null);
+    const nextUri = await pickGalleryPhotoUri();
+
+    if (nextUri) {
+      replacePhotoUri(nextUri);
+    }
+  }, [pickGalleryPhotoUri, replacePhotoUri]);
+
+  const runAnalysis = useCallback(async () => {
+    clearClothingImageProcessingCache(originalImageUri);
+    await runPhotoProcessing();
+  }, [originalImageUri, runPhotoProcessing]);
 
   useEffect(() => {
-    runAnalysis();
+    void runPhotoProcessing();
 
     return () => {
       analysisRequestRef.current += 1;
-      imageProcessingRequestRef.current += 1;
     };
-  }, [runAnalysis]);
+  }, [runPhotoProcessing]);
 
   const handlePatternChange = (nextPattern: string) => {
     setPattern(nextPattern);
@@ -395,7 +451,7 @@ export default function AddItemScreen() {
               />
             </View>
 
-            {isProcessingImage && (
+            {isProcessingPhoto && (
               <View style={styles.processingBadge}>
                 <ActivityIndicator size="small" color={Colors.light.textSecondary} />
                 <ThemedText style={styles.processingBadgeText}>Обрабатываем фото…</ThemedText>
@@ -409,30 +465,21 @@ export default function AddItemScreen() {
             )}
             </View>
 
-            {imageProcessingStatus === 'failed' && (
+            {imageProcessingStatus === 'failed' && retakeSheetMode === null && (
               <View style={styles.processingFailedRow}>
                 <ThemedText themeColor="textSecondary" style={styles.processingFailedText}>
-                  Не удалось обработать фото
+                  {imageProcessingMessage ?? 'Не удалось обработать фото'}
                 </ThemedText>
                 <ThemedText themeColor="textSecondary" style={styles.processingFailedDot}>
                   ·
                 </ThemedText>
                 <Pressable
                   onPress={() => {
-                    void runImageProcessing();
+                    void runAnalysis();
                   }}
                   style={({ pressed }) => [styles.processingRetryButton, pressed && styles.buttonPressed]}>
                   <ThemedText style={styles.processingRetryButtonText}>Повторить</ThemedText>
                 </Pressable>
-              </View>
-            )}
-
-            {isAnalyzing && (
-              <View style={styles.analysisStatus}>
-                <ActivityIndicator size="small" color={Colors.light.textSecondary} />
-                <ThemedText themeColor="textSecondary" style={styles.confidenceText}>
-                  Распознаём вещь…
-                </ThemedText>
               </View>
             )}
 
@@ -484,17 +531,19 @@ export default function AddItemScreen() {
           </View>
 
           <Pressable
-            onPress={runAnalysis}
-            disabled={isAnalyzing || isProcessingImage}
+            onPress={() => {
+              void runAnalysis();
+            }}
+            disabled={isProcessingPhoto}
             style={({ pressed }) => [
               styles.recognizeAgainButton,
-              (isAnalyzing || isProcessingImage) && styles.recognizeAgainButtonDisabled,
-              pressed && !isAnalyzing && !isProcessingImage && styles.buttonPressed,
+              isProcessingPhoto && styles.recognizeAgainButtonDisabled,
+              pressed && !isProcessingPhoto && styles.buttonPressed,
             ]}>
             <ThemedText
               style={[
                 styles.recognizeAgainText,
-                (isAnalyzing || isProcessingImage) && styles.recognizeAgainTextDisabled,
+                isProcessingPhoto && styles.recognizeAgainTextDisabled,
               ]}>
               ↻ Распознать снова
             </ThemedText>
@@ -533,6 +582,39 @@ export default function AddItemScreen() {
           onClose={() => setActivePicker(null)}
         />
       )}
+
+      <PhotoRetakeSheet
+        visible={retakeSheetMode !== null}
+        title={
+          retakeSheetMode === 'background_removal'
+            ? BACKGROUND_REMOVAL_SHEET_TITLE
+            : undefined
+        }
+        message={
+          retakeSheetMode === 'background_removal'
+            ? BACKGROUND_REMOVAL_SHEET_MESSAGE
+            : photoRejectMessage
+        }
+        hint={retakeSheetMode === 'background_removal' ? null : undefined}
+        primaryLabel={
+          retakeSheetMode === 'background_removal' ? 'Попробовать снова' : undefined
+        }
+        secondaryLabel={
+          retakeSheetMode === 'background_removal' ? 'Выбрать другое фото' : undefined
+        }
+        onClose={() => setRetakeSheetMode(null)}
+        onRetakePhoto={() => {
+          if (retakeSheetMode === 'background_removal') {
+            void runAnalysis();
+            return;
+          }
+
+          void handleRetakePhoto();
+        }}
+        onPickAnotherPhoto={() => {
+          void handlePickAnotherPhoto();
+        }}
+      />
     </ThemedView>
   );
 }

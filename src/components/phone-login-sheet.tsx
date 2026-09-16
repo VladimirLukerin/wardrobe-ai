@@ -22,11 +22,13 @@ import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
 import { AccountApiError } from '@/services/account';
 import { assessLocalAccountState } from '@/services/account-switch';
-import { requestPhoneLoginCode, verifyPhoneLoginCode } from '@/services/phone-auth';
+import { devBypassPhoneLoginCode, requestPhoneLoginCode, verifyPhoneLoginCode } from '@/services/phone-auth';
+import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type PhoneLoginSheetProps = {
   visible: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 };
 
 type Step = 'phone' | 'code';
@@ -55,7 +57,7 @@ function resolveVerifyError(error: unknown): string {
   return 'Не удалось подтвердить код';
 }
 
-export default function PhoneLoginSheet({ visible, onClose }: PhoneLoginSheetProps) {
+export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLoginSheetProps) {
   const insets = useSafeAreaInsets();
   const { user, switchToAuthenticatedAccount } = useAccount();
   const { status: preferencesStatus } = usePreferencesSync();
@@ -107,10 +109,11 @@ export default function PhoneLoginSheet({ visible, onClose }: PhoneLoginSheetPro
 
   const performAccountSwitch = useCallback(
     async (loginResult: Awaited<ReturnType<typeof verifyPhoneLoginCode>>) => {
-      await switchToAuthenticatedAccount(loginResult.user, loginResult.token);
       onClose();
+      onSuccess?.();
+      await switchToAuthenticatedAccount(loginResult.user, loginResult.token);
     },
-    [onClose, switchToAuthenticatedAccount],
+    [onClose, onSuccess, switchToAuthenticatedAccount],
   );
 
   const confirmAndSwitch = useCallback(
@@ -175,6 +178,22 @@ export default function PhoneLoginSheet({ visible, onClose }: PhoneLoginSheetPro
 
     try {
       const response = await requestPhoneLoginCode(trimmedPhone);
+
+      if (isDevOtpBypassAvailable(response)) {
+        setIsVerifying(true);
+
+        try {
+          const loginResult = await devBypassPhoneLoginCode(response.challengeId);
+          await confirmAndSwitch(loginResult);
+          return;
+        } catch (error) {
+          setErrorMessage(resolveVerifyError(error));
+          return;
+        } finally {
+          setIsVerifying(false);
+        }
+      }
+
       setChallengeId(response.challengeId);
       setResendAfterSeconds(response.resendAfterSeconds);
       setStep('code');

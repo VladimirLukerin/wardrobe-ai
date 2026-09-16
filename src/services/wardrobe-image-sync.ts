@@ -21,6 +21,7 @@ import {
   buildWardrobeLocalProcessedFile,
   localImageFileExists,
 } from '@/utils/wardrobe-local-image-path';
+import { shortWardrobeItemId } from '@/utils/short-wardrobe-item-id';
 
 export type WardrobeImageSyncResult = {
   isPending: boolean;
@@ -29,10 +30,6 @@ export type WardrobeImageSyncResult = {
 
 type WardrobeImageSyncHandlers = {
   applySyncedWardrobeItem: (item: WardrobeItem) => void;
-  applySyncedImageUris: (
-    itemId: string,
-    imageUris: { originalImageUri?: string; processedImageUri?: string },
-  ) => void;
 };
 
 function isDeletedItem(itemId: string, wardrobeMetadata: WardrobeSyncMetadata): boolean {
@@ -109,6 +106,139 @@ function shouldDownloadImage({
   return false;
 }
 
+function itemHasValidLocalImageUri(uri: string | undefined): boolean {
+  return Boolean(uri && localImageFileExists(uri));
+}
+
+async function resolveImageUrisFromDisk(
+  userId: string | null,
+  itemId: string,
+  currentItem?: WardrobeItem,
+): Promise<{ originalImageUri?: string; processedImageUri?: string }> {
+  const resolved: { originalImageUri?: string; processedImageUri?: string } = {};
+
+  if (itemHasValidLocalImageUri(currentItem?.processedImageUri)) {
+    resolved.processedImageUri = currentItem?.processedImageUri;
+  } else {
+    const processedFile = await buildWardrobeLocalProcessedFile(userId, itemId);
+
+    if (processedFile.exists && processedFile.size > 0) {
+      resolved.processedImageUri = processedFile.uri;
+    }
+  }
+
+  if (itemHasValidLocalImageUri(currentItem?.originalImageUri)) {
+    resolved.originalImageUri = currentItem?.originalImageUri;
+  } else {
+    for (const contentType of ['image/jpeg', 'image/png', 'image/webp', 'image/heic']) {
+      const originalFile = await buildWardrobeLocalOriginalFile(userId, itemId, contentType);
+
+      if (originalFile.exists && originalFile.size > 0) {
+        resolved.originalImageUri = originalFile.uri;
+        break;
+      }
+    }
+  }
+
+  return resolved;
+}
+
+function mergeDownloadedAndDiskImageUris(
+  downloaded: { originalImageUri?: string; processedImageUri?: string },
+  fromDisk: { originalImageUri?: string; processedImageUri?: string },
+): { originalImageUri?: string; processedImageUri?: string } {
+  return {
+    processedImageUri: downloaded.processedImageUri ?? fromDisk.processedImageUri,
+    originalImageUri: downloaded.originalImageUri ?? fromDisk.originalImageUri,
+  };
+}
+
+function shouldApplyResolvedImageUris(
+  localItem: WardrobeItem,
+  resolved: { originalImageUri?: string; processedImageUri?: string },
+): boolean {
+  if (!resolved.processedImageUri && !resolved.originalImageUri) {
+    return false;
+  }
+
+  const hasDisplayableImage =
+    itemHasValidLocalImageUri(localItem.processedImageUri) ||
+    itemHasValidLocalImageUri(localItem.originalImageUri);
+
+  if (!hasDisplayableImage) {
+    return true;
+  }
+
+  if (
+    resolved.processedImageUri &&
+    resolved.processedImageUri !== localItem.processedImageUri
+  ) {
+    return true;
+  }
+
+  if (resolved.originalImageUri && resolved.originalImageUri !== localItem.originalImageUri) {
+    return true;
+  }
+
+  return false;
+}
+
+function isPersistedLocalImageUri(uri: string | undefined): boolean {
+  return Boolean(uri && localImageFileExists(uri));
+}
+
+function buildSyncedImagePatch(
+  localItem: WardrobeItem | undefined,
+  resolved: { originalImageUri?: string; processedImageUri?: string },
+): { originalImageUri?: string; processedImageUri?: string } {
+  const patch: { originalImageUri?: string; processedImageUri?: string } = {};
+
+  if (resolved.processedImageUri) {
+    patch.processedImageUri = resolved.processedImageUri;
+  }
+
+  if (resolved.originalImageUri) {
+    patch.originalImageUri = resolved.originalImageUri;
+  } else if (
+    resolved.processedImageUri &&
+    !isPersistedLocalImageUri(localItem?.originalImageUri)
+  ) {
+    patch.originalImageUri = resolved.processedImageUri;
+  }
+
+  return patch;
+}
+
+function logImageApply(resolved: { originalImageUri?: string; processedImageUri?: string }): void {
+  if (!__DEV__) {
+    return;
+  }
+
+  console.log(
+    `[IMAGE APPLY] processed=${Boolean(resolved.processedImageUri)} original=${Boolean(resolved.originalImageUri)}`,
+  );
+}
+
+function logImageClientSaveError(error: unknown): void {
+  if (!__DEV__) {
+    return;
+  }
+
+  if (error instanceof Error) {
+    console.log(`[IMAGE CLIENT] save error=${error.name}: ${error.message}`);
+    return;
+  }
+
+  console.log('[IMAGE CLIENT] save error=UnknownError: Save failed');
+}
+
+function toWritableImageBytes(bytes: Uint8Array): Uint8Array {
+  const payload = new Uint8Array(bytes.byteLength);
+  payload.set(bytes);
+
+  return payload;
+}
+
 async function saveDownloadedImage({
   userId,
   itemId,
@@ -122,32 +252,45 @@ async function saveDownloadedImage({
   bytes: Uint8Array;
   contentType: string;
 }): Promise<{ uri: string; fingerprint: string }> {
-  const targetFile =
-    kind === 'original'
-      ? await buildWardrobeLocalOriginalFile(userId, itemId, contentType)
-      : await buildWardrobeLocalProcessedFile(userId, itemId);
-
-  if (targetFile.exists) {
-    targetFile.delete();
+  if (__DEV__) {
+    console.log('[IMAGE CLIENT] save start');
   }
 
-  targetFile.create();
-  targetFile.write(bytes);
+  try {
+    const targetFile =
+      kind === 'original'
+        ? await buildWardrobeLocalOriginalFile(userId, itemId, contentType)
+        : await buildWardrobeLocalProcessedFile(userId, itemId);
 
-  if (!targetFile.exists || targetFile.size === 0) {
-    throw new Error('Failed to persist downloaded wardrobe image.');
+    if (targetFile.exists) {
+      targetFile.delete();
+    }
+
+    targetFile.write(toWritableImageBytes(bytes));
+
+    if (!localImageFileExists(targetFile.uri)) {
+      throw new Error('Downloaded wardrobe image was not written to disk.');
+    }
+
+    const fingerprint = buildLocalImageFingerprint(targetFile.uri);
+
+    if (!fingerprint) {
+      throw new Error('Failed to fingerprint saved wardrobe image.');
+    }
+
+    if (__DEV__) {
+      console.log('[IMAGE CLIENT] save success');
+      console.log('[IMAGE CLIENT] exists=true');
+    }
+
+    return {
+      uri: targetFile.uri,
+      fingerprint,
+    };
+  } catch (error) {
+    logImageClientSaveError(error);
+    throw error;
   }
-
-  const fingerprint = buildLocalImageFingerprint(targetFile.uri);
-
-  if (!fingerprint) {
-    throw new Error('Failed to fingerprint downloaded wardrobe image.');
-  }
-
-  return {
-    uri: targetFile.uri,
-    fingerprint,
-  };
 }
 
 function toRestoredWardrobeItem(
@@ -314,7 +457,13 @@ export async function reconcileWardrobeImages({
 
     const localItem = localItemsById.get(serverItem.id);
     const syncEntry = imageMetadata.items[serverItem.id];
-    const imageUris: { originalImageUri?: string; processedImageUri?: string } = {};
+    const downloadedUris: { originalImageUri?: string; processedImageUri?: string } = {};
+
+    if (__DEV__) {
+      console.log(
+        `[IMAGE RESTORE] item=${shortWardrobeItemId(serverItem.id)} processedAvailable=${serverItem.images.processedAvailable} originalAvailable=${serverItem.images.originalAvailable}`,
+      );
+    }
 
     const needsProcessedDownload =
       serverItem.images.processedAvailable &&
@@ -335,61 +484,52 @@ export async function reconcileWardrobeImages({
       });
 
     if (needsProcessedDownload) {
+      let downloaded;
+
       try {
-        const downloaded = await downloadWardrobeProcessedImage(token, serverItem.id);
-        const saved = await saveDownloadedImage({
-          userId,
-          itemId: serverItem.id,
-          kind: 'processed',
-          bytes: downloaded.bytes,
-          contentType: downloaded.contentType,
-        });
-
-        imageUris.processedImageUri = saved.uri;
-
-        if (serverItem.images.processedUpdatedAt) {
-          await updateSyncEntry({
-            itemId: serverItem.id,
-            kind: 'processed',
-            localFingerprint: saved.fingerprint,
-            serverUpdatedAt: serverItem.images.processedUpdatedAt,
-          });
-        }
-
-        console.log('[IMAGE SYNC] download processed');
+        downloaded = await downloadWardrobeProcessedImage(token, serverItem.id);
       } catch (error) {
         if (error instanceof AccountApiError && error.status === 0) {
           console.log('[IMAGE SYNC] offline');
           isOffline = true;
         } else {
+          isPending = true;
+        }
+      }
+
+      if (downloaded) {
+        try {
+          const saved = await saveDownloadedImage({
+            userId,
+            itemId: serverItem.id,
+            kind: 'processed',
+            bytes: downloaded.bytes,
+            contentType: downloaded.contentType,
+          });
+
+          downloadedUris.processedImageUri = saved.uri;
+
+          if (serverItem.images.processedUpdatedAt) {
+            await updateSyncEntry({
+              itemId: serverItem.id,
+              kind: 'processed',
+              localFingerprint: saved.fingerprint,
+              serverUpdatedAt: serverItem.images.processedUpdatedAt,
+            });
+          }
+
+          console.log('[IMAGE SYNC] download processed');
+        } catch {
           isPending = true;
         }
       }
     }
 
     if (needsOriginalDownload) {
+      let downloaded;
+
       try {
-        const downloaded = await downloadWardrobeOriginalImage(token, serverItem.id);
-        const saved = await saveDownloadedImage({
-          userId,
-          itemId: serverItem.id,
-          kind: 'original',
-          bytes: downloaded.bytes,
-          contentType: downloaded.contentType,
-        });
-
-        imageUris.originalImageUri = saved.uri;
-
-        if (serverItem.images.originalUpdatedAt) {
-          await updateSyncEntry({
-            itemId: serverItem.id,
-            kind: 'original',
-            localFingerprint: saved.fingerprint,
-            serverUpdatedAt: serverItem.images.originalUpdatedAt,
-          });
-        }
-
-        console.log('[IMAGE SYNC] download original');
+        downloaded = await downloadWardrobeOriginalImage(token, serverItem.id);
       } catch (error) {
         if (error instanceof AccountApiError && error.status === 0) {
           console.log('[IMAGE SYNC] offline');
@@ -398,18 +538,52 @@ export async function reconcileWardrobeImages({
           isPending = true;
         }
       }
+
+      if (downloaded) {
+        try {
+          const saved = await saveDownloadedImage({
+            userId,
+            itemId: serverItem.id,
+            kind: 'original',
+            bytes: downloaded.bytes,
+            contentType: downloaded.contentType,
+          });
+
+          downloadedUris.originalImageUri = saved.uri;
+
+          if (serverItem.images.originalUpdatedAt) {
+            await updateSyncEntry({
+              itemId: serverItem.id,
+              kind: 'original',
+              localFingerprint: saved.fingerprint,
+              serverUpdatedAt: serverItem.images.originalUpdatedAt,
+            });
+          }
+
+          console.log('[IMAGE SYNC] download original');
+        } catch {
+          isPending = true;
+        }
+      }
     }
 
-    const hasDownloadedImage = Boolean(imageUris.originalImageUri || imageUris.processedImageUri);
+    const diskUris = await resolveImageUrisFromDisk(userId, serverItem.id, localItem);
+    const resolvedUris = mergeDownloadedAndDiskImageUris(downloadedUris, diskUris);
 
-    if (!localItem && hasDownloadedImage) {
-      handlers.applySyncedWardrobeItem(toRestoredWardrobeItem(serverItem, imageUris));
+    const imagePatch = buildSyncedImagePatch(localItem, resolvedUris);
+
+    if (localItem) {
+      if (shouldApplyResolvedImageUris(localItem, resolvedUris) && Object.keys(imagePatch).length > 0) {
+        logImageApply(resolvedUris);
+        handlers.applySyncedWardrobeItem({
+          ...localItem,
+          ...imagePatch,
+        });
+      }
+    } else if (Object.keys(imagePatch).length > 0) {
+      logImageApply(resolvedUris);
+      handlers.applySyncedWardrobeItem(toRestoredWardrobeItem(serverItem, imagePatch));
       console.log('[IMAGE SYNC] restore item');
-      continue;
-    }
-
-    if (localItem && hasDownloadedImage) {
-      handlers.applySyncedImageUris(serverItem.id, imageUris);
     }
   }
 

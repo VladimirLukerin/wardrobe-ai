@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { normalizeEmail } from '../auth/normalize-email';
+import { ensureDevOtpBypassEnabled, withDevBypassFlag } from '../auth/dev-otp-bypass';
 import {
   generateOtpCode,
   hashOtpCode,
@@ -84,7 +85,7 @@ emailLoginRouter.post('/email/request-code', async (req: Request, res: Response)
 
   if (!targetUser) {
     console.log('[EMAIL LOGIN] request accepted without verified account');
-    res.status(201).json(buildNeutralChallengeResponse(crypto.randomUUID()));
+    res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(crypto.randomUUID())));
     return;
   }
 
@@ -146,7 +147,7 @@ emailLoginRouter.post('/email/request-code', async (req: Request, res: Response)
 
     console.log('[EMAIL LOGIN] verification code sent');
 
-    res.status(201).json(buildNeutralChallengeResponse(challenge.id));
+    res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(challenge.id)));
   } catch (error) {
     console.error('Failed to request email login code:', error);
     res.status(500).json({ error: 'Не удалось отправить код подтверждения.' });
@@ -221,6 +222,63 @@ emailLoginRouter.post('/email/verify', (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Failed to verify email login code:', error);
+    res.status(500).json({ error: 'Не удалось выполнить вход.' });
+  }
+});
+
+emailLoginRouter.post('/email/dev-bypass', (req: Request, res: Response) => {
+  if (!ensureDevOtpBypassEnabled(res)) {
+    return;
+  }
+
+  if (!ensureEmailVerificationEnabled(res)) {
+    return;
+  }
+
+  const challengeId =
+    typeof req.body?.challengeId === 'string' ? req.body.challengeId.trim() : '';
+
+  if (!challengeId) {
+    res.status(400).json({ error: 'Challenge id is required.' });
+    return;
+  }
+
+  const challenge = findEmailVerificationChallengeById(challengeId);
+
+  if (!challenge || challenge.purpose !== 'login') {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  if (challenge.consumed_at) {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  if (new Date(challenge.expires_at).getTime() <= Date.now()) {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  const targetUser = findUserById(challenge.user_id);
+
+  if (!targetUser || targetUser.email_verified !== 1 || targetUser.email !== challenge.email) {
+    rejectInvalidLoginCode(res);
+    return;
+  }
+
+  try {
+    const { token } = createSessionForUser(targetUser.id);
+    consumeEmailVerificationChallenge(challenge.id);
+
+    console.log('[EMAIL LOGIN] dev bypass completed');
+
+    res.json({
+      user: toUserResponse(targetUser),
+      token,
+    });
+  } catch (error) {
+    console.error('Failed to dev-bypass email login:', error);
     res.status(500).json({ error: 'Не удалось выполнить вход.' });
   }
 });
