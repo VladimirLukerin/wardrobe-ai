@@ -30,6 +30,7 @@ import { usePreferencesSync, type PreferencesSyncStatus } from '@/contexts/prefe
 import { useWearHistorySync, type WearHistorySyncStatus } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync, type WardrobeSyncStatus } from '@/contexts/wardrobe-sync-context';
 import { AccountApiError } from '@/services/account';
+import { NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE, RETRY_LABEL } from '@/utils/network-error';
 import EmailLinkSheet from '@/components/email-link-sheet';
 import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
 import AccountSaveSheet from '@/components/account-save-sheet';
@@ -228,10 +229,18 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
       await updateDisplayName(trimmedName);
       setIsEditingName(false);
     } catch (error) {
-      const message =
-        error instanceof AccountApiError ? error.message : 'Нет соединения с сервером';
+      if (!(error instanceof AccountApiError)) {
+        console.error('Unexpected display name update error:', error);
+      }
 
-      Alert.alert('Не удалось сохранить имя', message);
+      const message =
+        error instanceof AccountApiError ? error.message : 'Не удалось сохранить имя. Попробуйте ещё раз.';
+
+      Alert.alert(
+        AccountApiError.isNetwork(error) ? NETWORK_ERROR_TITLE : 'Не удалось сохранить имя',
+        AccountApiError.isNetwork(error) ? NETWORK_ERROR_HINT : message,
+        [{ text: 'Отмена', style: 'cancel' }, { text: RETRY_LABEL, onPress: () => void handleSaveName() }],
+      );
     } finally {
       setIsSavingName(false);
     }

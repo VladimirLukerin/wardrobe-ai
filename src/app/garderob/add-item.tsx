@@ -29,6 +29,7 @@ import {
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWardrobe } from '@/contexts/wardrobe-context';
 import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
+import { NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import {
   ClothingImageProcessingError,
   clearClothingImageProcessingCache,
@@ -317,8 +318,8 @@ export default function AddItemScreen() {
       setRetakeSheetMode(null);
 
       if (error instanceof ClothingImageProcessingError && error.code === 'network') {
-        setAnalysisMessage('Не удалось подключиться к сервису распознавания.');
-        setImageProcessingMessage('Не удалось подключиться к серверу.');
+        setAnalysisMessage(NETWORK_ERROR_HINT);
+        setImageProcessingMessage(NETWORK_ERROR_TITLE);
         return;
       }
 

@@ -27,6 +27,7 @@ import {
 } from '@/storage/account-cache-storage';
 import { clearOnboardingCompleted } from '@/storage/onboarding-storage';
 import { clearAuthToken, getAuthToken, setAuthToken } from '@/storage/auth-token-storage';
+import { NETWORK_ERROR_MESSAGE } from '@/utils/network-error';
 
 type AccountContextValue = {
   user: ServerUser | null;
@@ -50,7 +51,7 @@ type AccountContextValue = {
 
 const AccountContext = createContext<AccountContextValue | null>(null);
 
-const OFFLINE_ERROR = 'Нет соединения с сервером';
+const OFFLINE_ERROR = NETWORK_ERROR_MESSAGE;
 
 function getCachedPublicId(publicId?: string, legacyLocalUserId?: string): string | null {
   if (publicId && publicId.trim().length > 0) {
@@ -145,6 +146,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
               await clearAuthToken();
               enterAuthEntry();
               return;
+            }
+
+            if (!(requestError instanceof AccountApiError)) {
+              // Programming error rather than connectivity: keep it visible, then degrade gracefully.
+              console.error('Unexpected account bootstrap error:', requestError);
             }
 
             const cache = await loadAccountCache();
@@ -307,6 +313,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
+      console.error('Unexpected guest session error:', createError);
       setError(OFFLINE_ERROR);
       return false;
     } finally {

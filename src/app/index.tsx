@@ -28,7 +28,10 @@ import { useAccount } from '@/contexts/account-context';
 import { useOutfits } from '@/contexts/outfits-context';
 import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
 import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
+import { NetworkErrorState } from '@/components/network-error-state';
+import type { CurrentWeatherErrorCode } from '@/services/current-weather';
 import type { OutfitSuggestion, OutfitWeather } from '@/services/outfit-suggestions';
+import { NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import { useHomeDailyData } from '@/contexts/home-daily-content-context';
 import { getActiveLocation } from '@/utils/get-active-location';
 import { isAccountProtected } from '@/utils/account-is-protected';
@@ -45,10 +48,14 @@ function HomeWeatherBlock({
   locationName,
   weather,
   isLoading,
+  error,
+  onRetry,
 }: {
   locationName: string;
   weather: OutfitWeather | null;
   isLoading: boolean;
+  error: CurrentWeatherErrorCode | null;
+  onRetry: () => void;
 }) {
   return (
     <View style={styles.weatherBlock}>
@@ -69,6 +76,14 @@ function HomeWeatherBlock({
         <ThemedText themeColor="textSecondary" style={styles.weatherLoading}>
           Загружаем погоду…
         </ThemedText>
+      ) : error ? (
+        <NetworkErrorState
+          compact
+          title={error === 'network' ? NETWORK_ERROR_TITLE : 'Не удалось загрузить погоду'}
+          hint={error === 'network' ? NETWORK_ERROR_HINT : 'Попробуйте ещё раз.'}
+          onRetry={onRetry}
+          style={styles.weatherError}
+        />
       ) : null}
     </View>
   );
@@ -247,10 +262,13 @@ export default function HomeScreen() {
     loadState,
     homeOutfit,
     weather,
+    weatherError,
     isWeatherLoading,
     isRegenerating,
     regenerateError,
+    outfitErrorKind,
     regenerateOutfit,
+    refreshWeather,
   } = useHomeDailyData();
 
 
@@ -338,6 +356,10 @@ export default function HomeScreen() {
               locationName={activeLocation.name}
               weather={weather}
               isLoading={isWeatherLoading}
+              error={weatherError}
+              onRetry={() => {
+                void refreshWeather();
+              }}
             />
           )}
 
@@ -367,7 +389,11 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {loadState === 'error' && (
+            {loadState === 'error' && outfitErrorKind === 'network' && (
+              <NetworkErrorState onRetry={regenerateOutfit} isRetrying={isRegenerating} />
+            )}
+
+            {loadState === 'error' && outfitErrorKind !== 'network' && (
               <View style={styles.emptyBlock}>
                 <ThemedText style={styles.emptyTitle}>Не удалось подобрать образ</ThemedText>
                 <Pressable
@@ -513,6 +539,10 @@ const styles = StyleSheet.create({
   weatherLoading: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  weatherError: {
+    marginTop: Spacing.two,
+    alignSelf: 'stretch',
   },
   section: {
     gap: Spacing.three,

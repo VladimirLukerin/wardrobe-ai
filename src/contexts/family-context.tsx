@@ -22,8 +22,10 @@ import {
   postFamilyInviteReject,
 } from '@/services/family-api';
 import { getAuthToken } from '@/storage/auth-token-storage';
+import { NETWORK_ERROR_TITLE } from '@/utils/network-error';
 
 type FamilyStatus = 'idle' | 'loading' | 'loaded' | 'error';
+type FamilyErrorKind = 'network' | 'server';
 
 type FamilyContextValue = {
   members: FamilyMember[];
@@ -33,6 +35,7 @@ type FamilyContextValue = {
   invitePopup: FamilyInvite | null;
   status: FamilyStatus;
   error: string | null;
+  errorKind: FamilyErrorKind | null;
   refreshFamily: () => Promise<void>;
   refreshFamilyIfStale: () => Promise<void>;
   dismissInvitePopup: (inviteId: string) => void;
@@ -61,6 +64,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
   const [outgoingInvites, setOutgoingInvites] = useState<OutgoingFamilyInvite[]>([]);
   const [status, setStatus] = useState<FamilyStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<FamilyErrorKind | null>(null);
   // Session-only: lives in memory for the lifetime of the provider, never persisted.
   const [dismissedPopupInviteIds, setDismissedPopupInviteIds] = useState<string[]>([]);
 
@@ -81,6 +85,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
         setOutgoingInvites([]);
         setStatus('idle');
         setError(null);
+        setErrorKind(null);
         hasLoadedRef.current = false;
         return;
       }
@@ -93,6 +98,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
         setOutgoingInvites([]);
         setStatus('idle');
         setError(null);
+        setErrorKind(null);
         hasLoadedRef.current = false;
         return;
       }
@@ -102,6 +108,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
       }
 
       setError(null);
+      setErrorKind(null);
 
       try {
         const [familySnapshot, invitesSnapshot] = await Promise.all([
@@ -122,11 +129,21 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
           );
         }
       } catch (loadError) {
-        const message =
-          loadError instanceof AccountApiError ? loadError.message : LOAD_ERROR;
+        if (AccountApiError.isNetwork(loadError)) {
+          setStatus('error');
+          setError(NETWORK_ERROR_TITLE);
+          setErrorKind('network');
+          return;
+        }
+
+        if (!(loadError instanceof AccountApiError)) {
+          // Not an API/network problem: keep it visible for developers.
+          console.error('Unexpected family refresh error:', loadError);
+        }
 
         setStatus('error');
-        setError(message);
+        setError(loadError instanceof AccountApiError ? loadError.message : LOAD_ERROR);
+        setErrorKind('server');
       }
     })();
 
@@ -267,6 +284,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
       invitePopup,
       status,
       error,
+      errorKind,
       refreshFamily,
       refreshFamilyIfStale,
       dismissInvitePopup,
@@ -282,6 +300,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
       invitePopup,
       status,
       error,
+      errorKind,
       refreshFamily,
       refreshFamilyIfStale,
       dismissInvitePopup,

@@ -11,8 +11,19 @@ import {
   type CachedHomeOutfitEntry,
 } from '@/storage/home-outfit-cache';
 import { isWeatherCacheFresh, loadWeatherCache, saveWeatherCache } from '@/storage/weather-cache';
-import { fetchCurrentWeather } from '@/services/current-weather';
-import { suggestOutfits, type OutfitSuggestion, type OutfitWeather, type SuggestOutfitsLocation } from '@/services/outfit-suggestions';
+import {
+  CurrentWeatherError,
+  fetchCurrentWeather,
+  type CurrentWeatherErrorCode,
+} from '@/services/current-weather';
+import {
+  OutfitSuggestionError,
+  suggestOutfits,
+  type OutfitSuggestion,
+  type OutfitWeather,
+  type SuggestOutfitsLocation,
+} from '@/services/outfit-suggestions';
+import { NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import type { WardrobeItem } from '@/contexts/wardrobe-context';
 import { buildStylistContext } from '@/utils/build-stylist-context';
 import { buildHomeInputSignature } from '@/utils/home-input-signature';
@@ -34,6 +45,7 @@ type Params = {
   wearHistory: WearHistoryLookup;
 };
 type LoadState = 'idle' | 'loading' | 'success' | 'error' | 'empty-wardrobe';
+export type HomeContentErrorKind = 'network' | 'server';
 
 const CACHE_SIGNATURE_PREFIX = 'v3';
 
@@ -45,6 +57,8 @@ export function useHomeDailyContent(params: Params) {
   const [isWeatherLoading, setWeatherLoading] = useState(false);
   const [isRegenerating, setRegenerating] = useState(false);
   const [regenerateError, setError] = useState<string | null>(null);
+  const [outfitErrorKind, setOutfitErrorKind] = useState<HomeContentErrorKind | null>(null);
+  const [weatherError, setWeatherError] = useState<CurrentWeatherErrorCode | null>(null);
   const generation = useRef(0);
   const busy = useRef(false);
   const currentOutfit = useRef<OutfitSuggestion | null>(null);
@@ -119,6 +133,7 @@ export function useHomeDailyContent(params: Params) {
     const locationKey = p.requestLocation ? buildLocationKey(p.requestLocation) : null;
     const previous = manual ? currentOutfit.current : null;
     setError(null);
+    setOutfitErrorKind(null);
     setRegenerating(true);
     let weatherTask: Promise<void> | undefined;
 
@@ -189,6 +204,8 @@ export function useHomeDailyContent(params: Params) {
         }
 
         try {
+          setWeatherError(null);
+
           const cachedWeather = freshWeatherEntry ?? legacyWeather;
 
           if (
@@ -215,8 +232,16 @@ export function useHomeDailyContent(params: Params) {
                 saveWeatherCache({ data: fresh, locationKey, fetchedAt: Date.now() }),
               );
           }
-        } catch {
+        } catch (weatherFailure) {
           // A weather failure must not prevent the outfit or startup animation from finishing.
+          if (!active()) return;
+
+          if (weatherFailure instanceof CurrentWeatherError) {
+            setWeatherError(weatherFailure.code);
+          } else {
+            console.error('Unexpected weather error:', weatherFailure);
+            setWeatherError('server');
+          }
         } finally {
           if (active()) setWeatherLoading(false);
         }
@@ -261,14 +286,31 @@ export function useHomeDailyContent(params: Params) {
         setHomeOutfit(outfit);
         setLoadState('success');
         persist(entry);
-      } catch {
+      } catch (suggestFailure) {
         if (!active()) return;
+
+        const kind: HomeContentErrorKind =
+          suggestFailure instanceof OutfitSuggestionError ? suggestFailure.code : 'server';
+
+        if (
+          !(suggestFailure instanceof OutfitSuggestionError) &&
+          !(suggestFailure instanceof Error && suggestFailure.message === 'No usable outfit')
+        ) {
+          console.error('Unexpected outfit suggestion error:', suggestFailure);
+        }
+
+        setOutfitErrorKind(kind);
         setLoadState(fallback ? 'success' : 'error');
-        setError(
-          fallback
-            ? 'Не удалось обновить образ. Показываем предыдущий вариант.'
-            : 'Не удалось подобрать образ. Попробуй ещё раз.',
-        );
+
+        if (fallback) {
+          setError(
+            kind === 'network'
+              ? `${NETWORK_ERROR_TITLE}. Показываем предыдущий вариант.`
+              : 'Не удалось обновить образ. Показываем предыдущий вариант.',
+          );
+        } else {
+          setError(kind === 'network' ? NETWORK_ERROR_TITLE : 'Не удалось подобрать образ. Попробуй ещё раз.');
+        }
       }
     } finally {
       if (active()) {
@@ -318,14 +360,55 @@ export function useHomeDailyContent(params: Params) {
     void sync(true);
   }, [sync]);
 
+  // Retries only the weather request, so the (expensive) outfit suggestion is left untouched.
+  const refreshWeather = useCallback(async () => {
+    const p = paramsRef.current;
+
+    if (!p.stylistPreferences.considerWeather || !p.requestLocation) {
+      return;
+    }
+
+    const locationKey = buildLocationKey(p.requestLocation);
+    const run = generation.current;
+
+    setWeatherLoading(true);
+    setWeatherError(null);
+
+    try {
+      const fresh = await fetchCurrentWeather(p.requestLocation);
+      if (run !== generation.current) return;
+
+      if (fresh) {
+        setWeather(fresh);
+        writes.current = writes.current
+          .catch(() => {})
+          .then(() => saveWeatherCache({ data: fresh, locationKey, fetchedAt: Date.now() }));
+      }
+    } catch (weatherFailure) {
+      if (run !== generation.current) return;
+
+      if (weatherFailure instanceof CurrentWeatherError) {
+        setWeatherError(weatherFailure.code);
+      } else {
+        console.error('Unexpected weather error:', weatherFailure);
+        setWeatherError('server');
+      }
+    } finally {
+      if (run === generation.current) setWeatherLoading(false);
+    }
+  }, []);
+
   return {
     loadState,
     homeOutfit,
     weather,
+    weatherError,
     isWeatherLoading,
     isRegenerating,
     regenerateError,
+    outfitErrorKind,
     regenerateOutfit,
+    refreshWeather,
     replaceItem,
   };
 }

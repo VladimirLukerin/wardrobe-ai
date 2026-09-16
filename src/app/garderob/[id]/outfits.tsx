@@ -25,10 +25,13 @@ import { useWearHistory } from '@/contexts/wear-history-context';
 import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
 import { buildStylistContext } from '@/utils/build-stylist-context';
 import {
+  OutfitSuggestionError,
   suggestOutfits,
   type OutfitSuggestion,
+  type OutfitSuggestionErrorCode,
   type OutfitWeather,
 } from '@/services/outfit-suggestions';
+import { NetworkErrorState } from '@/components/network-error-state';
 import { getActiveLocation } from '@/utils/get-active-location';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { formatOutfitWeatherLine } from '@/utils/weather-code';
@@ -115,6 +118,7 @@ export default function OutfitSuggestionsScreen() {
   } = useBodyParameters();
 
   const [loadState, setLoadState] = useState<LoadState>('idle');
+  const [errorKind, setErrorKind] = useState<OutfitSuggestionErrorCode | null>(null);
   const [outfits, setOutfits] = useState<OutfitSuggestion[]>([]);
   const [weather, setWeather] = useState<OutfitWeather | null>(null);
   const requestRef = useRef(0);
@@ -152,6 +156,7 @@ export default function OutfitSuggestionsScreen() {
 
     const requestId = ++requestRef.current;
     setLoadState('loading');
+    setErrorKind(null);
     setOutfits([]);
     setWeather(null);
 
@@ -180,6 +185,7 @@ export default function OutfitSuggestionsScreen() {
       }
 
       if (result.outfits.length === 0) {
+        setErrorKind('server');
         setLoadState('error');
         return;
       }
@@ -187,9 +193,16 @@ export default function OutfitSuggestionsScreen() {
       setOutfits(result.outfits);
       setWeather(result.weather);
       setLoadState('success');
-    } catch {
+    } catch (error) {
       if (requestId !== requestRef.current) {
         return;
+      }
+
+      if (error instanceof OutfitSuggestionError) {
+        setErrorKind(error.code);
+      } else {
+        console.error('Unexpected outfit suggestion error:', error);
+        setErrorKind('server');
       }
 
       setLoadState('error');
@@ -321,7 +334,18 @@ export default function OutfitSuggestionsScreen() {
             </View>
           )}
 
-          {loadState === 'error' && (
+          {loadState === 'error' && errorKind === 'network' && (
+            <View style={styles.centeredContent}>
+              <NetworkErrorState
+                onRetry={() => {
+                  void loadOutfits();
+                }}
+                style={styles.networkErrorCard}
+              />
+            </View>
+          )}
+
+          {loadState === 'error' && errorKind !== 'network' && (
             <View style={styles.centeredContent}>
               <ThemedText style={styles.stateTitle}>Не удалось подобрать образы</ThemedText>
               <Pressable
@@ -463,6 +487,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.light.text,
     textAlign: 'center',
+  },
+  networkErrorCard: {
+    alignSelf: 'stretch',
   },
   stateSubtitle: {
     fontSize: 15,

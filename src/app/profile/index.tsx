@@ -9,6 +9,7 @@ import AccountSaveSheet from '@/components/account-save-sheet';
 import AccountSheet from '@/components/account-sheet';
 import AddMemberSheet from '@/components/add-member-sheet';
 import BodyParametersSheet from '@/components/body-parameters-sheet';
+import { NetworkErrorState } from '@/components/network-error-state';
 import StylistSettingsSheet from '@/components/stylist-settings-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -66,6 +67,7 @@ export default function ProfileScreen() {
     pendingIncomingCount,
     status,
     error,
+    errorKind,
     refreshFamily,
     refreshFamilyIfStale,
     acceptInvite,
@@ -283,7 +285,16 @@ export default function ProfileScreen() {
               </ThemedText>
             ) : null}
 
-            {status === 'error' ? (
+            {status === 'error' && errorKind === 'network' ? (
+              <NetworkErrorState
+                compact
+                onRetry={() => {
+                  void refreshFamily();
+                }}
+              />
+            ) : null}
+
+            {status === 'error' && errorKind !== 'network' ? (
               <View style={styles.familyStatusCard}>
                 <ThemedText themeColor="textSecondary" style={styles.familyStatusText}>
                   {error ?? 'Не удалось загрузить семью'}
