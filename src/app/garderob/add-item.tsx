@@ -1,8 +1,10 @@
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Modal,
   Pressable,
@@ -11,105 +13,265 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import type { ImageProcessingStatus } from '@/constants/wardrobe-item';
 import {
   MOCK_WARDROBE_DEFAULTS,
   WARDROBE_CATEGORIES,
   WARDROBE_COLORS,
+  WARDROBE_PATTERNS,
   WARDROBE_STYLES,
 } from '@/constants/wardrobe-options';
-import { BottomTabInset, Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWardrobe } from '@/contexts/wardrobe-context';
-import { analyzeClothingImage } from '@/services/clothingAnalysis';
+import {
+  analyzeClothingImage,
+  ClothingAnalysisError,
+  LOW_CONFIDENCE_THRESHOLD,
+} from '@/services/clothingAnalysis';
+import { processClothingImage } from '@/services/clothing-image-processing';
 
 type AnalysisStatus = 'idle' | 'loading' | 'success' | 'error';
 
-type SelectFieldProps = {
+const PREVIEW_HEIGHT = Math.min(Math.round(Dimensions.get('window').width * 0.76), 300);
+const SUCCESS_ACCENT = '#3A7D5C';
+
+function getPrintDisplayValue(pattern: string, printDescription: string | null): string {
+  if (pattern === 'Без принта') {
+    return 'Без принта';
+  }
+
+  if (pattern === 'Принт' && printDescription) {
+    return printDescription;
+  }
+
+  return pattern;
+}
+
+function ProgressIndicator() {
+  return (
+    <View style={styles.progressRow}>
+      <View style={[styles.progressDot, styles.progressDotFilled]} />
+      <View style={styles.progressLine} />
+      <View style={[styles.progressDot, styles.progressDotFilled]} />
+      <View style={styles.progressLine} />
+      <View style={[styles.progressDot, styles.progressDotOutline]} />
+    </View>
+  );
+}
+
+type ParameterRowProps = {
   label: string;
   value: string;
-  options: readonly string[];
-  onChange: (value: string) => void;
+  onPress: () => void;
+  isLast?: boolean;
 };
 
-function SelectField({ label, value, options, onChange }: SelectFieldProps) {
-  const [isOpen, setIsOpen] = useState(false);
+function ParameterRow({ label, value, onPress, isLast }: ParameterRowProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.parameterRow,
+        !isLast && styles.parameterRowBorder,
+        pressed && styles.buttonPressed,
+      ]}>
+      <ThemedText style={styles.parameterLabel}>{label}</ThemedText>
+      <View style={styles.parameterValueGroup}>
+        <ThemedText style={styles.parameterValue} numberOfLines={1}>
+          {value}
+        </ThemedText>
+        <SymbolView
+          name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+          size={12}
+          tintColor={Colors.light.textSecondary}
+        />
+      </View>
+    </Pressable>
+  );
+}
+
+type PickerModalProps = {
+  visible: boolean;
+  title: string;
+  options: readonly string[];
+  value: string;
+  onSelect: (value: string) => void;
+  onClose: () => void;
+};
+
+function PickerModal({ visible, title, options, value, onSelect, onClose }: PickerModalProps) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.pickerOverlay} onPress={onClose}>
+        <Pressable style={styles.pickerSheet} onPress={(event) => event.stopPropagation()}>
+          <ThemedText style={styles.pickerTitle}>{title}</ThemedText>
+          <FlatList
+            data={options}
+            keyExtractor={(item) => item}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => {
+                  onSelect(item);
+                  onClose();
+                }}
+                style={({ pressed }) => [
+                  styles.pickerOption,
+                  item === value && styles.pickerOptionSelected,
+                  pressed && styles.buttonPressed,
+                ]}>
+                <ThemedText
+                  style={[styles.pickerOptionText, item === value && styles.pickerOptionTextSelected]}>
+                  {item}
+                </ThemedText>
+              </Pressable>
+            )}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+type TextEditModalProps = {
+  visible: boolean;
+  title: string;
+  value: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+};
+
+function TextEditModal({ visible, title, value, onChange, onClose }: TextEditModalProps) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    if (visible) {
+      setDraft(value);
+    }
+  }, [visible, value]);
+
+  const handleSave = () => {
+    onChange(draft.trim() || value);
+    onClose();
+  };
 
   return (
-    <View style={styles.field}>
-      <ThemedText style={styles.fieldLabel}>{label}</ThemedText>
-      <Pressable
-        onPress={() => setIsOpen(true)}
-        style={({ pressed }) => [styles.selectInput, pressed && styles.buttonPressed]}>
-        <ThemedText style={styles.selectValue}>{value}</ThemedText>
-      </Pressable>
-
-      <Modal visible={isOpen} transparent animationType="slide" onRequestClose={() => setIsOpen(false)}>
-        <Pressable style={styles.pickerOverlay} onPress={() => setIsOpen(false)}>
-          <Pressable style={styles.pickerSheet} onPress={(event) => event.stopPropagation()}>
-            <ThemedText style={styles.pickerTitle}>{label}</ThemedText>
-            <FlatList
-              data={options}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => {
-                    onChange(item);
-                    setIsOpen(false);
-                  }}
-                  style={({ pressed }) => [
-                    styles.pickerOption,
-                    item === value && styles.pickerOptionSelected,
-                    pressed && styles.buttonPressed,
-                  ]}>
-                  <ThemedText
-                    style={[styles.pickerOptionText, item === value && styles.pickerOptionTextSelected]}>
-                    {item}
-                  </ThemedText>
-                </Pressable>
-              )}
-            />
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.textEditOverlay} onPress={onClose}>
+        <Pressable style={styles.textEditSheet} onPress={(event) => event.stopPropagation()}>
+          <ThemedText style={styles.pickerTitle}>{title}</ThemedText>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            style={styles.textEditInput}
+            placeholder={title}
+            placeholderTextColor={Colors.light.textSecondary}
+            autoFocus
+          />
+          <Pressable
+            onPress={handleSave}
+            style={({ pressed }) => [styles.textEditSaveButton, pressed && styles.buttonPressed]}>
+            <ThemedText style={styles.textEditSaveButtonText}>Готово</ThemedText>
           </Pressable>
         </Pressable>
-      </Modal>
-    </View>
+      </Pressable>
+    </Modal>
   );
 }
 
 export default function AddItemScreen() {
   const { uri } = useLocalSearchParams<{ uri: string }>();
   const { addItem } = useWardrobe();
+  const insets = useSafeAreaInsets();
 
-  const [name, setName] = useState(MOCK_WARDROBE_DEFAULTS.name);
+  const originalImageUri = uri ?? '';
+
+  const [name, setName] = useState<string>(MOCK_WARDROBE_DEFAULTS.name);
+  const [baseName, setBaseName] = useState<string>(MOCK_WARDROBE_DEFAULTS.baseName);
   const [category, setCategory] = useState<string>(MOCK_WARDROBE_DEFAULTS.category);
   const [color, setColor] = useState<string>(MOCK_WARDROBE_DEFAULTS.color);
+  const [pattern, setPattern] = useState<string>(MOCK_WARDROBE_DEFAULTS.pattern);
+  const [printDescription, setPrintDescription] = useState<string | null>(
+    MOCK_WARDROBE_DEFAULTS.printDescription,
+  );
   const [style, setStyle] = useState<string>(MOCK_WARDROBE_DEFAULTS.style);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
+  const [analysisMessage, setAnalysisMessage] = useState<string | null>(null);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [imageProcessingStatus, setImageProcessingStatus] = useState<ImageProcessingStatus>('idle');
+  const [processedImageUri, setProcessedImageUri] = useState<string | undefined>();
+
+  const [activePicker, setActivePicker] = useState<
+    'category' | 'color' | 'print' | 'style' | null
+  >(null);
+  const [isNameEditorOpen, setIsNameEditorOpen] = useState(false);
 
   const analysisRequestRef = useRef(0);
+  const imageProcessingRequestRef = useRef(0);
+
+  const displayImageUri = processedImageUri ?? originalImageUri;
+  const isAnalyzing = analysisStatus === 'loading';
+  const isProcessingImage = imageProcessingStatus === 'processing';
+  const isSaveDisabled = isProcessingImage;
+  const printDisplayValue = getPrintDisplayValue(pattern, printDescription);
 
   const applyAnalysisResult = useCallback(
     (result: Awaited<ReturnType<typeof analyzeClothingImage>>) => {
       setName(result.name);
+      setBaseName(result.baseName);
       setCategory(result.category);
       setColor(result.color);
+      setPattern(result.pattern);
+      setPrintDescription(result.printDescription);
       setStyle(result.style);
+      setConfidence(typeof result.confidence === 'number' ? result.confidence : null);
     },
     [],
   );
 
+  const runImageProcessing = useCallback(async () => {
+    if (!originalImageUri) {
+      return;
+    }
+
+    const requestId = ++imageProcessingRequestRef.current;
+    setImageProcessingStatus('processing');
+    setProcessedImageUri(undefined);
+
+    try {
+      const result = await processClothingImage(originalImageUri);
+
+      if (requestId !== imageProcessingRequestRef.current) {
+        return;
+      }
+
+      setProcessedImageUri(result.processedImageUri);
+      setImageProcessingStatus('completed');
+    } catch {
+      if (requestId !== imageProcessingRequestRef.current) {
+        return;
+      }
+
+      setProcessedImageUri(undefined);
+      setImageProcessingStatus('failed');
+    }
+  }, [originalImageUri]);
+
   const runAnalysis = useCallback(async () => {
-    if (!uri) {
+    if (!originalImageUri) {
       return;
     }
 
     const requestId = ++analysisRequestRef.current;
     setAnalysisStatus('loading');
+    setAnalysisMessage(null);
+    setConfidence(null);
 
     try {
-      const result = await analyzeClothingImage(uri);
+      const result = await analyzeClothingImage(originalImageUri);
 
       if (requestId !== analysisRequestRef.current) {
         return;
@@ -117,22 +279,41 @@ export default function AddItemScreen() {
 
       applyAnalysisResult(result);
       setAnalysisStatus('success');
-    } catch {
+      setAnalysisMessage(null);
+      void runImageProcessing();
+    } catch (error) {
       if (requestId !== analysisRequestRef.current) {
         return;
       }
 
       setAnalysisStatus('error');
+      setConfidence(null);
+
+      if (error instanceof ClothingAnalysisError && error.code === 'network') {
+        setAnalysisMessage('Не удалось подключиться к сервису распознавания.');
+        return;
+      }
+
+      setAnalysisMessage('Не удалось распознать вещь. Заполните данные вручную.');
     }
-  }, [uri, applyAnalysisResult]);
+  }, [originalImageUri, applyAnalysisResult, runImageProcessing]);
 
   useEffect(() => {
     runAnalysis();
 
     return () => {
       analysisRequestRef.current += 1;
+      imageProcessingRequestRef.current += 1;
     };
   }, [runAnalysis]);
+
+  const handlePatternChange = (nextPattern: string) => {
+    setPattern(nextPattern);
+
+    if (nextPattern !== 'Принт') {
+      setPrintDescription(null);
+    }
+  };
 
   if (!uri) {
     return (
@@ -153,89 +334,205 @@ export default function AddItemScreen() {
 
   const handleSave = () => {
     addItem({
-      uri,
+      originalImageUri,
+      processedImageUri: imageProcessingStatus === 'completed' ? processedImageUri : undefined,
+      imageProcessingStatus:
+        imageProcessingStatus === 'idle' && analysisStatus !== 'success'
+          ? 'idle'
+          : imageProcessingStatus,
       name: name.trim() || MOCK_WARDROBE_DEFAULTS.name,
+      baseName: baseName.trim() || MOCK_WARDROBE_DEFAULTS.baseName,
       category,
       color,
+      pattern,
+      printDescription,
       style,
     });
     router.back();
   };
 
-  const isAnalyzing = analysisStatus === 'loading';
+  const pickerConfig =
+    activePicker === 'category'
+      ? { title: 'Категория', options: WARDROBE_CATEGORIES, value: category, onSelect: setCategory }
+      : activePicker === 'color'
+        ? { title: 'Цвет', options: WARDROBE_COLORS, value: color, onSelect: setColor }
+        : activePicker === 'print'
+          ? {
+              title: 'Принт',
+              options: WARDROBE_PATTERNS,
+              value: pattern,
+              onSelect: handlePatternChange,
+            }
+          : activePicker === 'style'
+            ? { title: 'Стиль', options: WARDROBE_STYLES, value: style, onSelect: setStyle }
+            : null;
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <Pressable onPress={handleCancel} style={({ pressed }) => pressed && styles.buttonPressed}>
-            <ThemedText style={styles.cancelLinkText}>Отмена</ThemedText>
-          </Pressable>
-          <ThemedText style={styles.headerTitle}>Добавить вещь</ThemedText>
-          <View style={styles.headerSpacer} />
-        </View>
-
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, Spacing.three) }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
-          <Image source={{ uri }} style={styles.preview} contentFit="cover" />
+          <View style={styles.header}>
+            <Pressable onPress={handleCancel} style={({ pressed }) => pressed && styles.buttonPressed}>
+              <ThemedText style={styles.cancelLinkText}>Отмена</ThemedText>
+            </Pressable>
+            <ThemedText style={styles.headerTitle}>Проверка вещи</ThemedText>
+            <View style={styles.headerSpacer} />
+          </View>
 
-          {isAnalyzing && (
-            <View style={styles.analysisStatus}>
-              <ActivityIndicator color={Colors.light.text} />
-              <ThemedText style={styles.analysisStatusText}>Распознаём вещь...</ThemedText>
+          <View style={styles.topSection}>
+            <ProgressIndicator />
+
+            <View style={styles.previewContainer}>
+            <View style={styles.previewInner}>
+              <Image
+                source={{ uri: displayImageUri }}
+                style={styles.preview}
+                contentFit="contain"
+              />
             </View>
-          )}
 
-          {analysisStatus === 'error' && (
-            <ThemedText style={styles.analysisError}>
-              Не удалось распознать вещь. Заполни данные вручную.
+            {isProcessingImage && (
+              <View style={styles.processingBadge}>
+                <ActivityIndicator size="small" color={Colors.light.textSecondary} />
+                <ThemedText style={styles.processingBadgeText}>Обрабатываем фото…</ThemedText>
+              </View>
+            )}
+
+            {imageProcessingStatus === 'completed' && (
+              <View style={styles.successBadge}>
+                <ThemedText style={styles.successBadgeText}>✓ Фон удалён</ThemedText>
+              </View>
+            )}
+            </View>
+
+            {imageProcessingStatus === 'failed' && (
+              <View style={styles.processingFailedRow}>
+                <ThemedText themeColor="textSecondary" style={styles.processingFailedText}>
+                  Не удалось обработать фото
+                </ThemedText>
+                <ThemedText themeColor="textSecondary" style={styles.processingFailedDot}>
+                  ·
+                </ThemedText>
+                <Pressable
+                  onPress={() => {
+                    void runImageProcessing();
+                  }}
+                  style={({ pressed }) => [styles.processingRetryButton, pressed && styles.buttonPressed]}>
+                  <ThemedText style={styles.processingRetryButtonText}>Повторить</ThemedText>
+                </Pressable>
+              </View>
+            )}
+
+            {isAnalyzing && (
+              <View style={styles.analysisStatus}>
+                <ActivityIndicator size="small" color={Colors.light.textSecondary} />
+                <ThemedText themeColor="textSecondary" style={styles.confidenceText}>
+                  Распознаём вещь…
+                </ThemedText>
+              </View>
+            )}
+
+            {analysisStatus === 'success' && confidence !== null && (
+              <ThemedText themeColor="textSecondary" style={styles.confidenceText}>
+                {confidence >= LOW_CONFIDENCE_THRESHOLD
+                  ? `Уверенность · ${Math.round(confidence * 100)}%`
+                  : 'Уверенность · проверьте данные'}
+              </ThemedText>
+            )}
+
+            {analysisStatus === 'error' && analysisMessage && (
+              <ThemedText themeColor="textSecondary" style={styles.confidenceText}>
+                {analysisMessage}
+              </ThemedText>
+            )}
+          </View>
+
+          <View style={styles.aiSection}>
+            <ThemedText style={styles.aiSectionTitle}>Распознано AI</ThemedText>
+            <ThemedText themeColor="textSecondary" style={styles.aiSectionSubtitle}>
+              Проверьте данные и при необходимости отредактируйте
             </ThemedText>
-          )}
+          </View>
 
-          <View style={styles.field}>
-            <ThemedText style={styles.fieldLabel}>Название</ThemedText>
-            <TextInput
+          <View style={styles.parametersCard}>
+            <ParameterRow
+              label="Название"
               value={name}
-              onChangeText={setName}
-              style={styles.textInput}
-              placeholder="Название вещи"
-              placeholderTextColor={Colors.light.textSecondary}
+              onPress={() => setIsNameEditorOpen(true)}
+            />
+            <ParameterRow
+              label="Категория"
+              value={category}
+              onPress={() => setActivePicker('category')}
+            />
+            <ParameterRow label="Цвет" value={color} onPress={() => setActivePicker('color')} />
+            <ParameterRow
+              label="Принт"
+              value={printDisplayValue}
+              onPress={() => setActivePicker('print')}
+            />
+            <ParameterRow
+              label="Стиль"
+              value={style}
+              onPress={() => setActivePicker('style')}
+              isLast
             />
           </View>
 
-          <SelectField
-            label="Категория"
-            value={category}
-            options={WARDROBE_CATEGORIES}
-            onChange={setCategory}
-          />
-
-          <SelectField label="Цвет" value={color} options={WARDROBE_COLORS} onChange={setColor} />
-
-          <SelectField label="Стиль" value={style} options={WARDROBE_STYLES} onChange={setStyle} />
-
           <Pressable
             onPress={runAnalysis}
-            disabled={isAnalyzing}
+            disabled={isAnalyzing || isProcessingImage}
             style={({ pressed }) => [
-              styles.retryButton,
-              isAnalyzing && styles.retryButtonDisabled,
-              pressed && !isAnalyzing && styles.buttonPressed,
+              styles.recognizeAgainButton,
+              (isAnalyzing || isProcessingImage) && styles.recognizeAgainButtonDisabled,
+              pressed && !isAnalyzing && !isProcessingImage && styles.buttonPressed,
             ]}>
-            <ThemedText style={[styles.retryButtonText, isAnalyzing && styles.retryButtonTextDisabled]}>
-              Распознать снова
+            <ThemedText
+              style={[
+                styles.recognizeAgainText,
+                (isAnalyzing || isProcessingImage) && styles.recognizeAgainTextDisabled,
+              ]}>
+              ↻ Распознать снова
             </ThemedText>
           </Pressable>
 
           <Pressable
             onPress={handleSave}
-            style={({ pressed }) => [styles.saveButton, pressed && styles.buttonPressed]}>
-            <ThemedText style={styles.saveButtonText}>Добавить в гардероб</ThemedText>
+            disabled={isSaveDisabled}
+            style={({ pressed }) => [
+              styles.saveButton,
+              isSaveDisabled && styles.saveButtonDisabled,
+              pressed && !isSaveDisabled && styles.buttonPressed,
+            ]}>
+            <ThemedText style={[styles.saveButtonText, isSaveDisabled && styles.saveButtonTextDisabled]}>
+              Добавить в гардероб
+            </ThemedText>
           </Pressable>
         </ScrollView>
       </SafeAreaView>
+
+      <TextEditModal
+        visible={isNameEditorOpen}
+        title="Название"
+        value={name}
+        onChange={setName}
+        onClose={() => setIsNameEditorOpen(false)}
+      />
+
+      {pickerConfig && (
+        <PickerModal
+          visible={activePicker !== null}
+          title={pickerConfig.title}
+          options={pickerConfig.options}
+          value={pickerConfig.value}
+          onSelect={pickerConfig.onSelect}
+          onClose={() => setActivePicker(null)}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -247,17 +544,25 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingBottom: BottomTabInset,
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     width: '100%',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.four,
+    gap: Spacing.three,
+  },
+  topSection: {
+    gap: Spacing.two,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
+    paddingTop: Spacing.one,
   },
   headerTitle: {
     fontSize: 17,
@@ -265,7 +570,7 @@ const styles = StyleSheet.create({
     color: Colors.light.text,
   },
   headerSpacer: {
-    width: 60,
+    width: 56,
   },
   cancelLinkText: {
     fontSize: 16,
@@ -276,88 +581,212 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: Spacing.four,
   },
-  scrollContent: {
-    paddingHorizontal: Spacing.four,
-    paddingBottom: Spacing.five,
-    gap: Spacing.three,
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 2,
+  },
+  progressDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  progressDotFilled: {
+    backgroundColor: Colors.light.text,
+  },
+  progressDotOutline: {
+    backgroundColor: Colors.light.background,
+    borderWidth: 1,
+    borderColor: Colors.light.backgroundSelected,
+  },
+  progressLine: {
+    width: 22,
+    height: 1,
+    borderRadius: 0.5,
+    backgroundColor: Colors.light.textSecondary,
+    opacity: 0.35,
+  },
+  previewContainer: {
+    position: 'relative',
+    height: PREVIEW_HEIGHT,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: Colors.light.backgroundElement,
+  },
+  previewInner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.two,
   },
   preview: {
     width: '100%',
-    aspectRatio: 3 / 4,
-    borderRadius: 14,
-    backgroundColor: Colors.light.backgroundElement,
+    height: '100%',
+  },
+  processingBadge: {
+    position: 'absolute',
+    top: Spacing.two,
+    left: Spacing.two,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one + 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderRadius: 20,
+    paddingHorizontal: Spacing.two + 2,
+    paddingVertical: Spacing.one + 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.light.backgroundSelected,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  processingBadgeText: {
+    fontSize: 13,
+    color: Colors.light.textSecondary,
+  },
+  successBadge: {
+    position: 'absolute',
+    top: Spacing.two,
+    left: Spacing.two,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderRadius: 20,
+    paddingHorizontal: Spacing.two + 2,
+    paddingVertical: Spacing.one + 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.light.backgroundSelected,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  successBadgeText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: SUCCESS_ACCENT,
+  },
+  processingFailedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+  },
+  processingFailedText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  processingFailedDot: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  processingRetryButton: {
+    paddingVertical: Spacing.one,
+  },
+  processingRetryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.light.text,
   },
   analysisStatus: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.two,
-    paddingVertical: Spacing.one,
   },
-  analysisStatusText: {
-    fontSize: 15,
-    color: Colors.light.textSecondary,
-  },
-  analysisError: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: Colors.light.textSecondary,
+  confidenceText: {
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
   },
-  field: {
+  aiSection: {
     gap: Spacing.one,
+    marginTop: -Spacing.one,
   },
-  fieldLabel: {
+  aiSectionTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  aiSectionSubtitle: {
     fontSize: 14,
-    fontWeight: '600',
-    color: Colors.light.text,
+    lineHeight: 20,
   },
-  textInput: {
+  parametersCard: {
     backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 14,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    fontSize: 16,
-    color: Colors.light.text,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  selectInput: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 14,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-  },
-  selectValue: {
-    fontSize: 16,
-    color: Colors.light.text,
-  },
-  retryButton: {
-    borderWidth: 1.5,
-    borderColor: Colors.light.text,
-    paddingVertical: Spacing.three,
-    borderRadius: 14,
+  parameterRow: {
+    minHeight: 58,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    gap: Spacing.two,
   },
-  retryButtonDisabled: {
-    borderColor: Colors.light.backgroundSelected,
+  parameterRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.light.backgroundSelected,
   },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+  parameterLabel: {
+    fontSize: 15,
+    color: Colors.light.textSecondary,
+    flexShrink: 0,
+  },
+  parameterValueGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: Spacing.one,
+    minWidth: 0,
+  },
+  parameterValue: {
+    fontSize: 15,
+    fontWeight: '500',
     color: Colors.light.text,
+    textAlign: 'right',
+    flexShrink: 1,
   },
-  retryButtonTextDisabled: {
+  recognizeAgainButton: {
+    alignSelf: 'center',
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+  },
+  recognizeAgainButtonDisabled: {
+    opacity: 0.45,
+  },
+  recognizeAgainText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: Colors.light.textSecondary,
+  },
+  recognizeAgainTextDisabled: {
     color: Colors.light.textSecondary,
   },
   saveButton: {
     backgroundColor: Colors.light.text,
-    paddingVertical: Spacing.three + 2,
-    borderRadius: 14,
+    minHeight: 58,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.four,
+  },
+  saveButtonDisabled: {
+    backgroundColor: Colors.light.backgroundSelected,
   },
   saveButtonText: {
     color: Colors.light.background,
     fontSize: 17,
     fontWeight: '600',
+  },
+  saveButtonTextDisabled: {
+    color: Colors.light.textSecondary,
   },
   buttonPressed: {
     opacity: 0.85,
@@ -396,6 +825,39 @@ const styles = StyleSheet.create({
     color: Colors.light.text,
   },
   pickerOptionTextSelected: {
+    fontWeight: '600',
+  },
+  textEditOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    paddingHorizontal: Spacing.four,
+  },
+  textEditSheet: {
+    backgroundColor: Colors.light.background,
+    borderRadius: 16,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.four,
+    paddingBottom: Spacing.three,
+    gap: Spacing.three,
+  },
+  textEditInput: {
+    backgroundColor: Colors.light.backgroundElement,
+    borderRadius: 12,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    fontSize: 16,
+    color: Colors.light.text,
+  },
+  textEditSaveButton: {
+    backgroundColor: Colors.light.text,
+    borderRadius: 12,
+    paddingVertical: Spacing.two + 2,
+    alignItems: 'center',
+  },
+  textEditSaveButtonText: {
+    color: Colors.light.background,
+    fontSize: 16,
     fontWeight: '600',
   },
   errorText: {

@@ -35,9 +35,25 @@ export const WARDROBE_STYLES = [
   'Универсальный',
 ] as const;
 
+export const WARDROBE_PATTERNS = [
+  'Без принта',
+  'Принт',
+  'Полоска',
+  'Клетка',
+  'Горошек',
+  'Камуфляж',
+  'Градиент',
+  'Другое',
+] as const;
+
+export type WardrobePattern = (typeof WARDROBE_PATTERNS)[number];
+
 export const MOCK_WARDROBE_DEFAULTS = {
   name: 'Новая вещь',
+  baseName: 'Вещь',
   category: 'Другое',
   color: 'Не определён',
+  pattern: 'Без принта' as WardrobePattern,
+  printDescription: null as string | null,
   style: 'Повседневный',
 } as const;

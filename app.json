@@ -8,7 +8,12 @@
     "scheme": "wardrobeai",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -39,6 +44,13 @@
           "photosPermission": "Приложению нужен доступ к фотографиям, чтобы добавлять вещи в гардероб.",
           "cameraPermission": "Разрешите доступ к камере, чтобы фотографировать вещи для вашего гардероба.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Wardrobe AI использует ваше местоположение, чтобы учитывать погоду при подборе одежды.",
+          "locationAlwaysAndWhenInUsePermission": "Wardrobe AI использует ваше местоположение, чтобы учитывать погоду при подборе одежды."
         }
       ]
     ],

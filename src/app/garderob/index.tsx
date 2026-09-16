@@ -1,11 +1,16 @@
 import { Image } from 'expo-image';
+import { SymbolView } from 'expo-symbols';
+import { router } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { FlatList, Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { WardrobeFiltersSheet } from '@/components/wardrobe-filters-sheet';
+import { EMPTY_WARDROBE_FILTERS, countWardrobeFilters, filterWardrobe } from '@/utils/wardrobe-filters';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
+import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWardrobe } from '@/contexts/wardrobe-context';
 import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
 
@@ -14,6 +19,11 @@ const NUM_COLUMNS = 2;
 
 export default function GarderobScreen() {
   const { items } = useWardrobe();
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [filters, setFilters] = useState({ ...EMPTY_WARDROBE_FILTERS });
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterCount = countWardrobeFilters(filters);
+  const visibleItems = filterWardrobe(items, filters, favoritesOnly);
   const { takePhoto, pickFromGallery } = useAddWardrobeItem();
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const { width: windowWidth } = useWindowDimensions();
@@ -32,18 +42,35 @@ export default function GarderobScreen() {
   }, [pickFromGallery]);
 
   const renderItem = useCallback(
-    ({ item }: { item: (typeof items)[number] }) => (
-      <ThemedView style={[styles.card, { width: cardWidth }]}>
-        <Image source={{ uri: item.uri }} style={styles.cardImage} contentFit="cover" />
-        <ThemedText style={styles.cardLabel}>{item.name}</ThemedText>
-      </ThemedView>
-    ),
+    ({ item }: { item: (typeof items)[number] }) => {
+      const displayImageUri = getWardrobeItemDisplayImageUri(item);
+
+      return (
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: '/garderob/[id]',
+              params: { id: item.id },
+            })
+          }
+          style={({ pressed }) => [styles.cardPressable, { width: cardWidth }, pressed && styles.buttonPressed]}>
+          <ThemedView style={styles.card}>
+            <Image
+              source={{ uri: displayImageUri }}
+              style={styles.cardImage}
+              contentFit="cover"
+            />
+            <ThemedText style={styles.cardLabel}>{item.isFavorite ? `♥ ${item.name}` : item.name}</ThemedText>
+          </ThemedView>
+        </Pressable>
+      );
+    },
     [cardWidth],
   );
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ThemedText type="subtitle" style={styles.title}>
           Мой гардероб
         </ThemedText>
@@ -54,16 +81,34 @@ export default function GarderobScreen() {
           <ThemedText style={styles.addButtonText}>+ Добавить вещь</ThemedText>
         </Pressable>
 
-        {items.length === 0 ? (
+        <View style={styles.filterBar}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: favoritesOnly }}
+          accessibilityLabel="Показывать только избранное"
+          onPress={() => setFavoritesOnly((current) => !current)}
+          style={({ pressed }) => [styles.favoriteFilter, favoritesOnly && styles.favoriteFilterActive, pressed && styles.buttonPressed]}>
+          <ThemedText>{favoritesOnly ? '♥' : '♡'} Избранное ({items.filter((item) => item.isFavorite).length})</ThemedText>
+        </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Поиск и фильтры. Активно: ${filterCount}`}
+            onPress={() => setFiltersOpen(true)} style={({ pressed }) => [styles.filtersButton, filterCount > 0 && styles.favoriteFilterActive, pressed && styles.buttonPressed]}>
+            <SymbolView name={{ ios: 'line.3.horizontal.decrease', android: 'filter_list', web: 'filter_list' }} size={22} tintColor={Colors.light.text} />
+            {filterCount > 0 && <ThemedText style={styles.filterBadge}>{filterCount}</ThemedText>}
+          </Pressable>
+        </View>
+
+        {visibleItems.length === 0 ? (
           <ThemedView style={styles.emptyState}>
-            <ThemedText style={styles.emptyTitle}>Гардероб пока пуст</ThemedText>
+            <ThemedText style={styles.emptyTitle}>{items.length === 0 ? 'Гардероб пока пуст' : filterCount > 0 ? 'Ничего не найдено' : 'В избранном пока пусто'}</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.emptyHint}>
-              Добавь первую вещь, чтобы начать создавать образы.
+              {items.length === 0 ? 'Добавь первую вещь, чтобы начать создавать образы.' : filterCount > 0 ? 'Попробуй изменить поиск или фильтры.' : 'Нажми на сердечко в карточке вещи, чтобы добавить её сюда.'}
             </ThemedText>
+            {items.length > 0 && <Pressable onPress={() => { setFilters({ ...EMPTY_WARDROBE_FILTERS }); setFavoritesOnly(false); }} style={styles.sheetCancel} accessibilityRole="button"><ThemedText>Показать все вещи</ThemedText></Pressable>}
           </ThemedView>
         ) : (
           <FlatList
-            data={items}
+            style={styles.list}
+            data={visibleItems}
             keyExtractor={(item) => item.id}
             numColumns={NUM_COLUMNS}
             renderItem={renderItem}
@@ -73,6 +118,9 @@ export default function GarderobScreen() {
           />
         )}
       </SafeAreaView>
+
+      {filtersOpen && <WardrobeFiltersSheet filters={filters} items={items} favoritesOnly={favoritesOnly}
+        onClose={() => setFiltersOpen(false)} onApply={(next) => { setFilters(next); setFiltersOpen(false); }} />}
 
       <Modal
         visible={isAddSheetVisible}
@@ -124,10 +172,30 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     width: '100%',
+  },
+  filterBar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginBottom: Spacing.three },
+  filtersButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 20, borderWidth: 1, borderColor: Colors.light.backgroundElement },
+  filterBadge: { position: 'absolute', top: -4, right: -3, minWidth: 20, height: 20, lineHeight: 20, textAlign: 'center', borderRadius: 10, backgroundColor: Colors.light.text, color: Colors.light.background, fontSize: 12 },
+  favoriteFilter: {
+    flex: 1,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.light.backgroundElement,
+    borderRadius: 20,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  favoriteFilterActive: {
+    backgroundColor: Colors.light.backgroundElement,
+    borderColor: Colors.light.text,
+  },
+  list: {
+    flex: 1,
   },
   title: {
     marginTop: Spacing.three,
@@ -169,11 +237,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   grid: {
-    paddingBottom: Spacing.two,
+    paddingBottom: Spacing.four,
   },
   row: {
     gap: GRID_GAP,
     marginBottom: GRID_GAP,
+  },
+  cardPressable: {
+    borderRadius: 14,
   },
   card: {
     backgroundColor: Colors.light.backgroundElement,

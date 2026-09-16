@@ -24,6 +24,12 @@ export const Colors = {
   },
 } as const;
 
+export const OutfitColors = {
+  surface: '#F3EEF9',
+  button: '#EEE8FB',
+  accent: '#59388D',
+} as const;
+
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
@@ -61,5 +67,10 @@ export const Spacing = {
   six: 64,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
+/** Minimal scroll padding on main tab screens. Tab bar already sits below content. */
+export const TabScreenScrollPadding = Spacing.four;
+
+/** @deprecated Tab bar is in layout flow — do not add tab bar height to screen padding. */
+export const BottomTabInset = TabScreenScrollPadding;
+
 export const MaxContentWidth = 800;
