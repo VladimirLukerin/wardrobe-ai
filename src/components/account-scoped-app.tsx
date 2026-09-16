@@ -6,6 +6,7 @@ import { AccountProfileReloader } from '@/components/account-profile-reloader';
 import { AccountRestoreOverlay } from '@/components/account-restore-overlay';
 import { AppAuthEntryOverlay } from '@/components/app-auth-entry-overlay';
 import AppTabs from '@/components/app-tabs';
+import { FamilyInviteBanner } from '@/components/family-invite-banner';
 import { HomeLaunchOverlay } from '@/components/home-launch-overlay';
 import { useAccount } from '@/contexts/account-context';
 import { BodyParametersProvider } from '@/contexts/body-parameters-context';
@@ -126,6 +127,9 @@ export function AccountScopedApp() {
                                     <HomeLaunchOverlay onComplete={finishLaunch} />
                                   ) : null}
                                   {showMainApp ? <AccountRestoreOverlay /> : null}
+                                  {showMainApp && !showLaunch && !isRestoringAccount ? (
+                                    <FamilyInviteBanner />
+                                  ) : null}
                                   <AccountLoginChoiceSheet
                                     visible={isLoginChoiceVisible}
                                     onClose={() => setIsLoginChoiceVisible(false)}
