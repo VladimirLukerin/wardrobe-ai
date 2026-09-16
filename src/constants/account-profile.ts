@@ -8,6 +8,8 @@ export type AccountProfile = {
 
 export const DEFAULT_DISPLAY_NAME = 'Владимир';
 
+export const DISPLAY_NAME_MAX_LENGTH = 50;
+
 export const DEFAULT_ACCOUNT_PROFILE: AccountProfile = {
   localUserId: '',
   displayName: DEFAULT_DISPLAY_NAME,

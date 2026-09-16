@@ -8,7 +8,7 @@ import { getDatabase } from './db/database';
 import { currentWeatherHandler } from './current-weather';
 import { requireAuth } from './middleware/auth';
 import { handleProcessClothingImage } from './photo-processing/process-clothing-image';
-import { authRouter, meHandler } from './routes/auth';
+import { authRouter, meHandler, patchMeHandler } from './routes/auth';
 import { emailLoginRouter } from './routes/email-login';
 import { emailLinkRouter } from './routes/email-link';
 import { familyRouter } from './routes/family';
@@ -68,6 +68,7 @@ app.use('/me', familyRouter);
 app.use('/me', wardrobeRouter);
 app.use('/me/wardrobe', wardrobeImagesRouter);
 app.get('/me', requireAuth, meHandler);
+app.patch('/me', requireAuth, patchMeHandler);
 
 app.post('/suggest-outfits', suggestOutfitsHandler);
 app.post('/current-weather', currentWeatherHandler);

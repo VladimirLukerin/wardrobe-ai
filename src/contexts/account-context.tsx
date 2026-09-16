@@ -15,6 +15,7 @@ import {
   createAnonymousAccount,
   getCurrentUser,
   logoutSession,
+  updateCurrentUserDisplayName,
   type ServerUser,
 } from '@/services/account';
 import { prepareLocalStateForAccountSwitch } from '@/services/account-switch';
@@ -39,6 +40,7 @@ type AccountContextValue = {
   error: string | null;
   refreshAccount: () => Promise<void>;
   applyAuthenticatedUser: (user: ServerUser) => void;
+  updateDisplayName: (displayName: string) => Promise<void>;
   switchToAuthenticatedAccount: (user: ServerUser, token: string) => Promise<void>;
   finishAccountRestore: () => void;
   logoutFromProfile: () => Promise<void>;
@@ -224,6 +226,28 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [applyServerUser],
   );
 
+  const updateDisplayName = useCallback(
+    async (nextDisplayName: string) => {
+      const trimmedName = nextDisplayName.trim();
+
+      if (!trimmedName) {
+        throw new AccountApiError(400, 'Имя не может быть пустым');
+      }
+
+      const token = await getAuthToken();
+
+      if (!token) {
+        throw new AccountApiError(401, 'Требуется авторизация');
+      }
+
+      const updatedUser = await updateCurrentUserDisplayName(token, trimmedName);
+
+      await saveValidatedAccountUser(updatedUser);
+      applyServerUser(updatedUser);
+    },
+    [applyServerUser],
+  );
+
   const finishAccountRestore = useCallback(() => {
     if (__DEV__) {
       console.log('[RESTORE] complete');
@@ -368,6 +392,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       error,
       refreshAccount,
       applyAuthenticatedUser,
+      updateDisplayName,
       switchToAuthenticatedAccount,
       finishAccountRestore,
       logoutFromProfile,
@@ -386,6 +411,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       error,
       refreshAccount,
       applyAuthenticatedUser,
+      updateDisplayName,
       switchToAuthenticatedAccount,
       finishAccountRestore,
       logoutFromProfile,

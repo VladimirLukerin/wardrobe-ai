@@ -22,12 +22,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
+import { DISPLAY_NAME_MAX_LENGTH } from '@/constants/account-profile';
 import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
 import { useOutfitsSync, type OutfitsSyncStatus } from '@/contexts/outfits-sync-context';
 import { usePreferencesSync, type PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
 import { useWearHistorySync, type WearHistorySyncStatus } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync, type WardrobeSyncStatus } from '@/contexts/wardrobe-sync-context';
+import { AccountApiError } from '@/services/account';
 import EmailLinkSheet from '@/components/email-link-sheet';
 import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
 import AccountSaveSheet from '@/components/account-save-sheet';
@@ -116,9 +118,9 @@ function ActionRow({ label, destructive = false, isLast = false, onPress }: Acti
 
 export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   const insets = useSafeAreaInsets();
-  const { publicId, isServerAccount, error: accountError, user } = useAccount();
-  const { displayName, setDisplayName, isHydrated } = useAccountProfile();
-  const { status: preferencesSyncStatus, queuePreferencesSync } = usePreferencesSync();
+  const { publicId, isServerAccount, error: accountError, user, updateDisplayName } = useAccount();
+  const { displayName, isHydrated } = useAccountProfile();
+  const { status: preferencesSyncStatus } = usePreferencesSync();
   const { status: wardrobeSyncStatus } = useWardrobeSync();
   const { status: outfitsSyncStatus } = useOutfitsSync();
   const { status: wearHistorySyncStatus } = useWearHistorySync();
@@ -131,6 +133,7 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   );
 
   const [isEditingName, setIsEditingName] = useState(false);
+  const [isSavingName, setIsSavingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(displayName);
   const [isCopying, setIsCopying] = useState(false);
   const [isEmailLinkVisible, setIsEmailLinkVisible] = useState(false);
@@ -173,6 +176,7 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
     if (!visible) {
       translateY.value = 0;
       setIsEditingName(false);
+      setIsSavingName(false);
       setIsCopying(false);
       return;
     }
@@ -206,16 +210,31 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
     setIsEditingName(true);
   };
 
-  const handleSaveName = () => {
+  const handleSaveName = async () => {
     const trimmedName = nameDraft.trim();
 
-    if (!trimmedName) {
+    if (!trimmedName || isSavingName) {
       return;
     }
 
-    setDisplayName(trimmedName);
-    queuePreferencesSync();
-    setIsEditingName(false);
+    if (trimmedName === displayName) {
+      setIsEditingName(false);
+      return;
+    }
+
+    setIsSavingName(true);
+
+    try {
+      await updateDisplayName(trimmedName);
+      setIsEditingName(false);
+    } catch (error) {
+      const message =
+        error instanceof AccountApiError ? error.message : 'Нет соединения с сервером';
+
+      Alert.alert('Не удалось сохранить имя', message);
+    } finally {
+      setIsSavingName(false);
+    }
   };
 
   const handleConnectEmail = () => {
@@ -328,13 +347,25 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
                         placeholderTextColor={Colors.light.textSecondary}
                         autoFocus
                         returnKeyType="done"
-                        onSubmitEditing={handleSaveName}
-                        maxLength={40}
+                        editable={!isSavingName}
+                        onSubmitEditing={() => {
+                          void handleSaveName();
+                        }}
+                        maxLength={DISPLAY_NAME_MAX_LENGTH}
                       />
                       <Pressable
-                        onPress={handleSaveName}
-                        style={({ pressed }) => [styles.nameSaveButton, pressed && styles.pressed]}>
-                        <ThemedText style={styles.nameSaveButtonText}>Готово</ThemedText>
+                        onPress={() => {
+                          void handleSaveName();
+                        }}
+                        disabled={isSavingName}
+                        style={({ pressed }) => [
+                          styles.nameSaveButton,
+                          isSavingName && styles.nameSaveButtonDisabled,
+                          pressed && !isSavingName && styles.pressed,
+                        ]}>
+                        <ThemedText style={styles.nameSaveButtonText}>
+                          {isSavingName ? 'Сохранение…' : 'Готово'}
+                        </ThemedText>
                       </Pressable>
                     </View>
                   ) : (
@@ -631,6 +662,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.one,
+  },
+  nameSaveButtonDisabled: {
+    opacity: 0.5,
   },
   nameSaveButtonText: {
     fontSize: 15,

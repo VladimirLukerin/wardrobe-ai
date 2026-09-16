@@ -91,6 +91,25 @@ export async function getCurrentUser(token: string): Promise<ServerUser> {
   return payload.user;
 }
 
+export async function updateCurrentUserDisplayName(
+  token: string,
+  displayName: string,
+): Promise<ServerUser> {
+  const response = await fetch(CURRENT_USER_ENDPOINT, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ displayName }),
+  });
+
+  const payload = await parseJsonResponse<MeResponse>(response);
+
+  return payload.user;
+}
+
 export async function logoutSession(token: string): Promise<void> {
   const response = await fetch(LOGOUT_ENDPOINT, {
     method: 'POST',

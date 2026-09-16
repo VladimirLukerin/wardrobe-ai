@@ -142,6 +142,8 @@ export function validateStylistPreferences(value: unknown): ValidatedStylistPref
   };
 }
 
+export const DISPLAY_NAME_MAX_LENGTH = 50;
+
 export function validateDisplayName(value: unknown): string | null {
   if (value === null || value === undefined) {
     return null;
@@ -153,7 +155,7 @@ export function validateDisplayName(value: unknown): string | null {
 
   const trimmed = value.trim();
 
-  if (!trimmed || trimmed.length > 40) {
+  if (!trimmed || trimmed.length > DISPLAY_NAME_MAX_LENGTH) {
     return null;
   }
 
