@@ -30,6 +30,9 @@ import {
   type DailyOutfit,
 } from '@/services/paired-outfits-storage';
 import { AccountApiError } from '@/services/account';
+import { isDailyStylistDisabledError, isUnexpectedDailyMutationError } from '@/utils/daily-outfit-errors';
+import { shouldAttemptDailyCreateOrRegenerate } from '@/utils/home-daily-preferences-sync';
+import type { PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
 import { fetchOutfitFeedback, saveOutfitFeedback } from '@/services/outfit-feedback';
 import { getAuthToken } from '@/storage/auth-token-storage';
 import {
@@ -50,6 +53,7 @@ type Params = {
   isServerAccount: boolean;
   accountScope: string;
   localDate: string;
+  preferencesSyncStatus: PreferencesSyncStatus;
   items: WardrobeItem[];
   savedOutfits: SavedOutfit[];
   wearEvents: WearEvent[];
@@ -146,6 +150,7 @@ export function useHomeDailyContent(params: Params) {
     isServerAccount,
     accountScope,
     localDate,
+    preferencesSyncStatus,
     items,
     savedOutfits,
     wearEvents,
@@ -298,6 +303,12 @@ export function useHomeDailyContent(params: Params) {
         !p.requestLocation ||
         Boolean(freshWeatherEntry);
 
+      const canMutateDaily = shouldAttemptDailyCreateOrRegenerate(
+        p.stylistPreferences.dailyStylistEnabled,
+        p.isServerAccount,
+        p.preferencesSyncStatus,
+      );
+
       const runWeatherTask = () => {
         weatherTask = (async () => {
           if (!p.stylistPreferences.considerWeather || !p.requestLocation || !locationKey) {
@@ -349,12 +360,7 @@ export function useHomeDailyContent(params: Params) {
         })();
       };
 
-      if (
-        manual &&
-        p.isServerAccount &&
-        p.stylistPreferences.dailyStylistEnabled &&
-        p.localDate
-      ) {
+      if (manual && p.isServerAccount && p.localDate && canMutateDaily) {
         try {
           const token = await getAuthToken();
 
@@ -402,9 +408,8 @@ export function useHomeDailyContent(params: Params) {
             : 'server';
 
           if (
-            !(manualRegenError instanceof AccountApiError) &&
-            !(manualRegenError instanceof Error && manualRegenError.message === 'No usable outfit') &&
-            !isRetryableNetworkError(manualRegenError)
+            isUnexpectedDailyMutationError(manualRegenError) &&
+            !(manualRegenError instanceof Error && manualRegenError.message === 'No usable outfit')
           ) {
             console.error('Unexpected manual daily regeneration error:', manualRegenError);
           }
@@ -473,34 +478,38 @@ export function useHomeDailyContent(params: Params) {
                 applyServerDailyOutfit({ ...applyParams, sanitizedItemIds });
                 devDailyHomeLog('[DAILY HOME] stale interim');
 
-                try {
-                  devDailyHomeLog('[DAILY HOME] stale regenerate');
-                  const regenerated = await regenerateDailyOutfit(
-                    token,
-                    p.localDate,
-                    p.requestLocation,
-                    { accountScope: p.accountScope },
-                  );
-                  if (!active()) return;
+                if (canMutateDaily) {
+                  try {
+                    devDailyHomeLog('[DAILY HOME] stale regenerate');
+                    const regenerated = await regenerateDailyOutfit(
+                      token,
+                      p.localDate,
+                      p.requestLocation,
+                      { accountScope: p.accountScope },
+                    );
+                    if (!active()) return;
 
-                  const regeneratedItemIds = sanitizeDailyOutfitItemIds(
-                    regenerated.itemIds,
-                    p.items,
-                  );
+                    const regeneratedItemIds = sanitizeDailyOutfitItemIds(
+                      regenerated.itemIds,
+                      p.items,
+                    );
 
-                  if (regeneratedItemIds) {
-                    applyServerDailyOutfit({
-                      ...applyParams,
-                      daily: regenerated,
-                      sanitizedItemIds: regeneratedItemIds,
-                    });
-                    devDailyHomeLog('[DAILY HOME] daily replaced');
-                    devDailyHomeLog('[DAILY HOME] suggest skipped');
-                    return;
-                  }
-                } catch (staleRegenError) {
-                  if (!isRetryableNetworkError(staleRegenError)) {
-                    console.error('Unexpected stale daily regeneration error:', staleRegenError);
+                    if (regeneratedItemIds) {
+                      applyServerDailyOutfit({
+                        ...applyParams,
+                        daily: regenerated,
+                        sanitizedItemIds: regeneratedItemIds,
+                      });
+                      devDailyHomeLog('[DAILY HOME] daily replaced');
+                      devDailyHomeLog('[DAILY HOME] suggest skipped');
+                      return;
+                    }
+                  } catch (staleRegenError) {
+                    if (isDailyStylistDisabledError(staleRegenError)) {
+                      devDailyHomeLog('[DAILY HOME] daily stylist disabled');
+                    } else if (isUnexpectedDailyMutationError(staleRegenError)) {
+                      console.error('Unexpected stale daily regeneration error:', staleRegenError);
+                    }
                   }
                 }
 
@@ -508,7 +517,7 @@ export function useHomeDailyContent(params: Params) {
                 return;
               }
 
-              if (!sanitizedItemIds && p.stylistPreferences.dailyStylistEnabled) {
+              if (!sanitizedItemIds && p.stylistPreferences.dailyStylistEnabled && canMutateDaily) {
                 devDailyHomeLog('[DAILY HOME] invalid itemIds fallback');
 
                 try {
@@ -537,7 +546,9 @@ export function useHomeDailyContent(params: Params) {
                     return;
                   }
                 } catch (invalidRegenError) {
-                  if (!isRetryableNetworkError(invalidRegenError)) {
+                  if (isDailyStylistDisabledError(invalidRegenError)) {
+                    devDailyHomeLog('[DAILY HOME] daily stylist disabled');
+                  } else if (isUnexpectedDailyMutationError(invalidRegenError)) {
                     console.error('Unexpected invalid daily regeneration error:', invalidRegenError);
                   }
                 }
@@ -549,7 +560,7 @@ export function useHomeDailyContent(params: Params) {
             } else {
               devDailyHomeLog('[DAILY HOME] server miss');
 
-              if (p.stylistPreferences.dailyStylistEnabled) {
+              if (canMutateDaily) {
                 devDailyHomeLog('[DAILY HOME] create missing daily');
 
                 try {
@@ -592,10 +603,14 @@ export function useHomeDailyContent(params: Params) {
                 } catch (createMissingError) {
                   if (isRetryableNetworkError(createMissingError)) {
                     devDailyHomeLog('[DAILY HOME] network fallback');
-                  } else {
+                  } else if (isDailyStylistDisabledError(createMissingError)) {
+                    devDailyHomeLog('[DAILY HOME] daily stylist disabled');
+                  } else if (isUnexpectedDailyMutationError(createMissingError)) {
                     console.error('Unexpected missing daily creation error:', createMissingError);
                   }
                 }
+              } else if (p.stylistPreferences.dailyStylistEnabled) {
+                devDailyHomeLog('[DAILY HOME] waiting for preferences sync');
               }
             }
           }
@@ -841,7 +856,7 @@ export function useHomeDailyContent(params: Params) {
       generation.current += 1;
       busy.current = false;
     };
-  }, [isHydrated, isServerAccount, localDate, syncKey, sync]);
+  }, [isHydrated, isServerAccount, localDate, preferencesSyncStatus, syncKey, sync]);
 
   const replaceItem = useCallback(
     (targetId: string, replacementId: string): boolean => {

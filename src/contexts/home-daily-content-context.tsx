@@ -1,6 +1,8 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import { useBodyParameters } from '@/contexts/body-parameters-context';
+
 import { useAccount } from '@/contexts/account-context';
+import { useBodyParameters } from '@/contexts/body-parameters-context';
+import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useOutfits } from '@/contexts/outfits-context';
 import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
 import type { StylistPreferences } from '@/constants/stylist-preferences';
@@ -47,6 +49,7 @@ export function HomeDailyContentProvider({ children }: { children: ReactNode }) 
   } = useBodyParameters();
   const { wearEvents, getItemWearCount, getItemLastWornAt, isHydrated: wearHistoryReady } =
     useWearHistory();
+  const { status: preferencesSyncStatus } = usePreferencesSync();
   const requestLocation = useMemo(
     () => getActiveLocation({ locationMode, manualLocation, autoLocation }),
     [locationMode, manualLocation, autoLocation],
@@ -69,6 +72,7 @@ export function HomeDailyContentProvider({ children }: { children: ReactNode }) 
     isServerAccount,
     accountScope,
     localDate,
+    preferencesSyncStatus,
     items,
     savedOutfits,
     wearEvents,
