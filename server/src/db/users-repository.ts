@@ -2,6 +2,7 @@ import crypto from 'crypto';
 
 import { getDatabase } from './database';
 import { generatePublicId } from './public-id';
+import { hasPasswordCredential } from './password-credentials-repository';
 
 export type DbUser = {
   id: string;
@@ -23,6 +24,7 @@ export type UserResponse = {
   emailVerified: boolean;
   phone: string | null;
   phoneVerified: boolean;
+  hasPassword: boolean;
   createdAt: string;
 };
 
@@ -35,6 +37,7 @@ export function toUserResponse(user: DbUser): UserResponse {
     emailVerified: user.email_verified === 1,
     phone: user.phone,
     phoneVerified: user.phone_verified === 1,
+    hasPassword: hasPasswordCredential(user.id),
     createdAt: user.created_at,
   };
 }

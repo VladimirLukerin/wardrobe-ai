@@ -68,6 +68,23 @@ export function deleteSessionByToken(token: string): boolean {
   return result.changes > 0;
 }
 
+export function deleteSessionsForUser(userId: string): number {
+  const db = getDatabase();
+  const result = db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+
+  return result.changes;
+}
+
+export function deleteOtherSessionsForUser(userId: string, currentToken: string): number {
+  const db = getDatabase();
+  const currentTokenHash = hashSessionToken(currentToken);
+  const result = db
+    .prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+    .run(userId, currentTokenHash);
+
+  return result.changes;
+}
+
 export function findUserBySessionToken(token: string): DbUser | null {
   const tokenHash = hashSessionToken(token);
   const session = findSessionByTokenHash(tokenHash);

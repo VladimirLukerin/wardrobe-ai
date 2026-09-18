@@ -12,20 +12,24 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PasswordInput } from '@/components/password-input';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
 import { useConfirmAccountSwitch } from '@/hooks/use-confirm-account-switch';
 import { AccountApiError } from '@/services/account';
-import { devBypassPhoneLoginCode, requestPhoneLoginCode, verifyPhoneLoginCode } from '@/services/phone-auth';
-import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
+import {
+  requestPasswordResetCode,
+  verifyPasswordReset,
+} from '@/services/password-auth';
 
-type PhoneLoginSheetProps = {
+type ForgotPasswordSheetProps = {
   visible: boolean;
+  initialEmail?: string;
   onClose: () => void;
   onSuccess?: () => void;
 };
 
-type Step = 'phone' | 'code';
+type Step = 'email' | 'code' | 'password';
 
 function resolveRequestError(error: unknown): string {
   if (error instanceof AccountApiError) {
@@ -48,40 +52,51 @@ function resolveVerifyError(error: unknown): string {
     return error.message;
   }
 
-  return 'Не удалось подтвердить код';
+  return 'Не удалось сбросить пароль';
 }
 
-export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLoginSheetProps) {
+export default function ForgotPasswordSheet({
+  visible,
+  initialEmail = '',
+  onClose,
+  onSuccess,
+}: ForgotPasswordSheetProps) {
   const insets = useSafeAreaInsets();
   const { confirmAndSwitch } = useConfirmAccountSwitch();
-
-  const [step, setStep] = useState<Step>('phone');
-  const [phone, setPhone] = useState('');
+  const [step, setStep] = useState<Step>('email');
+  const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [resendAfterSeconds, setResendAfterSeconds] = useState(0);
   const [isRequesting, setIsRequesting] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const bottomInset = Math.max(insets.bottom, Spacing.three);
 
   const resetState = useCallback(() => {
-    setStep('phone');
-    setPhone('');
+    setStep('email');
+    setEmail(initialEmail);
     setCode('');
+    setNewPassword('');
+    setConfirmPassword('');
     setChallengeId(null);
     setResendAfterSeconds(0);
     setIsRequesting(false);
-    setIsVerifying(false);
+    setIsSubmitting(false);
     setErrorMessage(null);
-  }, []);
+  }, [initialEmail]);
 
   useEffect(() => {
     if (!visible) {
       resetState();
+      return;
     }
-  }, [visible, resetState]);
+
+    setEmail(initialEmail);
+  }, [visible, initialEmail, resetState]);
 
   useEffect(() => {
     if (resendAfterSeconds <= 0) {
@@ -98,10 +113,10 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
   }, [resendAfterSeconds]);
 
   const handleRequestCode = async () => {
-    const trimmedPhone = phone.trim();
+    const trimmedEmail = email.trim();
 
-    if (!trimmedPhone) {
-      setErrorMessage('Введите номер телефона');
+    if (!trimmedEmail) {
+      setErrorMessage('Введите email');
       return;
     }
 
@@ -109,26 +124,7 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
     setErrorMessage(null);
 
     try {
-      const response = await requestPhoneLoginCode(trimmedPhone);
-
-      if (isDevOtpBypassAvailable(response)) {
-        setIsVerifying(true);
-
-        try {
-          const loginResult = await devBypassPhoneLoginCode(response.challengeId);
-          await confirmAndSwitch(loginResult, () => {
-            onClose();
-            onSuccess?.();
-          });
-          return;
-        } catch (error) {
-          setErrorMessage(resolveVerifyError(error));
-          return;
-        } finally {
-          setIsVerifying(false);
-        }
-      }
-
+      const response = await requestPasswordResetCode(trimmedEmail);
       setChallengeId(response.challengeId);
       setResendAfterSeconds(response.resendAfterSeconds);
       setStep('code');
@@ -140,11 +136,7 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
     }
   };
 
-  const handleVerifyCode = async () => {
-    if (!challengeId) {
-      return;
-    }
-
+  const handleContinueToPassword = () => {
     const trimmedCode = code.trim();
 
     if (trimmedCode.length !== 6) {
@@ -152,32 +144,39 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
       return;
     }
 
-    setIsVerifying(true);
+    setStep('password');
+    setErrorMessage(null);
+  };
+
+  const handleResetPassword = async () => {
+    if (!challengeId) {
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('Пароли не совпадают');
+      return;
+    }
+
+    setIsSubmitting(true);
     setErrorMessage(null);
 
     try {
-      const loginResult = await verifyPhoneLoginCode({
+      const authResult = await verifyPasswordReset({
         challengeId,
-        code: trimmedCode,
+        code: code.trim(),
+        newPassword,
       });
 
-      await confirmAndSwitch(loginResult, () => {
+      await confirmAndSwitch(authResult, () => {
         onClose();
         onSuccess?.();
       });
     } catch (error) {
       setErrorMessage(resolveVerifyError(error));
     } finally {
-      setIsVerifying(false);
+      setIsSubmitting(false);
     }
-  };
-
-  const handleResendCode = async () => {
-    if (resendAfterSeconds > 0 || isRequesting) {
-      return;
-    }
-
-    await handleRequestCode();
   };
 
   return (
@@ -189,7 +188,7 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
           keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
           <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
             <View style={styles.header}>
-              <ThemedText style={styles.title}>Войти по телефону</ThemedText>
+              <ThemedText style={styles.title}>Восстановление пароля</ThemedText>
               <Pressable onPress={onClose} hitSlop={8} style={({ pressed }) => [pressed && styles.pressed]}>
                 <ThemedText style={styles.closeButton}>×</ThemedText>
               </Pressable>
@@ -199,31 +198,29 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
               contentContainerStyle={styles.content}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
-              {step === 'phone' ? (
+              {step === 'email' ? (
                 <>
                   <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                    Введите номер, который вы ранее подключили к Wardrobe AI.
+                    Если к этому email привязан аккаунт, мы отправим код для сброса пароля.
                   </ThemedText>
 
                   <TextInput
-                    value={phone}
-                    onChangeText={setPhone}
+                    value={email}
+                    onChangeText={setEmail}
                     style={styles.textInput}
-                    placeholder="+7 999 123-45-67"
+                    placeholder="Email"
                     placeholderTextColor={Colors.light.textSecondary}
                     autoCapitalize="none"
                     autoCorrect={false}
-                    keyboardType="phone-pad"
-                    textContentType="telephoneNumber"
+                    keyboardType="email-address"
+                    textContentType="emailAddress"
                     returnKeyType="done"
                     onSubmitEditing={() => {
                       void handleRequestCode();
                     }}
                   />
 
-                  {errorMessage ? (
-                    <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-                  ) : null}
+                  {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
 
                   <Pressable
                     onPress={() => {
@@ -238,14 +235,16 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
                     {isRequesting ? (
                       <ActivityIndicator color={Colors.light.background} />
                     ) : (
-                      <ThemedText style={styles.primaryButtonText}>Получить код</ThemedText>
+                      <ThemedText style={styles.primaryButtonText}>Отправить код</ThemedText>
                     )}
                   </Pressable>
                 </>
-              ) : (
+              ) : null}
+
+              {step === 'code' ? (
                 <>
                   <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                    Если к этому номеру привязан аккаунт, мы отправили код.
+                    Если к этому email привязан аккаунт, мы отправили код.
                   </ThemedText>
 
                   <TextInput
@@ -258,35 +257,20 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
                     maxLength={6}
                     autoFocus
                     returnKeyType="done"
-                    onSubmitEditing={() => {
-                      void handleVerifyCode();
-                    }}
+                    onSubmitEditing={handleContinueToPassword}
                   />
 
-                  {errorMessage ? (
-                    <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-                  ) : null}
+                  {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
 
                   <Pressable
-                    onPress={() => {
-                      void handleVerifyCode();
-                    }}
-                    disabled={isVerifying}
-                    style={({ pressed }) => [
-                      styles.primaryButton,
-                      isVerifying && styles.primaryButtonDisabled,
-                      pressed && styles.pressed,
-                    ]}>
-                    {isVerifying ? (
-                      <ActivityIndicator color={Colors.light.background} />
-                    ) : (
-                      <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
-                    )}
+                    onPress={handleContinueToPassword}
+                    style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+                    <ThemedText style={styles.primaryButtonText}>Продолжить</ThemedText>
                   </Pressable>
 
                   <Pressable
                     onPress={() => {
-                      void handleResendCode();
+                      void handleRequestCode();
                     }}
                     disabled={resendAfterSeconds > 0 || isRequesting}
                     style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
@@ -299,7 +283,49 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
                     </ThemedText>
                   </Pressable>
                 </>
-              )}
+              ) : null}
+
+              {step === 'password' ? (
+                <>
+                  <PasswordInput
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Новый пароль"
+                    placeholderTextColor={Colors.light.textSecondary}
+                    returnKeyType="next"
+                  />
+
+                  <PasswordInput
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Повторите пароль"
+                    placeholderTextColor={Colors.light.textSecondary}
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      void handleResetPassword();
+                    }}
+                  />
+
+                  {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                  <Pressable
+                    onPress={() => {
+                      void handleResetPassword();
+                    }}
+                    disabled={isSubmitting}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      isSubmitting && styles.primaryButtonDisabled,
+                      pressed && styles.pressed,
+                    ]}>
+                    {isSubmitting ? (
+                      <ActivityIndicator color={Colors.light.background} />
+                    ) : (
+                      <ThemedText style={styles.primaryButtonText}>Сохранить пароль</ThemedText>
+                    )}
+                  </Pressable>
+                </>
+              ) : null}
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -319,7 +345,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    maxHeight: '70%',
+    maxHeight: '80%',
     backgroundColor: Colors.light.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,

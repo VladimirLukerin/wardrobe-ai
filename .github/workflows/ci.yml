@@ -61,3 +61,6 @@ jobs:
 
       - name: Run account capabilities test
         run: npm run test:account-capabilities
+
+      - name: Run password auth test
+        run: npm run test:password-auth

@@ -15,13 +15,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAccount } from '@/contexts/account-context';
-import { AccountApiError } from '@/services/account';
+import { AccountApiError, type ServerUser } from '@/services/account';
 import { devBypassEmailLinkCode, requestEmailLinkCode, verifyEmailLinkCode } from '@/services/email-auth';
 import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type EmailLinkSheetProps = {
   visible: boolean;
   onClose: () => void;
+  onLinked?: (user: ServerUser) => void;
 };
 
 type Step = 'email' | 'code';
@@ -62,7 +63,7 @@ function resolveVerifyError(error: unknown): string {
   return 'Не удалось подтвердить код';
 }
 
-export default function EmailLinkSheet({ visible, onClose }: EmailLinkSheetProps) {
+export default function EmailLinkSheet({ visible, onClose, onLinked }: EmailLinkSheetProps) {
   const insets = useSafeAreaInsets();
   const { applyAuthenticatedUser } = useAccount();
 
@@ -129,6 +130,7 @@ export default function EmailLinkSheet({ visible, onClose }: EmailLinkSheetProps
           const verifyResponse = await devBypassEmailLinkCode(response.challengeId);
           applyAuthenticatedUser(verifyResponse.user);
           onClose();
+          onLinked?.(verifyResponse.user);
           return;
         } catch (error) {
           setErrorMessage(resolveVerifyError(error));
@@ -172,6 +174,7 @@ export default function EmailLinkSheet({ visible, onClose }: EmailLinkSheetProps
 
       applyAuthenticatedUser(response.user);
       onClose();
+      onLinked?.(response.user);
     } catch (error) {
       setErrorMessage(resolveVerifyError(error));
     } finally {

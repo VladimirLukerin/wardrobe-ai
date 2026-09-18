@@ -102,6 +102,7 @@ function runMigrations(db: Database.Database): void {
   migrateSavedPairedOutfitsTable(db);
   migrateDailyOutfitsTable(db);
   migrateOutfitFeedbackTable(db);
+  migratePasswordCredentials(db);
 }
 
 function migrateSavedPairedOutfitsTable(db: Database.Database): void {
@@ -127,6 +128,19 @@ function migrateSavedPairedOutfitsTable(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_saved_paired_outfits_owner_user_id
       ON saved_paired_outfits(owner_user_id);
+  `);
+}
+
+function migratePasswordCredentials(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_password_credentials (
+      user_id TEXT PRIMARY KEY,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
   `);
 }
 

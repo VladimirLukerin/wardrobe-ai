@@ -13,6 +13,7 @@ export type ServerUser = {
   emailVerified: boolean;
   phone: string | null;
   phoneVerified: boolean;
+  hasPassword: boolean;
   createdAt: string;
 };
 

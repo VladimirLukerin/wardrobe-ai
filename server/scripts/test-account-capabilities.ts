@@ -16,6 +16,7 @@ function buildUser(overrides: Partial<ServerUser>): ServerUser {
     emailVerified: false,
     phone: null,
     phoneVerified: false,
+    hasPassword: false,
     createdAt: '2026-09-18T10:00:00.000Z',
     ...overrides,
   };

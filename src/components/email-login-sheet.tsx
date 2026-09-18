@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -13,16 +12,18 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import ForgotPasswordSheet from '@/components/forgot-password-sheet';
+import { PasswordInput } from '@/components/password-input';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
-import { useAccount } from '@/contexts/account-context';
-import { useOutfitsSync } from '@/contexts/outfits-sync-context';
-import { usePreferencesSync } from '@/contexts/preferences-sync-context';
-import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
-import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
+import { useConfirmAccountSwitch } from '@/hooks/use-confirm-account-switch';
 import { AccountApiError } from '@/services/account';
-import { assessLocalAccountState } from '@/services/account-switch';
-import { devBypassEmailLoginCode, requestEmailLoginCode, verifyEmailLoginCode } from '@/services/email-auth';
+import {
+  devBypassEmailLoginCode,
+  requestEmailLoginCode,
+  verifyEmailLoginCode,
+} from '@/services/email-auth';
+import { loginWithPassword } from '@/services/password-auth';
 import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type EmailLoginSheetProps = {
@@ -31,7 +32,27 @@ type EmailLoginSheetProps = {
   onSuccess?: () => void;
 };
 
-type Step = 'email' | 'code';
+type Step = 'password' | 'otp-email' | 'otp-code';
+
+function resolvePasswordError(error: unknown): string {
+  if (error instanceof AccountApiError) {
+    if (error.status === 0) {
+      return 'Не удалось подключиться к серверу';
+    }
+
+    if (error.code === 'auth_rate_limited') {
+      return error.message;
+    }
+
+    if (error.code === 'INVALID_CREDENTIALS') {
+      return error.message;
+    }
+
+    return error.message;
+  }
+
+  return 'Не удалось выполнить вход';
+}
 
 function resolveRequestError(error: unknown): string {
   if (error instanceof AccountApiError) {
@@ -59,32 +80,34 @@ function resolveVerifyError(error: unknown): string {
 
 export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLoginSheetProps) {
   const insets = useSafeAreaInsets();
-  const { user, switchToAuthenticatedAccount } = useAccount();
-  const { status: preferencesStatus } = usePreferencesSync();
-  const { status: wardrobeStatus } = useWardrobeSync();
-  const { status: outfitsStatus } = useOutfitsSync();
-  const { status: wearHistoryStatus } = useWearHistorySync();
+  const { confirmAndSwitch } = useConfirmAccountSwitch();
 
-  const [step, setStep] = useState<Step>('email');
+  const [step, setStep] = useState<Step>('password');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [resendAfterSeconds, setResendAfterSeconds] = useState(0);
+  const [isPasswordLoggingIn, setIsPasswordLoggingIn] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isForgotPasswordVisible, setIsForgotPasswordVisible] = useState(false);
 
   const bottomInset = Math.max(insets.bottom, Spacing.three);
 
   const resetState = useCallback(() => {
-    setStep('email');
+    setStep('password');
     setEmail('');
+    setPassword('');
     setCode('');
     setChallengeId(null);
     setResendAfterSeconds(0);
+    setIsPasswordLoggingIn(false);
     setIsRequesting(false);
     setIsVerifying(false);
     setErrorMessage(null);
+    setIsForgotPasswordVisible(false);
   }, []);
 
   useEffect(() => {
@@ -107,64 +130,38 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
     };
   }, [resendAfterSeconds]);
 
-  const performAccountSwitch = useCallback(
-    async (nextUser: Awaited<ReturnType<typeof verifyEmailLoginCode>>) => {
-      onClose();
-      onSuccess?.();
-      await switchToAuthenticatedAccount(nextUser.user, nextUser.token);
-    },
-    [onClose, onSuccess, switchToAuthenticatedAccount],
-  );
+  const handlePasswordLogin = async () => {
+    const trimmedEmail = email.trim();
 
-  const confirmAndSwitch = useCallback(
-    async (loginResult: Awaited<ReturnType<typeof verifyEmailLoginCode>>) => {
-      const isSameAccount = user?.id === loginResult.user.id;
+    if (!trimmedEmail) {
+      setErrorMessage('Введите email');
+      return;
+    }
 
-      if (isSameAccount) {
-        await performAccountSwitch(loginResult);
-        return;
-      }
+    if (!password) {
+      setErrorMessage('Введите пароль');
+      return;
+    }
 
-      const assessment = await assessLocalAccountState();
-      const hasPendingSync =
-        preferencesStatus === 'pending' ||
-        wardrobeStatus === 'pending' ||
-        outfitsStatus === 'pending' ||
-        wearHistoryStatus === 'pending' ||
-        assessment.hasPendingSyncMetadata;
+    setIsPasswordLoggingIn(true);
+    setErrorMessage(null);
 
-      const needsConfirmation = assessment.hasMeaningfulLocalData || hasPendingSync;
+    try {
+      const authResult = await loginWithPassword({
+        email: trimmedEmail,
+        password,
+      });
 
-      if (!needsConfirmation) {
-        await performAccountSwitch(loginResult);
-        return;
-      }
-
-      const message = hasPendingSync
-        ? 'Есть несинхронизированные изменения.\n\nЛокальные данные текущего аккаунта будут заменены данными аккаунта, в который вы входите. Убедитесь, что изменения синхронизированы.'
-        : 'Локальные данные текущего аккаунта будут заменены данными аккаунта, в который вы входите. Убедитесь, что изменения синхронизированы.';
-
-      Alert.alert('Переключиться на другой аккаунт?', message, [
-        { text: 'Отмена', style: 'cancel' },
-        {
-          text: 'Продолжить',
-          style: 'destructive',
-          onPress: () => {
-            void performAccountSwitch(loginResult);
-          },
-        },
-      ]);
-    },
-    [
-      onClose,
-      outfitsStatus,
-      performAccountSwitch,
-      preferencesStatus,
-      user?.id,
-      wardrobeStatus,
-      wearHistoryStatus,
-    ],
-  );
+      await confirmAndSwitch(authResult, () => {
+        onClose();
+        onSuccess?.();
+      });
+    } catch (error) {
+      setErrorMessage(resolvePasswordError(error));
+    } finally {
+      setIsPasswordLoggingIn(false);
+    }
+  };
 
   const handleRequestCode = async () => {
     const trimmedEmail = email.trim();
@@ -185,7 +182,10 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
 
         try {
           const loginResult = await devBypassEmailLoginCode(response.challengeId);
-          await confirmAndSwitch(loginResult);
+          await confirmAndSwitch(loginResult, () => {
+            onClose();
+            onSuccess?.();
+          });
           return;
         } catch (error) {
           setErrorMessage(resolveVerifyError(error));
@@ -197,7 +197,7 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
 
       setChallengeId(response.challengeId);
       setResendAfterSeconds(response.resendAfterSeconds);
-      setStep('code');
+      setStep('otp-code');
       setCode('');
     } catch (error) {
       setErrorMessage(resolveRequestError(error));
@@ -227,7 +227,10 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
         code: trimmedCode,
       });
 
-      await confirmAndSwitch(loginResult);
+      await confirmAndSwitch(loginResult, () => {
+        onClose();
+        onSuccess?.();
+      });
     } catch (error) {
       setErrorMessage(resolveVerifyError(error));
     } finally {
@@ -244,130 +247,212 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <KeyboardAvoidingView
-          style={styles.keyboardAvoid}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
-          <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
-            <View style={styles.header}>
-              <ThemedText style={styles.title}>Войти по email</ThemedText>
-              <Pressable onPress={onClose} hitSlop={8} style={({ pressed }) => [pressed && styles.pressed]}>
-                <ThemedText style={styles.closeButton}>×</ThemedText>
-              </Pressable>
-            </View>
+    <>
+      <Modal visible={visible && !isForgotPasswordVisible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={styles.overlay}>
+          <KeyboardAvoidingView
+            style={styles.keyboardAvoid}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
+            <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
+              <View style={styles.header}>
+                <ThemedText style={styles.title}>Войти по email</ThemedText>
+                <Pressable onPress={onClose} hitSlop={8} style={({ pressed }) => [pressed && styles.pressed]}>
+                  <ThemedText style={styles.closeButton}>×</ThemedText>
+                </Pressable>
+              </View>
 
-            <ScrollView
-              contentContainerStyle={styles.content}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}>
-              {step === 'email' ? (
-                <>
-                  <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                    Введите email, который вы ранее подключили к Wardrobe AI.
-                  </ThemedText>
-
-                  <TextInput
-                    value={email}
-                    onChangeText={setEmail}
-                    style={styles.textInput}
-                    placeholder="Email"
-                    placeholderTextColor={Colors.light.textSecondary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="email-address"
-                    textContentType="emailAddress"
-                    returnKeyType="done"
-                    onSubmitEditing={() => {
-                      void handleRequestCode();
-                    }}
-                  />
-
-                  {errorMessage ? (
-                    <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-                  ) : null}
-
-                  <Pressable
-                    onPress={() => {
-                      void handleRequestCode();
-                    }}
-                    disabled={isRequesting}
-                    style={({ pressed }) => [
-                      styles.primaryButton,
-                      isRequesting && styles.primaryButtonDisabled,
-                      pressed && styles.pressed,
-                    ]}>
-                    {isRequesting ? (
-                      <ActivityIndicator color={Colors.light.background} />
-                    ) : (
-                      <ThemedText style={styles.primaryButtonText}>Получить код</ThemedText>
-                    )}
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                    Если к этому email привязан аккаунт, мы отправили код.
-                  </ThemedText>
-
-                  <TextInput
-                    value={code}
-                    onChangeText={setCode}
-                    style={styles.textInput}
-                    placeholder="000000"
-                    placeholderTextColor={Colors.light.textSecondary}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    autoFocus
-                    returnKeyType="done"
-                    onSubmitEditing={() => {
-                      void handleVerifyCode();
-                    }}
-                  />
-
-                  {errorMessage ? (
-                    <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-                  ) : null}
-
-                  <Pressable
-                    onPress={() => {
-                      void handleVerifyCode();
-                    }}
-                    disabled={isVerifying}
-                    style={({ pressed }) => [
-                      styles.primaryButton,
-                      isVerifying && styles.primaryButtonDisabled,
-                      pressed && styles.pressed,
-                    ]}>
-                    {isVerifying ? (
-                      <ActivityIndicator color={Colors.light.background} />
-                    ) : (
-                      <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
-                    )}
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => {
-                      void handleResendCode();
-                    }}
-                    disabled={resendAfterSeconds > 0 || isRequesting}
-                    style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-                    <ThemedText
-                      themeColor={resendAfterSeconds > 0 ? 'textSecondary' : undefined}
-                      style={styles.secondaryButtonText}>
-                      {resendAfterSeconds > 0
-                        ? `Отправить снова через ${resendAfterSeconds} сек`
-                        : 'Отправить код снова'}
+              <ScrollView
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}>
+                {step === 'password' ? (
+                  <>
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Введите email и пароль от вашего аккаунта Wardrobe AI.
                     </ThemedText>
-                  </Pressable>
-                </>
-              )}
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      style={styles.textInput}
+                      placeholder="Email"
+                      placeholderTextColor={Colors.light.textSecondary}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="email-address"
+                      textContentType="emailAddress"
+                      returnKeyType="next"
+                    />
+
+                    <PasswordInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="Пароль"
+                      placeholderTextColor={Colors.light.textSecondary}
+                      returnKeyType="done"
+                      onSubmitEditing={() => {
+                        void handlePasswordLogin();
+                      }}
+                    />
+
+                    {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                    <Pressable
+                      onPress={() => {
+                        void handlePasswordLogin();
+                      }}
+                      disabled={isPasswordLoggingIn}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        isPasswordLoggingIn && styles.primaryButtonDisabled,
+                        pressed && styles.pressed,
+                      ]}>
+                      {isPasswordLoggingIn ? (
+                        <ActivityIndicator color={Colors.light.background} />
+                      ) : (
+                        <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
+                      )}
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => setIsForgotPasswordVisible(true)}
+                      style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.linkButtonText}>Забыли пароль?</ThemedText>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        setStep('otp-email');
+                        setErrorMessage(null);
+                      }}
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.secondaryButtonText}>Войти по коду из email</ThemedText>
+                    </Pressable>
+                  </>
+                ) : null}
+
+                {step === 'otp-email' ? (
+                  <>
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Введите email, который вы ранее подключили к Wardrobe AI.
+                    </ThemedText>
+
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      style={styles.textInput}
+                      placeholder="Email"
+                      placeholderTextColor={Colors.light.textSecondary}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="email-address"
+                      textContentType="emailAddress"
+                      returnKeyType="done"
+                      onSubmitEditing={() => {
+                        void handleRequestCode();
+                      }}
+                    />
+
+                    {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                    <Pressable
+                      onPress={() => {
+                        void handleRequestCode();
+                      }}
+                      disabled={isRequesting}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        isRequesting && styles.primaryButtonDisabled,
+                        pressed && styles.pressed,
+                      ]}>
+                      {isRequesting ? (
+                        <ActivityIndicator color={Colors.light.background} />
+                      ) : (
+                        <ThemedText style={styles.primaryButtonText}>Получить код</ThemedText>
+                      )}
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        setStep('password');
+                        setErrorMessage(null);
+                      }}
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.secondaryButtonText}>Войти по паролю</ThemedText>
+                    </Pressable>
+                  </>
+                ) : null}
+
+                {step === 'otp-code' ? (
+                  <>
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Если к этому email привязан аккаунт, мы отправили код.
+                    </ThemedText>
+
+                    <TextInput
+                      value={code}
+                      onChangeText={setCode}
+                      style={styles.textInput}
+                      placeholder="000000"
+                      placeholderTextColor={Colors.light.textSecondary}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      autoFocus
+                      returnKeyType="done"
+                      onSubmitEditing={() => {
+                        void handleVerifyCode();
+                      }}
+                    />
+
+                    {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                    <Pressable
+                      onPress={() => {
+                        void handleVerifyCode();
+                      }}
+                      disabled={isVerifying}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        isVerifying && styles.primaryButtonDisabled,
+                        pressed && styles.pressed,
+                      ]}>
+                      {isVerifying ? (
+                        <ActivityIndicator color={Colors.light.background} />
+                      ) : (
+                        <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
+                      )}
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        void handleResendCode();
+                      }}
+                      disabled={resendAfterSeconds > 0 || isRequesting}
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+                      <ThemedText
+                        themeColor={resendAfterSeconds > 0 ? 'textSecondary' : undefined}
+                        style={styles.secondaryButtonText}>
+                        {resendAfterSeconds > 0
+                          ? `Отправить снова через ${resendAfterSeconds} сек`
+                          : 'Отправить код снова'}
+                      </ThemedText>
+                    </Pressable>
+                  </>
+                ) : null}
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      <ForgotPasswordSheet
+        visible={visible && isForgotPasswordVisible}
+        initialEmail={email}
+        onClose={() => setIsForgotPasswordVisible(false)}
+        onSuccess={onSuccess}
+      />
+    </>
   );
 }
 
@@ -382,7 +467,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    maxHeight: '70%',
+    maxHeight: '80%',
     backgroundColor: Colors.light.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -441,6 +526,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.light.background,
+  },
+  linkButton: {
+    alignItems: 'center',
+    paddingVertical: Spacing.one,
+  },
+  linkButtonText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: Colors.light.text,
   },
   secondaryButton: {
     alignItems: 'center',

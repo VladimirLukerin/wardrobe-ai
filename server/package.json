@@ -15,6 +15,7 @@
     "test:ai-rate-limit": "tsx scripts/test-ai-rate-limit.ts",
     "test:worn-outfit-feed": "tsx scripts/test-worn-outfit-feed.ts",
     "test:account-capabilities": "tsx scripts/test-account-capabilities.ts",
+    "test:password-auth": "tsx scripts/test-password-auth.ts",
     "test:local-background-removal": "tsx scripts/test-local-background-removal.ts",
     "test:photo-pipeline-timings": "tsx scripts/test-photo-pipeline-timings.ts",
     "test:processing-resize-benchmark": "tsx scripts/test-processing-resize-benchmark.ts",

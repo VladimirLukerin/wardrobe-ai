@@ -34,7 +34,9 @@ import { NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE, RETRY_LABEL } from '@/utils/ne
 import EmailLinkSheet from '@/components/email-link-sheet';
 import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
 import AccountSaveSheet from '@/components/account-save-sheet';
+import ChangePasswordSheet from '@/components/change-password-sheet';
 import PhoneLinkSheet from '@/components/phone-link-sheet';
+import SetPasswordSheet from '@/components/set-password-sheet';
 import { copyToClipboard } from '@/utils/copy-to-clipboard';
 import { isAccountProtected } from '@/utils/account-is-protected';
 import { formatPhoneMaskedForDisplay } from '@/utils/format-phone-for-display';
@@ -141,6 +143,8 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   const [isPhoneLinkVisible, setIsPhoneLinkVisible] = useState(false);
   const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
   const [isLoginChoiceVisible, setIsLoginChoiceVisible] = useState(false);
+  const [isSetPasswordVisible, setIsSetPasswordVisible] = useState(false);
+  const [isChangePasswordVisible, setIsChangePasswordVisible] = useState(false);
 
   const accountIsProtected = isAccountProtected(user);
 
@@ -415,6 +419,39 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
                 </View>
 
                 <View style={styles.section}>
+                  <SectionTitle>ПАРОЛЬ</SectionTitle>
+                  {user?.emailVerified ? (
+                    user.hasPassword ? (
+                      <View style={styles.emailRow}>
+                        <ThemedText style={styles.staticValue}>Установлен</ThemedText>
+                        <Pressable
+                          onPress={() => setIsChangePasswordVisible(true)}
+                          hitSlop={8}
+                          style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                          <ThemedText style={styles.editButtonText}>Изменить пароль</ThemedText>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={styles.emailRow}>
+                        <ThemedText themeColor="textSecondary" style={styles.staticValue}>
+                          Не установлен
+                        </ThemedText>
+                        <Pressable
+                          onPress={() => setIsSetPasswordVisible(true)}
+                          hitSlop={8}
+                          style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                          <ThemedText style={styles.editButtonText}>Создать пароль</ThemedText>
+                        </Pressable>
+                      </View>
+                    )
+                  ) : (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Чтобы использовать пароль, сначала подключите email.
+                    </ThemedText>
+                  )}
+                </View>
+
+                <View style={styles.section}>
                   <SectionTitle>ТЕЛЕФОН</SectionTitle>
                   {user?.phoneVerified && user.phone ? (
                     <View style={styles.emailRow}>
@@ -486,12 +523,28 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
           </KeyboardAvoidingView>
         </Animated.View>
       </GestureHandlerRootView>
-      <EmailLinkSheet visible={isEmailLinkVisible} onClose={() => setIsEmailLinkVisible(false)} />
+      <EmailLinkSheet
+        visible={isEmailLinkVisible}
+        onClose={() => setIsEmailLinkVisible(false)}
+        onLinked={(linkedUser) => {
+          if (linkedUser.emailVerified && !linkedUser.hasPassword) {
+            setIsSetPasswordVisible(true);
+          }
+        }}
+      />
       <PhoneLinkSheet visible={isPhoneLinkVisible} onClose={() => setIsPhoneLinkVisible(false)} />
       <AccountSaveSheet visible={isSaveAccountVisible} onClose={() => setIsSaveAccountVisible(false)} />
       <AccountLoginChoiceSheet
         visible={isLoginChoiceVisible}
         onClose={() => setIsLoginChoiceVisible(false)}
+      />
+      <SetPasswordSheet
+        visible={isSetPasswordVisible}
+        onClose={() => setIsSetPasswordVisible(false)}
+      />
+      <ChangePasswordSheet
+        visible={isChangePasswordVisible}
+        onClose={() => setIsChangePasswordVisible(false)}
       />
     </Modal>
   );

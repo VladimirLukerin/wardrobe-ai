@@ -51,13 +51,13 @@ export default function AccountLoginChoiceSheet({
             <Pressable
               onPress={() => setIsEmailLoginVisible(true)}
               style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-              <ThemedText style={styles.primaryButtonText}>Продолжить по email</ThemedText>
+              <ThemedText style={styles.primaryButtonText}>Войти по email</ThemedText>
             </Pressable>
 
             <Pressable
               onPress={() => setIsPhoneLoginVisible(true)}
               style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-              <ThemedText style={styles.secondaryButtonText}>Продолжить по телефону</ThemedText>
+              <ThemedText style={styles.secondaryButtonText}>Войти по телефону</ThemedText>
             </Pressable>
           </View>
         </View>

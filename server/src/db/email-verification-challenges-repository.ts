@@ -2,7 +2,7 @@ import crypto from 'crypto';
 
 import { getDatabase } from './database';
 
-export type EmailVerificationPurpose = 'link' | 'login';
+export type EmailVerificationPurpose = 'link' | 'login' | 'password_reset';
 
 export type DbEmailVerificationChallenge = {
   id: string;

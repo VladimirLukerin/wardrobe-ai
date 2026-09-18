@@ -7,6 +7,7 @@ declare global {
   namespace Express {
     interface Request {
       authUser?: UserResponse;
+      authSessionToken?: string;
     }
   }
 }
@@ -33,6 +34,7 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
 
   if (user) {
     req.authUser = toUserResponse(user);
+    req.authSessionToken = token;
   }
 
   next();
@@ -54,5 +56,6 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 
   req.authUser = toUserResponse(user);
+  req.authSessionToken = token;
   next();
 }

@@ -139,6 +139,11 @@ export const PHONE_LOGIN_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/auth/phone/req
 export const PHONE_LOGIN_VERIFY_ENDPOINT = `${API_BASE_URL}/auth/phone/verify`;
 export const PHONE_LOGIN_DEV_BYPASS_ENDPOINT = `${API_BASE_URL}/auth/phone/dev-bypass`;
 export const EMAIL_LINK_DEV_BYPASS_ENDPOINT = `${API_BASE_URL}/me/email/dev-bypass`;
+export const PASSWORD_LOGIN_ENDPOINT = `${API_BASE_URL}/auth/password/login`;
+export const PASSWORD_RESET_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/auth/password/reset/request-code`;
+export const PASSWORD_RESET_VERIFY_ENDPOINT = `${API_BASE_URL}/auth/password/reset/verify`;
+export const SET_PASSWORD_ENDPOINT = `${API_BASE_URL}/me/password`;
+export const CHANGE_PASSWORD_ENDPOINT = `${API_BASE_URL}/me/password`;
 
 function wardrobeImageEndpoint(path: 'original' | 'processed', itemId: string): string {
   const url = new URL(`${API_BASE_URL}/me/wardrobe/images/${path}`);
