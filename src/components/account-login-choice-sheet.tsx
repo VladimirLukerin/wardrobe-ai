@@ -15,6 +15,7 @@ type AccountLoginChoiceSheetProps = {
   onSuccess?: () => void;
   onCreateAccount?: (email: string) => void | Promise<void>;
   confirmAndSwitch: ConfirmAccountSwitchFn;
+  overlayStyle?: 'dimmed' | 'transparent';
 };
 
 function AccountLoginChoiceSheetBody({
@@ -23,6 +24,7 @@ function AccountLoginChoiceSheetBody({
   onSuccess,
   onCreateAccount,
   confirmAndSwitch,
+  overlayStyle = 'dimmed',
 }: AccountLoginChoiceSheetProps) {
   const insets = useSafeAreaInsets();
   const [isEmailLoginVisible, setIsEmailLoginVisible] = useState(false);
@@ -43,7 +45,7 @@ function AccountLoginChoiceSheetBody({
   return (
     <>
       <Modal visible={showChoice} transparent animationType="slide" onRequestClose={onClose}>
-        <View style={styles.overlay}>
+        <View style={[styles.overlay, overlayStyle === 'transparent' && styles.overlayTransparent]}>
           <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
             <View style={styles.header}>
               <ThemedText style={styles.title}>Войти в Wardrobe AI</ThemedText>
@@ -74,6 +76,7 @@ function AccountLoginChoiceSheetBody({
       <EmailLoginSheet
         visible={isEmailLoginVisible}
         confirmAndSwitch={confirmAndSwitch}
+        overlayStyle={overlayStyle}
         onClose={() => setIsEmailLoginVisible(false)}
         onSuccess={handleLoginSuccess}
         onCreateAccount={onCreateAccount}
@@ -91,11 +94,11 @@ export default function AccountLoginChoiceSheet(
 }
 
 export function AuthEntryAccountLoginChoiceSheet(
-  props: Omit<AccountLoginChoiceSheetProps, 'confirmAndSwitch'>,
+  props: Omit<AccountLoginChoiceSheetProps, 'confirmAndSwitch' | 'overlayStyle'>,
 ) {
   const { confirmAndSwitch } = useAuthEntryAccountSwitch();
 
-  return <AccountLoginChoiceSheetBody {...props} confirmAndSwitch={confirmAndSwitch} />;
+  return <AccountLoginChoiceSheetBody {...props} confirmAndSwitch={confirmAndSwitch} overlayStyle="transparent" />;
 }
 
 const styles = StyleSheet.create({
@@ -103,6 +106,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  overlayTransparent: {
+    backgroundColor: 'transparent',
   },
   sheet: {
     backgroundColor: Colors.light.background,

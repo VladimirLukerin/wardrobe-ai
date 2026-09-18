@@ -96,10 +96,13 @@ async function testLoginSemantics(): Promise<void> {
   getDatabase();
   process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
 
-  const user = createAnonymousUser('Password User');
-  linkVerifiedEmailToUser(user.id, 'login-user@example.com');
+  const loginEmail = `login-user-${crypto.randomUUID()}@example.com`;
+  const noPasswordEmail = `no-password-${crypto.randomUUID()}@example.com`;
 
-  const verified = findUserByVerifiedEmail('login-user@example.com');
+  const user = createAnonymousUser('Password User');
+  linkVerifiedEmailToUser(user.id, loginEmail);
+
+  const verified = findUserByVerifiedEmail(loginEmail);
   assert(verified !== null, 'Verified user should exist');
 
   const material = await hashPassword('correct-password');
@@ -117,7 +120,7 @@ async function testLoginSemantics(): Promise<void> {
   );
 
   const missingCredentialUser = createAnonymousUser('No Password');
-  linkVerifiedEmailToUser(missingCredentialUser.id, 'no-password@example.com');
+  linkVerifiedEmailToUser(missingCredentialUser.id, noPasswordEmail);
   assert(
     !hasPasswordCredential(missingCredentialUser.id),
     'Verified user without password should not have credential',
@@ -186,8 +189,10 @@ async function testResetFlow(): Promise<void> {
   getDatabase();
   process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
 
+  const resetEmail = `reset-user-${crypto.randomUUID()}@example.com`;
+
   const user = createAnonymousUser('Reset User');
-  linkVerifiedEmailToUser(user.id, 'reset-user@example.com');
+  linkVerifiedEmailToUser(user.id, resetEmail);
 
   const material = await hashPassword('old-password');
   setPasswordCredential({
@@ -204,7 +209,7 @@ async function testResetFlow(): Promise<void> {
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
   const codeHash = hashOtpCode({
     challengeId,
-    email: 'reset-user@example.com',
+    email: resetEmail,
     purpose: 'password_reset',
     code,
   });
@@ -212,7 +217,7 @@ async function testResetFlow(): Promise<void> {
   createEmailVerificationChallenge({
     id: challengeId,
     userId: user.id,
-    email: 'reset-user@example.com',
+    email: resetEmail,
     purpose: 'password_reset',
     codeHash,
     expiresAt,
@@ -254,11 +259,11 @@ async function testResetFlow(): Promise<void> {
   createEmailVerificationChallenge({
     id: expiredChallengeId,
     userId: user.id,
-    email: 'reset-user@example.com',
+    email: resetEmail,
     purpose: 'password_reset',
     codeHash: hashOtpCode({
       challengeId: expiredChallengeId,
-      email: 'reset-user@example.com',
+      email: resetEmail,
       purpose: 'password_reset',
       code: '654321',
     }),

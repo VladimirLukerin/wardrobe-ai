@@ -25,6 +25,7 @@ type EmailLinkSheetProps = {
   skipEmailEntry?: boolean;
   onClose: () => void;
   onLinked?: (user: ServerUser) => void;
+  overlayStyle?: 'dimmed' | 'transparent';
 };
 
 type Step = 'email' | 'code';
@@ -71,6 +72,7 @@ export default function EmailLinkSheet({
   skipEmailEntry = false,
   onClose,
   onLinked,
+  overlayStyle = 'dimmed',
 }: EmailLinkSheetProps) {
   const insets = useSafeAreaInsets();
   const { applyAuthenticatedUser } = useAccount();
@@ -228,7 +230,7 @@ export default function EmailLinkSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
+      <View style={[styles.overlay, overlayStyle === 'transparent' && styles.overlayTransparent]}>
         <KeyboardAvoidingView
           style={styles.keyboardAvoid}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -359,6 +361,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  overlayTransparent: {
+    backgroundColor: 'transparent',
   },
   keyboardAvoid: {
     flex: 1,

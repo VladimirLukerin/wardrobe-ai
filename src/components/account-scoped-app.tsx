@@ -242,6 +242,7 @@ export function AccountScopedApp() {
             visible={isEmailLinkVisible}
             initialEmail={registrationEmail}
             skipEmailEntry
+            overlayStyle="transparent"
             onClose={() => {
               setIsEmailLinkVisible(false);
               setIsAuthRegistrationFlow(false);
