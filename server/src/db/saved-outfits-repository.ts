@@ -90,6 +90,20 @@ export function getSavedOutfitsSnapshot(userId: string): SavedOutfitsSnapshotRes
   };
 }
 
+export function getActiveSavedOutfitsForUser(userId: string): SavedOutfitResponse[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare(
+      `SELECT *
+       FROM saved_outfits
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY created_at DESC`,
+    )
+    .all(userId) as DbSavedOutfit[];
+
+  return rows.map(toOutfitResponse);
+}
+
 export function getSavedOutfitById(userId: string, outfitId: string): SavedOutfitResponse | null {
   const row = findSavedOutfitRow(userId, outfitId);
 

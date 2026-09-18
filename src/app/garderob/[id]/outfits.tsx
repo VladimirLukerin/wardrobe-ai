@@ -101,13 +101,17 @@ export default function OutfitSuggestionsScreen() {
   const { items, isHydrated } = useWardrobe();
   const { savedOutfits } = useOutfits();
   const { wearEvents, getItemWearCount, getItemLastWornAt } = useWearHistory();
+  const stylistPreferences = useStylistPreferences();
   const {
     styleExperiment,
     considerWeather,
     wardrobeMode,
     avoidRepeatedOutfits,
+    dailyStylistEnabled,
+    dailyStylistTime,
+    timezone,
     isHydrated: isStylistHydrated,
-  } = useStylistPreferences();
+  } = stylistPreferences;
   const {
     weatherSensitivity,
     fitPreference,
@@ -171,6 +175,9 @@ export default function OutfitSuggestionsScreen() {
           considerWeather,
           wardrobeMode,
           avoidRepeatedOutfits,
+          dailyStylistEnabled,
+          dailyStylistTime,
+          timezone,
         },
         userParameters: { fitPreference, weatherSensitivity },
         location: requestLocation,

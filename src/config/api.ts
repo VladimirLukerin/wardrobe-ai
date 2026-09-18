@@ -35,6 +35,74 @@ export function familyMemberEndpoint(memberPublicId: string): string {
   return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}`;
 }
 
+export function familyMemberWardrobeEndpoint(memberPublicId: string): string {
+  return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}/wardrobe`;
+}
+
+export function familyMemberOutfitsEndpoint(memberPublicId: string): string {
+  return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}/outfits`;
+}
+
+export function familyMemberPairedOutfitsEndpoint(memberPublicId: string): string {
+  return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}/paired-outfits`;
+}
+
+export const PAIRED_OUTFITS_ENDPOINT = `${API_BASE_URL}/me/paired-outfits`;
+
+export function savedPairedOutfitEndpoint(outfitId: string): string {
+  return `${PAIRED_OUTFITS_ENDPOINT}/${encodeURIComponent(outfitId)}`;
+}
+
+export function dailyOutfitTodayEndpoint(localDate: string): string {
+  const url = new URL(`${API_BASE_URL}/me/daily-outfits/today`);
+  url.searchParams.set('localDate', localDate);
+
+  return url.toString();
+}
+
+export const DEV_DAILY_OUTFIT_GENERATE_ENDPOINT = `${API_BASE_URL}/dev/daily-outfit/generate`;
+
+function familyMemberWardrobeImageEndpoint(
+  memberPublicId: string,
+  path: 'original' | 'processed',
+  itemId: string,
+): string {
+  const url = new URL(
+    `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}/wardrobe/images/${path}`,
+  );
+  url.searchParams.set('itemId', itemId);
+
+  return url.toString();
+}
+
+export function familyMemberWardrobeOriginalImageEndpoint(
+  memberPublicId: string,
+  itemId: string,
+): string {
+  return familyMemberWardrobeImageEndpoint(memberPublicId, 'original', itemId);
+}
+
+export function familyMemberWardrobeProcessedImageEndpoint(
+  memberPublicId: string,
+  itemId: string,
+): string {
+  return familyMemberWardrobeImageEndpoint(memberPublicId, 'processed', itemId);
+}
+
+export function familyMemberOriginalImageEndpoint(
+  memberPublicId: string,
+  itemId: string,
+): string {
+  return familyMemberWardrobeOriginalImageEndpoint(memberPublicId, itemId);
+}
+
+export function familyMemberProcessedImageEndpoint(
+  memberPublicId: string,
+  itemId: string,
+): string {
+  return familyMemberWardrobeProcessedImageEndpoint(memberPublicId, itemId);
+}
+
 export function familyInviteAcceptEndpoint(inviteId: string): string {
   return `${familyInviteEndpoint(inviteId)}/accept`;
 }

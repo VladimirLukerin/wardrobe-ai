@@ -60,6 +60,10 @@ export type WardrobeSnapshotResponse = {
   serverTime: string;
 };
 
+export type FamilyWardrobeItemResponse = WardrobeItemResponse & {
+  createdAt: string;
+};
+
 function toItemResponse(row: DbWardrobeItem): WardrobeItemResponse {
   return {
     id: row.item_id,
@@ -103,6 +107,23 @@ export function getWardrobeSnapshot(userId: string): WardrobeSnapshotResponse {
   };
 }
 
+export function getActiveWardrobeItemsForUser(userId: string): FamilyWardrobeItemResponse[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare(
+      `SELECT *
+       FROM wardrobe_items
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY created_at DESC`,
+    )
+    .all(userId) as DbWardrobeItem[];
+
+  return rows.map((row) => ({
+    ...toItemResponse(row),
+    createdAt: row.created_at,
+  }));
+}
+
 export function findWardrobeItemRow(userId: string, itemId: string): DbWardrobeItem | null {
   const db = getDatabase();
   const row = db
@@ -110,6 +131,25 @@ export function findWardrobeItemRow(userId: string, itemId: string): DbWardrobeI
     .get(userId, itemId) as DbWardrobeItem | undefined;
 
   return row ?? null;
+}
+
+export function verifyActiveItemIdsForUser(userId: string, itemIds: string[]): boolean {
+  if (itemIds.length === 0) {
+    return false;
+  }
+
+  const uniqueIds = [...new Set(itemIds)];
+  const db = getDatabase();
+  const placeholders = uniqueIds.map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM wardrobe_items
+       WHERE user_id = ? AND deleted_at IS NULL AND item_id IN (${placeholders})`,
+    )
+    .get(userId, ...uniqueIds) as { count: number };
+
+  return row.count === uniqueIds.length;
 }
 
 export function upsertWardrobeItem(

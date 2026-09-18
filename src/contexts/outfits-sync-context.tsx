@@ -30,13 +30,14 @@ import {
   unregisterOutfitsSyncQueue,
 } from '@/utils/outfits-sync-queue';
 import { hasOutfitsPendingChanges, isSyncFresh } from '@/utils/sync-ttl';
+import type { SyncRunOptions } from '@/utils/sync-run-options';
 
 export type OutfitsSyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error';
 
 type OutfitsSyncContextValue = {
   status: OutfitsSyncStatus;
   queueOutfitsSync: () => void;
-  runOutfitsSync: () => Promise<void>;
+  runOutfitsSync: (options?: SyncRunOptions) => Promise<void>;
 };
 
 const OutfitsSyncContext = createContext<OutfitsSyncContextValue | null>(null);
@@ -61,6 +62,7 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
     isHydrated: isOutfitsHydrated,
     applySyncedOutfit,
     applySyncedOutfitRemoval,
+    replaceAllSavedOutfitsForDevRestore,
   } = useOutfits();
 
   const [status, setStatus] = useState<OutfitsSyncStatus>('idle');
@@ -92,8 +94,13 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
     [applySyncedOutfit],
   );
 
-  const runOutfitsSync = useCallback(async () => {
+  const runOutfitsSync = useCallback(async (options?: SyncRunOptions) => {
     if (!isReady || isApplyingSyncRef.current) {
+      if (__DEV__) {
+        console.log(
+          `[OUTFITS SYNC] skipped ready=${isReady} applying=${isApplyingSyncRef.current}`,
+        );
+      }
       return;
     }
 
@@ -103,6 +110,8 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
     }
 
     const syncSessionKey = accountSessionKey;
+    const forceReconciliation = options?.force === true;
+    const restoreOnly = options?.restoreOnly === true;
 
     const syncPromise = (async () => {
       const isCurrentSession = () => syncSessionKey === accountSessionKey;
@@ -118,10 +127,16 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
       const metadata = await loadOutfitsSyncMetadata();
 
       if (
+        !forceReconciliation &&
         !isRestoringAccount &&
         isSyncFresh(metadata.lastServerSyncAt) &&
         !hasOutfitsPendingChanges(metadata)
       ) {
+        if (__DEV__) {
+          console.log(
+            `[OUTFITS SYNC] cache hit local=${savedOutfits.length} serverMeta=${Object.keys(metadata.serverUpdatedAtById).length}`,
+          );
+        }
         console.log('[OUTFITS SYNC] cache hit');
         setStatus('synced');
         return;
@@ -131,14 +146,33 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
 
       try {
         const serverSnapshot = await fetchOutfitsSnapshot(token);
+        const localOutfitsForPlan = restoreOnly ? [] : savedOutfits;
 
         const plan = buildOutfitsSyncPlan({
-          localOutfits: savedOutfits,
+          localOutfits: localOutfitsForPlan,
           metadata,
           serverSnapshot,
         });
 
-        if (plan.outfitsToApply.length > 0) {
+        if (restoreOnly) {
+          const restoredOutfits = plan.outfitsToApply.map((entry) =>
+            toSavedOutfit(entry.id, entry.outfit),
+          );
+
+          isApplyingSyncRef.current = true;
+
+          try {
+            await replaceAllSavedOutfitsForDevRestore(restoredOutfits);
+          } finally {
+            isApplyingSyncRef.current = false;
+          }
+
+          if (__DEV__) {
+            console.log(
+              `[OUTFITS RESTORE] server=${serverSnapshot.outfits.length} applied=${restoredOutfits.length}`,
+            );
+          }
+        } else if (plan.outfitsToApply.length > 0) {
           console.log(`[OUTFITS SYNC] pull ${plan.pullCount}`);
 
           if (!isCurrentSession()) {
@@ -148,24 +182,33 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
           applyServerOutfits(plan.outfitsToApply);
 
           if (__DEV__) {
-            console.log(`[OUTFITS RESTORE] ${plan.outfitsToApply.length}`);
+            console.log(
+              `[OUTFITS RESTORE] server=${serverSnapshot.outfits.length} applied=${plan.outfitsToApply.length}`,
+            );
           }
+        } else if (__DEV__) {
+          console.log(
+            `[OUTFITS RESTORE] server=${serverSnapshot.outfits.length} applied=0`,
+          );
         }
 
         if (!isCurrentSession()) {
           return;
         }
 
-        for (const outfitId of plan.localOutfitsToRemove) {
-          applySyncedOutfitRemoval(outfitId);
+        if (!restoreOnly) {
+          for (const outfitId of plan.localOutfitsToRemove) {
+            applySyncedOutfitRemoval(outfitId);
+          }
         }
 
         const shouldPush =
-          plan.outfitsToPush.length > 0 ||
-          plan.deletedOutfitsToPush.length > 0 ||
-          (serverSnapshot.outfits.length === 0 &&
-            serverSnapshot.deletedOutfits.length === 0 &&
-            savedOutfits.length > 0);
+          !restoreOnly &&
+          (plan.outfitsToPush.length > 0 ||
+            plan.deletedOutfitsToPush.length > 0 ||
+            (serverSnapshot.outfits.length === 0 &&
+              serverSnapshot.deletedOutfits.length === 0 &&
+              localOutfitsForPlan.length > 0));
 
         let resultingSnapshot = serverSnapshot;
 
@@ -226,6 +269,7 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
     applySyncedOutfitRemoval,
     isReady,
     isRestoringAccount,
+    replaceAllSavedOutfitsForDevRestore,
     savedOutfits,
   ]);
 

@@ -4,12 +4,12 @@ import multer from 'multer';
 
 import {
   assertOwnedWardrobeItem,
-  getWardrobeImageRecord,
   updateWardrobeOriginalImage,
   updateWardrobeProcessedImage,
 } from '../db/wardrobe-item-images-repository';
 import { requireAuth } from '../middleware/auth';
 import { getImageStorage } from '../storage/local-image-storage';
+import { sendWardrobeImageDownload } from './wardrobe-image-download';
 import {
   buildOriginalImageKey,
   buildProcessedImageKey,
@@ -56,37 +56,6 @@ function getItemId(req: Request): string | null {
 
 function sendImageNotFound(res: Response): void {
   res.status(404).json({ error: 'Image not found.' });
-}
-
-function shortWardrobeItemId(itemId: string): string {
-  const dashIndex = itemId.indexOf('-');
-
-  if (dashIndex > 0) {
-    return itemId.slice(0, dashIndex);
-  }
-
-  return itemId.slice(0, 12);
-}
-
-function logImageServerDownload({
-  itemId,
-  kind,
-  status,
-  bytes,
-}: {
-  itemId: string;
-  kind: 'original' | 'processed';
-  status: number;
-  bytes?: number;
-}): void {
-  if (process.env.NODE_ENV === 'production') {
-    return;
-  }
-
-  const sizeSuffix = typeof bytes === 'number' ? ` bytes=${bytes}` : '';
-  console.log(
-    `[IMAGE SERVER] item=${shortWardrobeItemId(itemId)} type=${kind} status=${status}${sizeSuffix}`,
-  );
 }
 
 wardrobeImagesRouter.post(
@@ -338,33 +307,15 @@ wardrobeImagesRouter.get('/images/original', requireAuth, async (req: Request, r
   const itemId = getItemIdFromQuery(req);
 
   if (!itemId) {
-    logImageServerDownload({ itemId: 'unknown', kind: 'original', status: 404 });
     sendImageNotFound(res);
     return;
   }
 
-  const record = getWardrobeImageRecord(req.authUser.id, itemId, 'original');
-
-  if (!record) {
-    logImageServerDownload({ itemId, kind: 'original', status: 404 });
-    sendImageNotFound(res);
-    return;
-  }
-
-  try {
-    const storage = getImageStorage();
-    const bytes = await storage.get(record.key);
-
-    logImageServerDownload({ itemId, kind: 'original', status: 200, bytes: bytes.length });
-
-    res.setHeader('Content-Type', record.contentType ?? 'application/octet-stream');
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.send(bytes);
-  } catch (error) {
-    console.error('Failed to download wardrobe original image:', error);
-    logImageServerDownload({ itemId, kind: 'original', status: 404 });
-    sendImageNotFound(res);
-  }
+  await sendWardrobeImageDownload(res, {
+    userId: req.authUser.id,
+    itemId,
+    kind: 'original',
+  });
 });
 
 wardrobeImagesRouter.get('/images/processed', requireAuth, async (req: Request, res: Response) => {
@@ -376,33 +327,15 @@ wardrobeImagesRouter.get('/images/processed', requireAuth, async (req: Request, 
   const itemId = getItemIdFromQuery(req);
 
   if (!itemId) {
-    logImageServerDownload({ itemId: 'unknown', kind: 'processed', status: 404 });
     sendImageNotFound(res);
     return;
   }
 
-  const record = getWardrobeImageRecord(req.authUser.id, itemId, 'processed');
-
-  if (!record) {
-    logImageServerDownload({ itemId, kind: 'processed', status: 404 });
-    sendImageNotFound(res);
-    return;
-  }
-
-  try {
-    const storage = getImageStorage();
-    const bytes = await storage.get(record.key);
-
-    logImageServerDownload({ itemId, kind: 'processed', status: 200, bytes: bytes.length });
-
-    res.setHeader('Content-Type', record.contentType ?? PROCESSED_MIME_TYPE);
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.send(bytes);
-  } catch (error) {
-    console.error('Failed to download wardrobe processed image:', error);
-    logImageServerDownload({ itemId, kind: 'processed', status: 404 });
-    sendImageNotFound(res);
-  }
+  await sendWardrobeImageDownload(res, {
+    userId: req.authUser.id,
+    itemId,
+    kind: 'processed',
+  });
 });
 
 wardrobeImagesRouter.get('/:itemId/images/original', requireAuth, async (req: Request, res: Response) => {
@@ -418,26 +351,11 @@ wardrobeImagesRouter.get('/:itemId/images/original', requireAuth, async (req: Re
     return;
   }
 
-  const record = getWardrobeImageRecord(req.authUser.id, itemId, 'original');
-
-  if (!record) {
-    sendImageNotFound(res);
-    return;
-  }
-
-  try {
-    const storage = getImageStorage();
-    const bytes = await storage.get(record.key);
-
-    console.log('[IMAGE SYNC] download original');
-
-    res.setHeader('Content-Type', record.contentType ?? 'application/octet-stream');
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.send(bytes);
-  } catch (error) {
-    console.error('Failed to download wardrobe original image:', error);
-    sendImageNotFound(res);
-  }
+  await sendWardrobeImageDownload(res, {
+    userId: req.authUser.id,
+    itemId,
+    kind: 'original',
+  });
 });
 
 wardrobeImagesRouter.get('/:itemId/images/processed', requireAuth, async (req: Request, res: Response) => {
@@ -453,26 +371,11 @@ wardrobeImagesRouter.get('/:itemId/images/processed', requireAuth, async (req: R
     return;
   }
 
-  const record = getWardrobeImageRecord(req.authUser.id, itemId, 'processed');
-
-  if (!record) {
-    sendImageNotFound(res);
-    return;
-  }
-
-  try {
-    const storage = getImageStorage();
-    const bytes = await storage.get(record.key);
-
-    console.log('[IMAGE SYNC] download processed');
-
-    res.setHeader('Content-Type', record.contentType ?? PROCESSED_MIME_TYPE);
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.send(bytes);
-  } catch (error) {
-    console.error('Failed to download wardrobe processed image:', error);
-    sendImageNotFound(res);
-  }
+  await sendWardrobeImageDownload(res, {
+    userId: req.authUser.id,
+    itemId,
+    kind: 'processed',
+  });
 });
 
 export { wardrobeImagesRouter };

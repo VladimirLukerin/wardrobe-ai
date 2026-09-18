@@ -99,6 +99,53 @@ function runMigrations(db: Database.Database): void {
   migrateEmailVerification(db);
   migratePhoneVerification(db);
   migrateFamilyTables(db);
+  migrateSavedPairedOutfitsTable(db);
+  migrateDailyOutfitsTable(db);
+}
+
+function migrateSavedPairedOutfitsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS saved_paired_outfits (
+      owner_user_id TEXT NOT NULL,
+      paired_outfit_id TEXT NOT NULL,
+      member_user_id TEXT NOT NULL,
+      member_public_id TEXT NOT NULL,
+      member_display_name TEXT NULL,
+      occasion TEXT NOT NULL,
+      matching_mode TEXT NOT NULL,
+      owner_item_ids_json TEXT NOT NULL,
+      member_item_ids_json TEXT NOT NULL,
+      explanation TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT NULL,
+      PRIMARY KEY (owner_user_id, paired_outfit_id),
+      FOREIGN KEY (owner_user_id) REFERENCES users(id),
+      FOREIGN KEY (member_user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_saved_paired_outfits_owner_user_id
+      ON saved_paired_outfits(owner_user_id);
+  `);
+}
+
+function migrateDailyOutfitsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daily_outfits (
+      user_id TEXT NOT NULL,
+      local_date TEXT NOT NULL,
+      outfit_id TEXT NOT NULL,
+      item_ids_json TEXT NOT NULL,
+      description TEXT NOT NULL,
+      weather_context_json TEXT NULL,
+      input_signature TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, local_date),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_daily_outfits_user_id ON daily_outfits(user_id);
+  `);
 }
 
 function migrateFamilyTables(db: Database.Database): void {

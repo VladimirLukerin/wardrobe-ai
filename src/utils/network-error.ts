@@ -97,3 +97,71 @@ export function warnNetworkFailure(scope: string, error: unknown): void {
 
   console.warn(`[${scope}] network unavailable: ${message}`);
 }
+
+export class ClientNetworkError extends Error {
+  readonly code = 'network' as const;
+
+  constructor(message: string = NETWORK_ERROR_TITLE) {
+    super(message);
+    this.name = 'ClientNetworkError';
+  }
+}
+
+export function isServerUnavailableStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
+export function isClientNetworkError(error: unknown): error is ClientNetworkError {
+  return error instanceof ClientNetworkError;
+}
+
+export function isRetryableNetworkError(error: unknown): boolean {
+  if (isClientNetworkError(error)) {
+    return true;
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    typeof (error as { status: unknown }).status === 'number' &&
+    isServerUnavailableStatus((error as { status: number }).status)
+  ) {
+    return true;
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === 'network'
+  ) {
+    return true;
+  }
+
+  return isNetworkFailure(error);
+}
+
+export function logExpectedNetworkFailure(context: string, detail?: unknown): void {
+  warnNetworkFailure(context, detail);
+}
+
+export async function performFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (isNetworkFailure(error)) {
+      warnNetworkFailure('FETCH', error);
+      throw new ClientNetworkError();
+    }
+
+    throw error;
+  }
+}
+
+export function throwIfServerUnavailable(context: string, response: Response): void {
+  if (isServerUnavailableStatus(response.status)) {
+    warnNetworkFailure(context, `status ${response.status}`);
+    throw new ClientNetworkError();
+  }
+}

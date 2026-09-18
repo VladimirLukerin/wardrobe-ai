@@ -28,6 +28,8 @@ type OutfitsContextValue = {
   toggleSavedOutfit: (input: SaveOutfitInput) => void;
   applySyncedOutfit: (outfit: SavedOutfit) => void;
   applySyncedOutfitRemoval: (id: string) => void;
+  resetForDevServerRestore: () => Promise<void>;
+  replaceAllSavedOutfitsForDevRestore: (outfits: SavedOutfit[]) => Promise<void>;
 };
 
 const OutfitsContext = createContext<OutfitsContextValue | null>(null);
@@ -76,6 +78,12 @@ export function OutfitsProvider({ children }: { children: ReactNode }) {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (__DEV__ && isHydrated) {
+      console.log(`[OUTFITS CONTEXT] items=${savedOutfits.length}`);
+    }
+  }, [isHydrated, savedOutfits]);
 
   const applySyncedOutfit = useCallback(
     (outfit: SavedOutfit) => {
@@ -214,6 +222,18 @@ export function OutfitsProvider({ children }: { children: ReactNode }) {
     [items, persistOutfits],
   );
 
+  const resetForDevServerRestore = useCallback(async () => {
+    setSavedOutfits([]);
+    writes.current = writes.current.catch(() => {}).then(() => saveSavedOutfits([]));
+    await writes.current;
+  }, []);
+
+  const replaceAllSavedOutfitsForDevRestore = useCallback(async (outfits: SavedOutfit[]) => {
+    setSavedOutfits(outfits);
+    writes.current = writes.current.catch(() => {}).then(() => saveSavedOutfits(outfits));
+    await writes.current;
+  }, []);
+
   const value = useMemo(
     () => ({
       savedOutfits,
@@ -225,6 +245,8 @@ export function OutfitsProvider({ children }: { children: ReactNode }) {
       toggleSavedOutfit,
       applySyncedOutfit,
       applySyncedOutfitRemoval,
+      resetForDevServerRestore,
+      replaceAllSavedOutfitsForDevRestore,
     }),
     [
       savedOutfits,
@@ -236,6 +258,8 @@ export function OutfitsProvider({ children }: { children: ReactNode }) {
       toggleSavedOutfit,
       applySyncedOutfit,
       applySyncedOutfitRemoval,
+      resetForDevServerRestore,
+      replaceAllSavedOutfitsForDevRestore,
     ],
   );
 

@@ -1,15 +1,15 @@
-import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { WardrobeFiltersSheet } from '@/components/wardrobe-filters-sheet';
+import { WardrobeGridCard } from '@/components/wardrobe-grid-card';
 import { EMPTY_WARDROBE_FILTERS, countWardrobeFilters, filterWardrobe } from '@/utils/wardrobe-filters';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
+import { buildWardrobeImageExtraData } from '@/constants/wardrobe-item';
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWardrobe } from '@/contexts/wardrobe-context';
 import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
@@ -30,6 +30,7 @@ export default function GarderobScreen() {
 
   const contentWidth = Math.min(windowWidth, MaxContentWidth);
   const cardWidth = (contentWidth - Spacing.four * 2 - GRID_GAP) / NUM_COLUMNS;
+  const wardrobeImageExtraData = useMemo(() => buildWardrobeImageExtraData(items), [items]);
 
   const handleSelectCamera = useCallback(async () => {
     setIsAddSheetVisible(false);
@@ -42,29 +43,18 @@ export default function GarderobScreen() {
   }, [pickFromGallery]);
 
   const renderItem = useCallback(
-    ({ item }: { item: (typeof items)[number] }) => {
-      const displayImageUri = getWardrobeItemDisplayImageUri(item);
-
-      return (
-        <Pressable
-          onPress={() =>
-            router.push({
-              pathname: '/garderob/[id]',
-              params: { id: item.id },
-            })
-          }
-          style={({ pressed }) => [styles.cardPressable, { width: cardWidth }, pressed && styles.buttonPressed]}>
-          <ThemedView style={styles.card}>
-            <Image
-              source={{ uri: displayImageUri }}
-              style={styles.cardImage}
-              contentFit="cover"
-            />
-            <ThemedText style={styles.cardLabel}>{item.isFavorite ? `♥ ${item.name}` : item.name}</ThemedText>
-          </ThemedView>
-        </Pressable>
-      );
-    },
+    ({ item }: { item: (typeof items)[number] }) => (
+      <WardrobeGridCard
+        item={item}
+        width={cardWidth}
+        onPress={() =>
+          router.push({
+            pathname: '/garderob/[id]',
+            params: { id: item.id },
+          })
+        }
+      />
+    ),
     [cardWidth],
   );
 
@@ -116,6 +106,7 @@ export default function GarderobScreen() {
           <FlatList
             style={styles.list}
             data={visibleItems}
+            extraData={wardrobeImageExtraData}
             keyExtractor={(item) => item.id}
             numColumns={NUM_COLUMNS}
             renderItem={renderItem}
@@ -265,25 +256,6 @@ const styles = StyleSheet.create({
   row: {
     gap: GRID_GAP,
     marginBottom: GRID_GAP,
-  },
-  cardPressable: {
-    borderRadius: 14,
-  },
-  card: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  cardImage: {
-    width: '100%',
-    aspectRatio: 3 / 4,
-  },
-  cardLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.light.text,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
   },
   sheetOverlay: {
     flex: 1,

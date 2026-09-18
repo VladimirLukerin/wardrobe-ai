@@ -333,7 +333,7 @@ function parseRequestBody(body: unknown): SuggestOutfitsRequestBody | null {
   };
 }
 
-function buildWeatherSensitivityInstructions(
+export function buildWeatherSensitivityInstructions(
   weatherSensitivity: WeatherSensitivity,
 ): string[] {
   switch (weatherSensitivity) {
@@ -356,7 +356,7 @@ function buildWeatherSensitivityInstructions(
   }
 }
 
-function buildWeatherSection(weather: CurrentWeather): string[] {
+export function buildWeatherSection(weather: CurrentWeather): string[] {
   const conditions = getWeatherCodeLabel(weather.weatherCode);
   const feelsDifferent =
     Math.abs(weather.apparentTemperatureC - weather.temperatureC) >= 2;
@@ -376,7 +376,7 @@ function buildWeatherSection(weather: CurrentWeather): string[] {
   ];
 }
 
-async function resolveWeatherContext(
+export async function resolveWeatherContext(
   considerWeather: boolean,
   location: SuggestOutfitsLocation | null,
 ): Promise<CurrentWeather | null> {
@@ -506,6 +506,16 @@ function pickItemsForCategoryGroup(
   return new Set(kept);
 }
 
+export function hasMinimumWardrobeForOutfit(wardrobe: WardrobeItemPayload[]): boolean {
+  if (wardrobe.length < 2) {
+    return false;
+  }
+
+  const groups = new Set(wardrobe.map((item) => getCategoryGroup(item.category)));
+
+  return groups.has('BOTTOM') && groups.has('TOP');
+}
+
 export function sanitizeItemIdsByCategory(
   itemIds: string[],
   wardrobeById: Map<string, WardrobeItemPayload>,
@@ -551,7 +561,7 @@ export function sanitizeItemIdsByCategory(
   return orderedUnique.filter((itemId) => allowed.has(itemId));
 }
 
-function buildSharedSelectionRules(): string[] {
+export function buildSharedSelectionRules(): string[] {
   return [
     'ОБЩИЕ ПРАВИЛА ВЫБОРА:',
     '- Используй ТОЛЬКО id из wardrobe. Не придумывай вещи.',
@@ -702,7 +712,7 @@ function buildHardRulesSection(
   ];
 }
 
-function buildFitPreferenceLines(fitPreference: FitPreference | null): string[] {
+export function buildFitPreferenceLines(fitPreference: FitPreference | null): string[] {
   if (!fitPreference) {
     return [];
   }
@@ -844,6 +854,149 @@ function buildWardrobeSummary(wardrobe: WardrobeItemPayload[]): string {
     .join('\n');
 }
 
+export async function generateOutfitSuggestionsFromBody(
+  parsedBody: SuggestOutfitsRequestBody,
+): Promise<{ outfits: OutfitSuggestion[]; weather: CurrentWeather | null }> {
+  const {
+    selectedItemId,
+    wardrobe,
+    stylistPreferences,
+    userParameters,
+    behavioralContext,
+    location,
+  } = parsedBody;
+  const { considerWeather, avoidRepeatedOutfits } = stylistPreferences;
+  const validIds = new Set(wardrobe.map((item) => item.id));
+
+  if (selectedItemId && !validIds.has(selectedItemId)) {
+    throw new Error('selectedItemId отсутствует в wardrobe.');
+  }
+
+  const isHomeMode = !selectedItemId;
+  const maxOutfits = isHomeMode ? 1 : MAX_OUTFITS;
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY не настроен на сервере.');
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(
+      `[OUTFIT PERSONALIZATION] favorites: ${behavioralContext.favoriteItemIds.length}, ` +
+        `wear history items: ${behavioralContext.frequentlyWorn.length}, ` +
+        `manual outfits: ${behavioralContext.recentManualOutfits.length}, ` +
+        `saved ai outfits: ${behavioralContext.recentSavedAiOutfits.length}`,
+    );
+  }
+
+  const openai = new OpenAI({ apiKey });
+  const wardrobeSummary = buildWardrobeSummary(wardrobe);
+  const selectedItem = selectedItemId
+    ? wardrobe.find((item) => item.id === selectedItemId)
+    : undefined;
+  const weather = await resolveWeatherContext(considerWeather, location);
+
+  const promptLines = [
+    'You are a stylist assembling outfits ONLY from the provided wardrobe.',
+    '',
+    ...buildPriorityOrderSection(),
+    '',
+    ...buildHardRulesSection(isHomeMode, maxOutfits, selectedItemId),
+  ];
+
+  if (weather) {
+    promptLines.push('', ...buildWeatherSection(weather));
+  } else if (considerWeather) {
+    promptLines.push('', 'B. CURRENT WEATHER', '- Weather requested but unavailable — choose reasonable layers from wardrobe.');
+  } else {
+    promptLines.push('', 'B. CURRENT WEATHER', '- Weather consideration disabled by user.');
+  }
+
+  promptLines.push(
+    '',
+    ...buildUserExplicitPreferencesSection(stylistPreferences, userParameters),
+    '',
+    ...buildUserBehaviorSection(behavioralContext, avoidRepeatedOutfits),
+    '',
+    'E. AVAILABLE WARDROBE',
+    wardrobeSummary,
+    '',
+    'F. TASK',
+    isHomeMode
+      ? 'Pick exactly ONE complete outfit for today from wardrobe. Prefer top + bottom + shoes when available.'
+      : `Pick up to ${maxOutfits} DISTINCT outfits. Each MUST include selectedItemId "${selectedItemId}" (${selectedItem?.name ?? 'selected item'}).`,
+    ...(isHomeMode ? buildSharedSelectionRules().slice(0, 6) : buildSharedSelectionRules()),
+    '',
+    'description: one short Russian sentence, max 140 chars, no lists, no title repeat.',
+    'Explain real item pairing by color/style/layers. Mention weather only if weather data was provided.',
+    'Do not invent materials, comfort, warmth, or user circumstances.',
+  );
+
+  const response = await openai.responses.create({
+    model: MODEL,
+    input: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: promptLines.join('\n'),
+          },
+        ],
+      },
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'outfit_suggestions',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: {
+            outfits: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  title: { type: 'string' },
+                  itemIds: {
+                    type: 'array',
+                    items: { type: 'string' },
+                  },
+                  description: { type: 'string' },
+                },
+                required: ['id', 'title', 'itemIds', 'description'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['outfits'],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const outputText = response.output_text;
+
+  if (!outputText) {
+    throw new Error('OpenAI не вернул результат подбора образов.');
+  }
+
+  const parsed = JSON.parse(outputText) as RawOutfitsResponse;
+  const rawOutfits = Array.isArray(parsed.outfits) ? parsed.outfits : [];
+  const outfits = sanitizeOutfitSuggestions(
+    rawOutfits,
+    validIds,
+    selectedItemId,
+    wardrobe,
+    maxOutfits,
+  );
+
+  return { outfits, weather };
+}
+
 export async function suggestOutfitsHandler(req: Request, res: Response): Promise<void> {
   try {
     const parsedBody = parseRequestBody(req.body);
@@ -853,148 +1006,9 @@ export async function suggestOutfitsHandler(req: Request, res: Response): Promis
       return;
     }
 
-    const {
-      selectedItemId,
-      wardrobe,
-      stylistPreferences,
-      userParameters,
-      behavioralContext,
-      location,
-    } = parsedBody;
-    const { considerWeather, avoidRepeatedOutfits } = stylistPreferences;
-    const validIds = new Set(wardrobe.map((item) => item.id));
+    const result = await generateOutfitSuggestionsFromBody(parsedBody);
 
-    if (selectedItemId && !validIds.has(selectedItemId)) {
-      res.status(400).json({ error: 'selectedItemId отсутствует в wardrobe.' });
-      return;
-    }
-
-    const isHomeMode = !selectedItemId;
-    const maxOutfits = isHomeMode ? 1 : MAX_OUTFITS;
-
-    const apiKey = process.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      res.status(500).json({ error: 'OPENAI_API_KEY не настроен на сервере.' });
-      return;
-    }
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(
-        `[OUTFIT PERSONALIZATION] favorites: ${behavioralContext.favoriteItemIds.length}, ` +
-          `wear history items: ${behavioralContext.frequentlyWorn.length}, ` +
-          `manual outfits: ${behavioralContext.recentManualOutfits.length}, ` +
-          `saved ai outfits: ${behavioralContext.recentSavedAiOutfits.length}`,
-      );
-    }
-
-    const openai = new OpenAI({ apiKey });
-    const wardrobeSummary = buildWardrobeSummary(wardrobe);
-    const selectedItem = selectedItemId
-      ? wardrobe.find((item) => item.id === selectedItemId)
-      : undefined;
-    const weather = await resolveWeatherContext(considerWeather, location);
-
-    const promptLines = [
-      'You are a stylist assembling outfits ONLY from the provided wardrobe.',
-      '',
-      ...buildPriorityOrderSection(),
-      '',
-      ...buildHardRulesSection(isHomeMode, maxOutfits, selectedItemId),
-    ];
-
-    if (weather) {
-      promptLines.push('', ...buildWeatherSection(weather));
-    } else if (considerWeather) {
-      promptLines.push('', 'B. CURRENT WEATHER', '- Weather requested but unavailable — choose reasonable layers from wardrobe.');
-    } else {
-      promptLines.push('', 'B. CURRENT WEATHER', '- Weather consideration disabled by user.');
-    }
-
-    promptLines.push(
-      '',
-      ...buildUserExplicitPreferencesSection(stylistPreferences, userParameters),
-      '',
-      ...buildUserBehaviorSection(behavioralContext, avoidRepeatedOutfits),
-      '',
-      'E. AVAILABLE WARDROBE',
-      wardrobeSummary,
-      '',
-      'F. TASK',
-      isHomeMode
-        ? 'Pick exactly ONE complete outfit for today from wardrobe. Prefer top + bottom + shoes when available.'
-        : `Pick up to ${maxOutfits} DISTINCT outfits. Each MUST include selectedItemId "${selectedItemId}" (${selectedItem?.name ?? 'selected item'}).`,
-      ...(isHomeMode ? buildSharedSelectionRules().slice(0, 6) : buildSharedSelectionRules()),
-      '',
-      'description: one short Russian sentence, max 140 chars, no lists, no title repeat.',
-      'Explain real item pairing by color/style/layers. Mention weather only if weather data was provided.',
-      'Do not invent materials, comfort, warmth, or user circumstances.',
-    );
-
-    const response = await openai.responses.create({
-      model: MODEL,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: promptLines.join('\n'),
-            },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'outfit_suggestions',
-          strict: true,
-          schema: {
-            type: 'object',
-            properties: {
-              outfits: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    title: { type: 'string' },
-                    itemIds: {
-                      type: 'array',
-                      items: { type: 'string' },
-                    },
-                    description: { type: 'string' },
-                  },
-                  required: ['id', 'title', 'itemIds', 'description'],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ['outfits'],
-            additionalProperties: false,
-          },
-        },
-      },
-    });
-
-    const outputText = response.output_text;
-
-    if (!outputText) {
-      res.status(502).json({ error: 'OpenAI не вернул результат подбора образов.' });
-      return;
-    }
-
-    const parsed = JSON.parse(outputText) as RawOutfitsResponse;
-    const rawOutfits = Array.isArray(parsed.outfits) ? parsed.outfits : [];
-    const outfits = sanitizeOutfitSuggestions(
-      rawOutfits,
-      validIds,
-      selectedItemId,
-      wardrobe,
-      maxOutfits,
-    );
-
-    res.json({ outfits, weather });
+    res.json(result);
   } catch (error) {
     console.error('Failed to suggest outfits:', error);
     res.status(500).json({ error: 'Не удалось подобрать образы.' });

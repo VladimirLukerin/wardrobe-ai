@@ -129,6 +129,11 @@ export function AccountProfileProvider({ children }: { children: ReactNode }) {
       };
 
       void saveProfileAccount(next);
+
+      if (__DEV__) {
+        console.log(`[NAME UPDATE] profile displayName=${nextDisplayName}`);
+      }
+
       return next;
     });
   }, []);

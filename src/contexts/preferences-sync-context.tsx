@@ -100,6 +100,9 @@ export function PreferencesSyncProvider({ children }: { children: ReactNode }) {
         styleExperiment: stylistPreferences.styleExperiment,
         wardrobeMode: stylistPreferences.wardrobeMode,
         avoidRepeatedOutfits: stylistPreferences.avoidRepeatedOutfits,
+        dailyStylistEnabled: stylistPreferences.dailyStylistEnabled,
+        dailyStylistTime: stylistPreferences.dailyStylistTime,
+        timezone: stylistPreferences.timezone,
       },
     };
   }, [displayName, bodyParameters, stylistPreferences]);

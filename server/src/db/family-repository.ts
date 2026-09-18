@@ -30,7 +30,7 @@ function toFamilyMemberInfo(publicId: string, displayName: string | null): Famil
   return { publicId, displayName };
 }
 
-function areFamilyMembers(userId: string, memberUserId: string): boolean {
+export function areFamilyMembers(userId: string, memberUserId: string): boolean {
   const db = getDatabase();
   const row = db
     .prepare(
@@ -41,6 +41,51 @@ function areFamilyMembers(userId: string, memberUserId: string): boolean {
     .get(userId, memberUserId) as { found: number } | undefined;
 
   return row?.found === 1;
+}
+
+function shortMemberPublicId(publicId: string): string {
+  return publicId.slice(0, 8);
+}
+
+function logFamilyAccessDenied(memberPublicId: string): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  console.log(`[FAMILY ACCESS] denied member=${shortMemberPublicId(memberPublicId)}`);
+}
+
+export function resolveFamilyMemberWardrobeAccess(
+  currentUserId: string,
+  memberPublicId: string,
+): { ok: true; targetUserId: string; member: FamilyMemberInfo } | FamilyOperationError {
+  const trimmedPublicId = memberPublicId.trim();
+
+  if (!isValidPublicId(trimmedPublicId)) {
+    return { status: 400, message: 'Некорректный ID пользователя.' };
+  }
+
+  const member = findUserByPublicId(trimmedPublicId);
+
+  if (!member) {
+    return { status: 404, message: 'Пользователь не найден.' };
+  }
+
+  if (member.id === currentUserId) {
+    logFamilyAccessDenied(trimmedPublicId);
+    return { status: 403, message: 'Нельзя просматривать свой гардероб через этот endpoint.' };
+  }
+
+  if (!areFamilyMembers(currentUserId, member.id)) {
+    logFamilyAccessDenied(trimmedPublicId);
+    return { status: 403, message: 'Доступ к гардеробу недоступен.' };
+  }
+
+  return {
+    ok: true,
+    targetUserId: member.id,
+    member: toFamilyMemberInfo(member.public_id, member.display_name),
+  };
 }
 
 function hasPendingInvite(senderUserId: string, recipientUserId: string): boolean {

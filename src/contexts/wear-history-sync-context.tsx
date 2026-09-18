@@ -29,13 +29,14 @@ import {
   unregisterWearHistorySyncQueue,
 } from '@/utils/wear-history-sync-queue';
 import { hasWearHistoryPendingChanges, isSyncFresh } from '@/utils/sync-ttl';
+import type { SyncRunOptions } from '@/utils/sync-run-options';
 
 export type WearHistorySyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error';
 
 type WearHistorySyncContextValue = {
   status: WearHistorySyncStatus;
   queueWearHistorySync: () => void;
-  runWearHistorySync: () => Promise<void>;
+  runWearHistorySync: (options?: SyncRunOptions) => Promise<void>;
 };
 
 const WearHistorySyncContext = createContext<WearHistorySyncContextValue | null>(null);
@@ -60,6 +61,7 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
     isHydrated: isWearHistoryHydrated,
     applySyncedWearEvent,
     applySyncedWearEventRemoval,
+    replaceAllWearEventsForDevRestore,
   } = useWearHistory();
 
   const [status, setStatus] = useState<WearHistorySyncStatus>('idle');
@@ -91,8 +93,13 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
     [applySyncedWearEvent],
   );
 
-  const runWearHistorySync = useCallback(async () => {
+  const runWearHistorySync = useCallback(async (options?: SyncRunOptions) => {
     if (!isReady || isApplyingSyncRef.current) {
+      if (__DEV__) {
+        console.log(
+          `[WEAR SYNC] skipped ready=${isReady} applying=${isApplyingSyncRef.current}`,
+        );
+      }
       return;
     }
 
@@ -102,6 +109,8 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
     }
 
     const syncSessionKey = accountSessionKey;
+    const forceReconciliation = options?.force === true;
+    const restoreOnly = options?.restoreOnly === true;
 
     const syncPromise = (async () => {
       const isCurrentSession = () => syncSessionKey === accountSessionKey;
@@ -117,10 +126,16 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
       const metadata = await loadWearHistorySyncMetadata();
 
       if (
+        !forceReconciliation &&
         !isRestoringAccount &&
         isSyncFresh(metadata.lastServerSyncAt) &&
         !hasWearHistoryPendingChanges(metadata)
       ) {
+        if (__DEV__) {
+          console.log(
+            `[WEAR SYNC] cache hit local=${wearEvents.length} serverMeta=${Object.keys(metadata.serverUpdatedAtById).length}`,
+          );
+        }
         console.log('[WEAR SYNC] cache hit');
         setStatus('synced');
         return;
@@ -130,14 +145,29 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
 
       try {
         const serverSnapshot = await fetchWearHistorySnapshot(token);
+        const localEventsForPlan = restoreOnly ? [] : wearEvents;
 
         const plan = buildWearHistorySyncPlan({
-          localEvents: wearEvents,
+          localEvents: localEventsForPlan,
           metadata,
           serverSnapshot,
         });
 
-        if (plan.eventsToApply.length > 0) {
+        if (restoreOnly) {
+          isApplyingSyncRef.current = true;
+
+          try {
+            await replaceAllWearEventsForDevRestore(plan.eventsToApply);
+          } finally {
+            isApplyingSyncRef.current = false;
+          }
+
+          if (__DEV__) {
+            console.log(
+              `[WEAR RESTORE] server=${serverSnapshot.events.length} applied=${plan.eventsToApply.length}`,
+            );
+          }
+        } else if (plan.eventsToApply.length > 0) {
           console.log(`[WEAR SYNC] pull ${plan.pullCount}`);
 
           if (!isCurrentSession()) {
@@ -147,24 +177,31 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
           applyServerEvents(plan.eventsToApply);
 
           if (__DEV__) {
-            console.log(`[WEAR RESTORE] ${plan.eventsToApply.length}`);
+            console.log(
+              `[WEAR RESTORE] server=${serverSnapshot.events.length} applied=${plan.eventsToApply.length}`,
+            );
           }
+        } else if (__DEV__) {
+          console.log(`[WEAR RESTORE] server=${serverSnapshot.events.length} applied=0`);
         }
 
         if (!isCurrentSession()) {
           return;
         }
 
-        for (const eventId of plan.localEventsToRemove) {
-          applySyncedWearEventRemoval(eventId);
+        if (!restoreOnly) {
+          for (const eventId of plan.localEventsToRemove) {
+            applySyncedWearEventRemoval(eventId);
+          }
         }
 
         const shouldPush =
-          plan.eventsToPush.length > 0 ||
-          plan.deletedEventsToPush.length > 0 ||
-          (serverSnapshot.events.length === 0 &&
-            serverSnapshot.deletedEvents.length === 0 &&
-            wearEvents.length > 0);
+          !restoreOnly &&
+          (plan.eventsToPush.length > 0 ||
+            plan.deletedEventsToPush.length > 0 ||
+            (serverSnapshot.events.length === 0 &&
+              serverSnapshot.deletedEvents.length === 0 &&
+              localEventsForPlan.length > 0));
 
         let resultingSnapshot = serverSnapshot;
 
@@ -222,6 +259,7 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
     applySyncedWearEventRemoval,
     isReady,
     isRestoringAccount,
+    replaceAllWearEventsForDevRestore,
     wearEvents,
   ]);
 

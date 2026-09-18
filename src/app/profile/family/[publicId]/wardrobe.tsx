@@ -1,38 +1,83 @@
-import { SymbolView } from 'expo-symbols';
-import { StyleSheet, View } from 'react-native';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FamilyScreenHeader } from '@/components/family-screen-header';
+import { NetworkErrorCard } from '@/components/network-error-card';
+import { ReadOnlyWardrobeGrid } from '@/components/read-only-wardrobe-grid';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
-import { useFamilyMemberRoute } from '@/hooks/use-family-member-route';
+import { getFamilyMemberLabel } from '@/constants/family';
+import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useFamilyMemberWardrobe } from '@/hooks/use-family-member-wardrobe';
 
-/**
- * Placeholder for the read-only family wardrobe. Intentionally makes no requests:
- * the real screen will plug a family wardrobe API in here later.
- */
 export default function FamilyMemberWardrobeScreen() {
-  const { label } = useFamilyMemberRoute();
+  const { publicId: publicIdParam } = useLocalSearchParams<{ publicId: string }>();
+  const publicId = typeof publicIdParam === 'string' ? publicIdParam : '';
+  const { state, refresh } = useFamilyMemberWardrobe(publicId);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
+
+  const memberLabel =
+    state.status === 'ready' || state.status === 'empty'
+      ? getFamilyMemberLabel(state.member)
+      : publicId;
+
+  if (!publicId) {
+    return null;
+  }
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <FamilyScreenHeader title="Гардероб" />
-
-        <View style={styles.content}>
-          <View style={styles.iconCircle}>
-            <SymbolView
-              name={{ ios: 'tshirt', android: 'checkroom', web: 'checkroom' }}
-              size={32}
-              tintColor={Colors.light.textSecondary}
-            />
-          </View>
-          <ThemedText style={styles.title}>{label} — гардероб</ThemedText>
-          <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-            Скоро здесь можно будет смотреть вещи члена семьи.
-          </ThemedText>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => pressed && styles.pressed}>
+            <ThemedText style={styles.backLink}>Назад</ThemedText>
+          </Pressable>
         </View>
+
+        <ThemedText type="subtitle" style={styles.title}>
+          {memberLabel} — гардероб
+        </ThemedText>
+
+        {state.status === 'loading' ? (
+          <View style={styles.centeredState}>
+            <ActivityIndicator color={Colors.light.text} />
+          </View>
+        ) : null}
+
+        {state.status === 'empty' ? (
+          <View style={styles.centeredState}>
+            <ThemedText style={styles.emptyTitle}>В гардеробе пока нет вещей</ThemedText>
+          </View>
+        ) : null}
+
+        {state.status === 'ready' ? (
+          <ReadOnlyWardrobeGrid memberPublicId={publicId} items={state.items} />
+        ) : null}
+
+        {state.status === 'error' && state.errorKind === 'network' ? (
+          <View style={styles.errorState}>
+            <NetworkErrorCard onRetry={() => void refresh()} />
+          </View>
+        ) : null}
+
+        {state.status === 'error' && state.errorKind !== 'network' ? (
+          <View style={styles.centeredState}>
+            <ThemedText style={styles.errorTitle}>{state.message}</ThemedText>
+            {state.errorKind === 'forbidden' ? (
+              <Pressable
+                onPress={() => router.back()}
+                style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+                <ThemedText style={styles.backButtonText}>Назад</ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </SafeAreaView>
     </ThemedView>
   );
@@ -46,37 +91,59 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     paddingHorizontal: Spacing.four,
-    paddingBottom: TabScreenScrollPadding,
     maxWidth: MaxContentWidth,
-    width: '100%',
     alignSelf: 'center',
+    width: '100%',
   },
-  content: {
+  header: {
+    paddingTop: Spacing.two,
+    marginBottom: Spacing.three,
+  },
+  backLink: {
+    fontSize: 16,
+    color: Colors.light.text,
+  },
+  title: {
+    marginBottom: Spacing.four,
+  },
+  centeredState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.two,
-    paddingBottom: Spacing.six,
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.two,
   },
-  iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    color: Colors.light.text,
+  },
+  errorState: {
+    flex: 1,
     justifyContent: 'center',
-    backgroundColor: Colors.light.backgroundElement,
-    marginBottom: Spacing.two,
   },
-  title: {
-    fontSize: 20,
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    color: Colors.light.text,
+  },
+  backButton: {
+    borderWidth: 1,
+    borderColor: Colors.light.backgroundElement,
+    borderRadius: 14,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  backButtonText: {
+    fontSize: 16,
     fontWeight: '600',
     color: Colors.light.text,
-    textAlign: 'center',
   },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-    maxWidth: 300,
+  pressed: {
+    opacity: 0.7,
   },
 });

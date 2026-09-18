@@ -1,3 +1,8 @@
+import {
+  buildLocalImageFingerprint,
+  localImageFileExists,
+} from '@/utils/wardrobe-local-image-path';
+
 export type ImageProcessingStatus = 'idle' | 'processing' | 'completed' | 'failed';
 
 export const IMAGE_PROCESSING_STATUSES = [
@@ -18,46 +23,61 @@ export type LegacyWardrobeItemImageFields = {
   uri?: string;
 };
 
-import { localImageFileExists } from '@/utils/wardrobe-local-image-path';
+export type WardrobeItemImageSourceKind = 'processed' | 'original' | 'missing';
 
-const loggedDisplayImageItems = new Set<string>();
+export function getWardrobeItemImageSourceKind(
+  item: WardrobeItemImageFields & LegacyWardrobeItemImageFields & { id?: string },
+): WardrobeItemImageSourceKind {
+  if (item.processedImageUri && localImageFileExists(item.processedImageUri)) {
+    return 'processed';
+  }
+
+  if (item.originalImageUri && localImageFileExists(item.originalImageUri)) {
+    return 'original';
+  }
+
+  if (item.uri && localImageFileExists(item.uri)) {
+    return 'original';
+  }
+
+  return 'missing';
+}
 
 export function getWardrobeItemDisplayImageUri(
   item: WardrobeItemImageFields & LegacyWardrobeItemImageFields & { id?: string },
 ): string {
   if (item.processedImageUri && localImageFileExists(item.processedImageUri)) {
-    if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
-      loggedDisplayImageItems.add(item.id);
-      console.log('[IMAGE CLIENT] display=processed');
-    }
-
     return item.processedImageUri;
   }
 
   if (item.originalImageUri && localImageFileExists(item.originalImageUri)) {
-    if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
-      loggedDisplayImageItems.add(item.id);
-      console.log('[IMAGE CLIENT] display=original');
-    }
-
     return item.originalImageUri;
   }
 
   if (item.uri && localImageFileExists(item.uri)) {
-    if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
-      loggedDisplayImageItems.add(item.id);
-      console.log('[IMAGE CLIENT] display=original');
-    }
-
     return item.uri;
   }
 
-  if (__DEV__ && item.id && !loggedDisplayImageItems.has(item.id)) {
-    loggedDisplayImageItems.add(item.id);
-    console.log('[IMAGE CLIENT] display=missing');
-  }
-
   return '';
+}
+
+export function getWardrobeItemImageVersion(
+  item: WardrobeItemImageFields & LegacyWardrobeItemImageFields,
+): string {
+  const processedFingerprint = item.processedImageUri
+    ? buildLocalImageFingerprint(item.processedImageUri)
+    : null;
+  const originalFingerprint = item.originalImageUri
+    ? buildLocalImageFingerprint(item.originalImageUri)
+    : null;
+
+  return `${processedFingerprint ?? 'none'}|${originalFingerprint ?? 'none'}`;
+}
+
+export function buildWardrobeImageExtraData(
+  items: Array<WardrobeItemImageFields & LegacyWardrobeItemImageFields & { id: string }>,
+): string {
+  return items.map((item) => `${item.id}:${getWardrobeItemImageVersion(item)}`).join('|');
 }
 
 export function normalizeWardrobeItemImageFields(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -28,6 +28,7 @@ type StylistSettingsSheetProps = {
 };
 
 const SAVE_BUTTON_HEIGHT = 52;
+const DAILY_STYLIST_TIME_OPTIONS = ['07:00', '08:00', '09:00', '10:00', '18:00'] as const;
 const FLOATING_SAVE_AREA_HEIGHT = Spacing.three + SAVE_BUTTON_HEIGHT + Spacing.two;
 
 type ChipProps = {
@@ -113,6 +114,9 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
     styleExperiment,
     wardrobeMode,
     avoidRepeatedOutfits,
+    dailyStylistEnabled,
+    dailyStylistTime,
+    timezone,
   } = useStylistPreferences();
   const { queuePreferencesSync } = usePreferencesSync();
 
@@ -166,6 +170,9 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
       styleExperiment,
       wardrobeMode,
       avoidRepeatedOutfits,
+      dailyStylistEnabled,
+      dailyStylistTime,
+      timezone,
     });
   }, [
     visible,
@@ -174,6 +181,9 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
     styleExperiment,
     wardrobeMode,
     avoidRepeatedOutfits,
+    dailyStylistEnabled,
+    dailyStylistTime,
+    timezone,
     translateY,
   ]);
 
@@ -256,6 +266,47 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
                       />
                     ))}
                   </View>
+                </View>
+
+                <View style={styles.section}>
+                  <SectionTitle>ОБРАЗ НА КАЖДЫЙ ДЕНЬ</SectionTitle>
+                  <ToggleRow
+                    title="Образ на каждый день"
+                    subtitle="Мы подготовим образ заранее к выбранному времени."
+                    value={draft.dailyStylistEnabled}
+                    onValueChange={(value) =>
+                      setDraft((current) => ({ ...current, dailyStylistEnabled: value }))
+                    }
+                  />
+                  <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                    Время рекомендации
+                  </ThemedText>
+                  <View style={styles.chipGroup}>
+                    {DAILY_STYLIST_TIME_OPTIONS.map((option) => (
+                      <Chip
+                        key={option}
+                        label={option}
+                        selected={draft.dailyStylistTime === option}
+                        onPress={() =>
+                          setDraft((current) => ({ ...current, dailyStylistTime: option }))
+                        }
+                      />
+                    ))}
+                  </View>
+                  <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                    Часовой пояс
+                  </ThemedText>
+                  <TextInput
+                    value={draft.timezone}
+                    onChangeText={(value) =>
+                      setDraft((current) => ({ ...current, timezone: value }))
+                    }
+                    placeholder="Europe/Moscow"
+                    placeholderTextColor={Colors.light.textSecondary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={styles.timezoneInput}
+                  />
                 </View>
 
                 <View style={styles.section}>
@@ -430,6 +481,16 @@ const styles = StyleSheet.create({
   modeOptionTextSelected: {
     color: Colors.light.background,
   },
+  timezoneInput: {
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.light.backgroundSelected,
+    paddingHorizontal: Spacing.three,
+    fontSize: 16,
+    color: Colors.light.text,
+    backgroundColor: Colors.light.backgroundElement,
+  },
   floatingSaveArea: {
     position: 'absolute',
     left: 0,
@@ -440,9 +501,10 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: Colors.light.text,
-    paddingVertical: Spacing.three + 2,
+    minHeight: SAVE_BUTTON_HEIGHT,
     borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryButtonText: {
     color: Colors.light.background,

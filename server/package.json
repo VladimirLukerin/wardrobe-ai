@@ -2,6 +2,9 @@
   "name": "wardrobe-ai-server",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22 <24"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
@@ -9,7 +12,10 @@
     "test:local-background-removal": "tsx scripts/test-local-background-removal.ts",
     "test:photo-pipeline-timings": "tsx scripts/test-photo-pipeline-timings.ts",
     "test:processing-resize-benchmark": "tsx scripts/test-processing-resize-benchmark.ts",
-    "test:model-comparison-benchmark": "tsx scripts/test-model-comparison-benchmark.ts"
+    "test:model-comparison-benchmark": "tsx scripts/test-model-comparison-benchmark.ts",
+    "dev:seed-wardrobe": "tsx scripts/dev-seed-wardrobe.ts",
+    "dev:clear-seed-wardrobe": "tsx scripts/dev-clear-seed-wardrobe.ts",
+    "dev:generate-wardrobe-fixtures": "tsx scripts/dev-generate-wardrobe-fixtures.ts"
   },
   "dependencies": {
     "@imgly/background-removal-node": "^1.4.5",

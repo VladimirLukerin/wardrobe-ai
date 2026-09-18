@@ -1,7 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
@@ -18,13 +18,18 @@ import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/cons
 import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
 import { useFamily } from '@/contexts/family-context';
+import { useOutfits } from '@/contexts/outfits-context';
 import { useOutfitsSync } from '@/contexts/outfits-sync-context';
 import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useStylePreferences } from '@/contexts/style-preferences-context';
+import { useWearHistory } from '@/contexts/wear-history-context';
 import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
+import { useWardrobe } from '@/contexts/wardrobe-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
 import { AccountApiError } from '@/services/account';
 import { assessLocalAccountState } from '@/services/account-switch';
+import { refreshDevTestData } from '@/services/dev-refresh-test-data';
+import { restoreDevTestDataFromServer } from '@/services/dev-server-restore';
 import { isAccountProtected } from '@/utils/account-is-protected';
 
 const PROFILE = {
@@ -52,12 +57,17 @@ export default function ProfileScreen() {
   const [isAccountSheetVisible, setIsAccountSheetVisible] = useState(false);
   const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
   const [isLoginChoiceVisible, setIsLoginChoiceVisible] = useState(false);
+  const [isDevRefreshInProgress, setIsDevRefreshInProgress] = useState(false);
+  const [isDevServerRestoreInProgress, setIsDevServerRestoreInProgress] = useState(false);
   const { user, logoutFromProfile, devResetTestAccount } = useAccount();
   const { displayName } = useAccountProfile();
   const { status: preferencesSyncStatus } = usePreferencesSync();
-  const { status: wardrobeSyncStatus } = useWardrobeSync();
-  const { status: outfitsSyncStatus } = useOutfitsSync();
-  const { status: wearHistorySyncStatus } = useWearHistorySync();
+  const { status: wardrobeSyncStatus, runWardrobeSync } = useWardrobeSync();
+  const { status: outfitsSyncStatus, runOutfitsSync } = useOutfitsSync();
+  const { status: wearHistorySyncStatus, runWearHistorySync } = useWearHistorySync();
+  const { resetForDevServerRestore: resetWardrobeForDevServerRestore } = useWardrobe();
+  const { resetForDevServerRestore: resetOutfitsForDevServerRestore } = useOutfits();
+  const { resetForDevServerRestore: resetWearHistoryForDevServerRestore } = useWearHistory();
   const { styles: preferredStyles, colors: preferredColors, hasStylePreferences } =
     useStylePreferences();
   const {
@@ -140,6 +150,76 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: () => {
             void devResetTestAccount();
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDevRefreshPress = () => {
+    Alert.alert(
+      'Обновить тестовые данные?',
+      'Локальный sync cache будет сброшен, данные подтянутся с сервера. Auth и серверные данные не затрагиваются.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Обновить',
+          onPress: () => {
+            void (async () => {
+              setIsDevRefreshInProgress(true);
+
+              try {
+                await refreshDevTestData({
+                  runWardrobeSync,
+                  runOutfitsSync,
+                  runWearHistorySync,
+                });
+              } catch (error) {
+                Alert.alert(
+                  'Не удалось обновить',
+                  error instanceof Error ? error.message : 'Попробуйте ещё раз.',
+                );
+              } finally {
+                setIsDevRefreshInProgress(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDevServerRestorePress = () => {
+    Alert.alert(
+      'Восстановить тестовые данные с сервера?',
+      'Локальный тестовый гардероб, образы и история будут заменены данными сервера.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Восстановить',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setIsDevServerRestoreInProgress(true);
+
+              try {
+                await restoreDevTestDataFromServer({
+                  resetWardrobeForDevServerRestore,
+                  resetOutfitsForDevServerRestore,
+                  resetWearHistoryForDevServerRestore,
+                  runWardrobeSync,
+                  runOutfitsSync,
+                  runWearHistorySync,
+                });
+              } catch (error) {
+                Alert.alert(
+                  'Не удалось восстановить',
+                  error instanceof Error ? error.message : 'Попробуйте ещё раз.',
+                );
+              } finally {
+                setIsDevServerRestoreInProgress(false);
+              }
+            })();
           },
         },
       ],
@@ -423,6 +503,17 @@ export default function ProfileScreen() {
             />
           </Pressable>
 
+          <Pressable
+            onPress={() => router.push('/profile/paired-outfits')}
+            style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
+            <ThemedText style={styles.settingsTitle}>Совместные образы</ThemedText>
+            <SymbolView
+              name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+              size={12}
+              tintColor={Colors.light.textSecondary}
+            />
+          </Pressable>
+
           {isProtected ? (
             <Pressable
               onPress={() => setIsAccountSheetVisible(true)}
@@ -447,11 +538,43 @@ export default function ProfileScreen() {
               </Pressable>
             ) : null}
             {__DEV__ ? (
-              <Pressable
-                onPress={handleDevResetPress}
-                style={({ pressed }) => [styles.devResetButton, pressed && styles.pressed]}>
-                <ThemedText style={styles.devResetText}>Сбросить тестовый аккаунт</ThemedText>
-              </Pressable>
+              <>
+                <Pressable
+                  onPress={handleDevServerRestorePress}
+                  disabled={isDevServerRestoreInProgress}
+                  style={({ pressed }) => [
+                    styles.devServerRestoreButton,
+                    pressed && styles.pressed,
+                    isDevServerRestoreInProgress && styles.devRefreshButtonDisabled,
+                  ]}>
+                  {isDevServerRestoreInProgress ? (
+                    <ActivityIndicator color={Colors.light.textSecondary} />
+                  ) : (
+                    <ThemedText style={styles.devServerRestoreText}>
+                      Восстановить тестовые данные с сервера
+                    </ThemedText>
+                  )}
+                </Pressable>
+                <Pressable
+                  onPress={handleDevRefreshPress}
+                  disabled={isDevRefreshInProgress}
+                  style={({ pressed }) => [
+                    styles.devRefreshButton,
+                    pressed && styles.pressed,
+                    isDevRefreshInProgress && styles.devRefreshButtonDisabled,
+                  ]}>
+                  {isDevRefreshInProgress ? (
+                    <ActivityIndicator color={Colors.light.textSecondary} />
+                  ) : (
+                    <ThemedText style={styles.devRefreshText}>Обновить тестовые данные</ThemedText>
+                  )}
+                </Pressable>
+                <Pressable
+                  onPress={handleDevResetPress}
+                  style={({ pressed }) => [styles.devResetButton, pressed && styles.pressed]}>
+                  <ThemedText style={styles.devResetText}>Сбросить тестовый аккаунт</ThemedText>
+                </Pressable>
+              </>
             ) : null}
           </View>
         </ScrollView>
@@ -856,6 +979,36 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.four,
+  },
+  devServerRestoreButton: {
+    marginTop: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  devRefreshButton: {
+    marginTop: Spacing.two,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  devRefreshButtonDisabled: {
+    opacity: 0.6,
+  },
+  devRefreshText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.light.textSecondary,
+  },
+  devServerRestoreText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.light.textSecondary,
+    textAlign: 'center',
   },
   devResetText: {
     fontSize: 14,

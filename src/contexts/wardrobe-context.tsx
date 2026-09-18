@@ -20,6 +20,7 @@ import {
   markWardrobeItemUpdated,
 } from '@/storage/wardrobe-sync-storage';
 import { queueWardrobeSyncFromMutation } from '@/utils/wardrobe-sync-queue';
+import { shortWardrobeItemId } from '@/utils/short-wardrobe-item-id';
 
 export type WardrobeItem = WardrobeItemImageFields & {
   id: string;
@@ -63,6 +64,8 @@ type WardrobeContextValue = {
     id: string,
     imageUris: { originalImageUri?: string; processedImageUri?: string },
   ) => void;
+  resetForDevServerRestore: () => Promise<void>;
+  replaceAllItemsForDevRestore: (items: WardrobeItem[]) => Promise<void>;
 };
 
 const WardrobeContext = createContext<WardrobeContextValue | null>(null);
@@ -174,7 +177,17 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
       setItems((current) => {
         const existingIndex = current.findIndex((entry) => entry.id === item.id);
+        const existing = existingIndex === -1 ? null : current[existingIndex];
         const normalizedItem = normalizeWardrobeItem(item);
+        const processedChanged =
+          existing?.processedImageUri !== normalizedItem.processedImageUri;
+
+        if (__DEV__) {
+          console.log(
+            `[WARDROBE CONTEXT] item=${shortWardrobeItemId(item.id)} processedChanged=${processedChanged}`,
+          );
+        }
+
         const nextItems =
           existingIndex === -1
             ? [...current, normalizedItem]
@@ -204,13 +217,22 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
             return item;
           }
 
-          return normalizeWardrobeItem({
+          const nextItem = normalizeWardrobeItem({
             ...item,
             ...(imageUris.originalImageUri ? { originalImageUri: imageUris.originalImageUri } : {}),
             ...(imageUris.processedImageUri
               ? { processedImageUri: imageUris.processedImageUri }
               : {}),
           });
+          const processedChanged = item.processedImageUri !== nextItem.processedImageUri;
+
+          if (__DEV__) {
+            console.log(
+              `[WARDROBE CONTEXT] item=${shortWardrobeItemId(id)} processedChanged=${processedChanged}`,
+            );
+          }
+
+          return nextItem;
         });
 
         persistItems(nextItems);
@@ -307,6 +329,22 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     [persistItems],
   );
 
+  const resetForDevServerRestore = useCallback(async () => {
+    setItems([]);
+    persistQueueRef.current = persistQueueRef.current.catch(() => {}).then(() => saveWardrobeItems([]));
+    await persistQueueRef.current;
+  }, []);
+
+  const replaceAllItemsForDevRestore = useCallback(async (nextItems: WardrobeItem[]) => {
+    const normalizedItems = nextItems.map(normalizeWardrobeItem);
+
+    setItems(normalizedItems);
+    persistQueueRef.current = persistQueueRef.current
+      .catch(() => {})
+      .then(() => saveWardrobeItems(normalizedItems));
+    await persistQueueRef.current;
+  }, []);
+
   const value = useMemo(
     () => ({
       items,
@@ -319,6 +357,8 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       applySyncedItemRemoval,
       applySyncedWardrobeItem,
       applySyncedImageUris,
+      resetForDevServerRestore,
+      replaceAllItemsForDevRestore,
     }),
     [
       items,
@@ -331,6 +371,8 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       applySyncedItemRemoval,
       applySyncedWardrobeItem,
       applySyncedImageUris,
+      resetForDevServerRestore,
+      replaceAllItemsForDevRestore,
     ],
   );
 

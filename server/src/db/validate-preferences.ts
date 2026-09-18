@@ -32,7 +32,30 @@ export type ValidatedStylistPreferences = {
   styleExperiment: (typeof STYLE_EXPERIMENTS)[number];
   wardrobeMode: (typeof WARDROBE_MODES)[number];
   avoidRepeatedOutfits: boolean;
+  dailyStylistEnabled: boolean;
+  dailyStylistTime: string;
+  timezone: string;
 };
+
+const DEFAULT_DAILY_STYLIST_TIME = '09:00';
+const DEFAULT_TIMEZONE = 'Europe/Moscow';
+
+function isDailyStylistTime(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{2}:\d{2}$/.test(value);
+}
+
+function isValidTimezone(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return false;
+  }
+
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: value.trim() });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function isLocationPlace(value: unknown): value is LocationPlace {
   if (typeof value !== 'object' || value === null) {
@@ -139,6 +162,11 @@ export function validateStylistPreferences(value: unknown): ValidatedStylistPref
     styleExperiment: data.styleExperiment,
     wardrobeMode: data.wardrobeMode,
     avoidRepeatedOutfits: data.avoidRepeatedOutfits,
+    dailyStylistEnabled: data.dailyStylistEnabled === true,
+    dailyStylistTime: isDailyStylistTime(data.dailyStylistTime)
+      ? data.dailyStylistTime
+      : DEFAULT_DAILY_STYLIST_TIME,
+    timezone: isValidTimezone(data.timezone) ? data.timezone.trim() : DEFAULT_TIMEZONE,
   };
 }
 

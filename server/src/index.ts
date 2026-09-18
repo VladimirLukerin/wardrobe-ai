@@ -9,9 +9,12 @@ import { currentWeatherHandler } from './current-weather';
 import { requireAuth } from './middleware/auth';
 import { handleProcessClothingImage } from './photo-processing/process-clothing-image';
 import { authRouter, meHandler, patchMeHandler } from './routes/auth';
+import { dailyOutfitsRouter } from './routes/daily-outfits';
+import { devDailyOutfitRouter } from './routes/dev-daily-outfit';
 import { emailLoginRouter } from './routes/email-login';
 import { emailLinkRouter } from './routes/email-link';
 import { familyRouter } from './routes/family';
+import { pairedOutfitsRouter } from './routes/paired-outfits';
 import { phoneLoginRouter } from './routes/phone-login';
 import { phoneLinkRouter } from './routes/phone-link';
 import { outfitsRouter } from './routes/outfits';
@@ -65,6 +68,8 @@ app.use('/me', phoneLinkRouter);
 app.use('/me', outfitsRouter);
 app.use('/me', wearHistoryRouter);
 app.use('/me', familyRouter);
+app.use('/me', pairedOutfitsRouter);
+app.use('/me', dailyOutfitsRouter);
 app.use('/me', wardrobeRouter);
 app.use('/me/wardrobe', wardrobeImagesRouter);
 app.get('/me', requireAuth, meHandler);
@@ -76,6 +81,10 @@ app.post('/current-weather', currentWeatherHandler);
 app.post('/process-clothing-image', requireAuth, upload.single('image'), (req, res) => {
   void handleProcessClothingImage(req, res);
 });
+
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/dev', devDailyOutfitRouter);
+}
 
 app.listen(PORT, HOST, () => {
   console.log(`Server listening on http://${HOST}:${PORT}`);

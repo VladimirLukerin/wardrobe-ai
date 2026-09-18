@@ -75,7 +75,7 @@ export function localImageFileExists(uri: string | undefined): boolean {
   }
 }
 
-export function buildLocalImageFingerprint(uri: string): string | null {
+export async function buildLocalImageFingerprint(uri: string): string | null {
   try {
     const file = new File(uri);
 
@@ -91,5 +91,13 @@ export function buildLocalImageFingerprint(uri: string): string | null {
     return `${file.uri}|${file.size}|${modificationTime}`;
   } catch {
     return null;
+  }
+}
+
+export async function clearAllWardrobeLocalImageFiles(): Promise<void> {
+  const root = new Directory(Paths.document, WARDROBE_ROOT);
+
+  if (root.exists) {
+    root.delete();
   }
 }

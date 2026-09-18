@@ -30,6 +30,8 @@ type WearHistoryContextValue = {
   getItemWearEvents: (itemId: string) => WearEvent[];
   applySyncedWearEvent: (event: WearEvent) => void;
   applySyncedWearEventRemoval: (id: string) => void;
+  resetForDevServerRestore: () => Promise<void>;
+  replaceAllWearEventsForDevRestore: (events: WearEvent[]) => Promise<void>;
 };
 
 const WearHistoryContext = createContext<WearHistoryContextValue | null>(null);
@@ -73,6 +75,12 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (__DEV__ && isHydrated) {
+      console.log(`[WEAR CONTEXT] events=${wearEvents.length}`);
+    }
+  }, [isHydrated, wearEvents]);
 
   const isOutfitWornToday = useCallback(
     (outfitId: string): boolean => {
@@ -214,6 +222,18 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
     [wearEvents],
   );
 
+  const resetForDevServerRestore = useCallback(async () => {
+    setWearEvents([]);
+    await saveWearHistory([]);
+  }, []);
+
+  const replaceAllWearEventsForDevRestore = useCallback(async (events: WearEvent[]) => {
+    const nextEvents = sortWearEventsDesc(events);
+
+    setWearEvents(nextEvents);
+    await saveWearHistory(nextEvents);
+  }, []);
+
   const value = useMemo(
     () => ({
       wearEvents,
@@ -228,6 +248,8 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
       getItemWearEvents,
       applySyncedWearEvent,
       applySyncedWearEventRemoval,
+      resetForDevServerRestore,
+      replaceAllWearEventsForDevRestore,
     }),
     [
       wearEvents,
@@ -242,6 +264,8 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
       getItemWearEvents,
       applySyncedWearEvent,
       applySyncedWearEventRemoval,
+      resetForDevServerRestore,
+      replaceAllWearEventsForDevRestore,
     ],
   );
 

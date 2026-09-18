@@ -8,6 +8,24 @@ export function getLocalCalendarDateKey(isoOrDate: string | Date): string {
   return `${year}-${month}-${day}`;
 }
 
+export function getLocalCalendarDateKeyForTimezone(
+  timezone: string,
+  isoOrDate: string | Date = new Date(),
+): string {
+  const date = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  } catch {
+    return getLocalCalendarDateKey(date);
+  }
+}
+
 export function isSameLocalCalendarDay(a: string | Date, b: string | Date): boolean {
   return getLocalCalendarDateKey(a) === getLocalCalendarDateKey(b);
 }

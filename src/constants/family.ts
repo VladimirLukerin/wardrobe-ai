@@ -20,3 +20,9 @@ export function getFamilyMemberLabel(member: FamilyMember): string {
 
   return trimmedName && trimmedName.length > 0 ? trimmedName : member.publicId;
 }
+
+export function getFamilyMemberInitial(member: FamilyMember): string {
+  const label = getFamilyMemberLabel(member).trim();
+
+  return label.length > 0 ? label.charAt(0).toUpperCase() : '?';
+}

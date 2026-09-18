@@ -149,6 +149,18 @@ function parseStylistPreferences(raw: unknown): StylistPreferences | null {
       typeof data.avoidRepeatedOutfits === 'boolean'
         ? data.avoidRepeatedOutfits
         : DEFAULT_STYLIST_PREFERENCES.avoidRepeatedOutfits,
+    dailyStylistEnabled:
+      typeof data.dailyStylistEnabled === 'boolean'
+        ? data.dailyStylistEnabled
+        : DEFAULT_STYLIST_PREFERENCES.dailyStylistEnabled,
+    dailyStylistTime:
+      typeof data.dailyStylistTime === 'string' && /^\d{2}:\d{2}$/.test(data.dailyStylistTime)
+        ? data.dailyStylistTime
+        : DEFAULT_STYLIST_PREFERENCES.dailyStylistTime,
+    timezone:
+      typeof data.timezone === 'string' && data.timezone.trim().length > 0
+        ? data.timezone.trim()
+        : DEFAULT_STYLIST_PREFERENCES.timezone,
   };
 }
 

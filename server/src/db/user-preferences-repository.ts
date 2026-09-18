@@ -1,5 +1,5 @@
 import { getDatabase } from './database';
-import type { ValidatedBodyParameters, ValidatedStylistPreferences } from './validate-preferences';
+import { validateStylistPreferences, type ValidatedBodyParameters, type ValidatedStylistPreferences } from './validate-preferences';
 import { findUserById } from './users-repository';
 
 export type DbUserPreferences = {
@@ -26,7 +26,7 @@ function parseStoredBodyParameters(raw: string): ValidatedBodyParameters | null 
 
 function parseStoredStylistPreferences(raw: string): ValidatedStylistPreferences | null {
   try {
-    return JSON.parse(raw) as ValidatedStylistPreferences;
+    return validateStylistPreferences(JSON.parse(raw));
   } catch {
     return null;
   }

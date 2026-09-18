@@ -40,6 +40,9 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "dev:seed-wardrobe": "npm run dev:seed-wardrobe --prefix server",
+    "dev:clear-seed-wardrobe": "npm run dev:clear-seed-wardrobe --prefix server",
+    "dev:generate-wardrobe-fixtures": "npm run dev:generate-wardrobe-fixtures --prefix server",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
