@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 
-import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
+import {
+  AuthEntryAccountLoginChoiceSheet,
+} from '@/components/account-login-choice-sheet';
 import { AccountProfileReloader } from '@/components/account-profile-reloader';
 import { AccountRestoreOverlay } from '@/components/account-restore-overlay';
 import { AppAuthEntryOverlay } from '@/components/app-auth-entry-overlay';
@@ -208,7 +210,7 @@ export function AccountScopedApp() {
 
       {showAuthSplash ? (
         <>
-          <AccountLoginChoiceSheet
+          <AuthEntryAccountLoginChoiceSheet
             visible={isLoginChoiceVisible}
             onClose={() => setIsLoginChoiceVisible(false)}
             onSuccess={handleLoginSuccess}

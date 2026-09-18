@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
+import type { ConfirmAccountSwitchFn } from '@/hooks/use-auth-account-switch';
 import { useConfirmAccountSwitch } from '@/hooks/use-confirm-account-switch';
 import { AccountApiError } from '@/services/account';
 import { devBypassPhoneLoginCode, requestPhoneLoginCode, verifyPhoneLoginCode } from '@/services/phone-auth';
@@ -23,6 +24,10 @@ type PhoneLoginSheetProps = {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+};
+
+type PhoneLoginSheetBodyProps = PhoneLoginSheetProps & {
+  confirmAndSwitch: ConfirmAccountSwitchFn;
 };
 
 type Step = 'phone' | 'code';
@@ -51,10 +56,13 @@ function resolveVerifyError(error: unknown): string {
   return 'Не удалось подтвердить код';
 }
 
-export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLoginSheetProps) {
+function PhoneLoginSheetBody({
+  visible,
+  onClose,
+  onSuccess,
+  confirmAndSwitch,
+}: PhoneLoginSheetBodyProps) {
   const insets = useSafeAreaInsets();
-  const { confirmAndSwitch } = useConfirmAccountSwitch();
-
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -306,6 +314,12 @@ export default function PhoneLoginSheet({ visible, onClose, onSuccess }: PhoneLo
       </View>
     </Modal>
   );
+}
+
+export default function PhoneLoginSheet(props: PhoneLoginSheetProps) {
+  const { confirmAndSwitch } = useConfirmAccountSwitch();
+
+  return <PhoneLoginSheetBody {...props} confirmAndSwitch={confirmAndSwitch} />;
 }
 
 const styles = StyleSheet.create({

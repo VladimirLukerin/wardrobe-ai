@@ -16,7 +16,7 @@ import ForgotPasswordSheet from '@/components/forgot-password-sheet';
 import { PasswordInput } from '@/components/password-input';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
-import { useConfirmAccountSwitch } from '@/hooks/use-confirm-account-switch';
+import type { ConfirmAccountSwitchFn } from '@/hooks/use-auth-account-switch';
 import { AccountApiError } from '@/services/account';
 import {
   devBypassEmailLoginCode,
@@ -29,6 +29,7 @@ import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type EmailLoginSheetProps = {
   visible: boolean;
+  confirmAndSwitch: ConfirmAccountSwitchFn;
   onClose: () => void;
   onSuccess?: () => void;
   onCreateAccount?: (email: string) => void | Promise<void>;
@@ -94,12 +95,12 @@ function resolveVerifyError(error: unknown): string {
 
 export default function EmailLoginSheet({
   visible,
+  confirmAndSwitch,
   onClose,
   onSuccess,
   onCreateAccount,
 }: EmailLoginSheetProps) {
   const insets = useSafeAreaInsets();
-  const { confirmAndSwitch } = useConfirmAccountSwitch();
 
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
@@ -601,6 +602,7 @@ export default function EmailLoginSheet({
 
       <ForgotPasswordSheet
         visible={visible && isForgotPasswordVisible}
+        confirmAndSwitch={confirmAndSwitch}
         initialEmail={email}
         skipEmailEntry
         onClose={() => setIsForgotPasswordVisible(false)}

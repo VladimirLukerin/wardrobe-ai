@@ -5,19 +5,24 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailLoginSheet from '@/components/email-login-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
+import type { ConfirmAccountSwitchFn } from '@/hooks/use-auth-account-switch';
+import { useAuthEntryAccountSwitch } from '@/hooks/use-auth-account-switch';
+import { useConfirmAccountSwitch } from '@/hooks/use-confirm-account-switch';
 
 type AccountLoginChoiceSheetProps = {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
   onCreateAccount?: (email: string) => void | Promise<void>;
+  confirmAndSwitch: ConfirmAccountSwitchFn;
 };
 
-export default function AccountLoginChoiceSheet({
+function AccountLoginChoiceSheetBody({
   visible,
   onClose,
   onSuccess,
   onCreateAccount,
+  confirmAndSwitch,
 }: AccountLoginChoiceSheetProps) {
   const insets = useSafeAreaInsets();
   const [isEmailLoginVisible, setIsEmailLoginVisible] = useState(false);
@@ -68,12 +73,29 @@ export default function AccountLoginChoiceSheet({
 
       <EmailLoginSheet
         visible={isEmailLoginVisible}
+        confirmAndSwitch={confirmAndSwitch}
         onClose={() => setIsEmailLoginVisible(false)}
         onSuccess={handleLoginSuccess}
         onCreateAccount={onCreateAccount}
       />
     </>
   );
+}
+
+export default function AccountLoginChoiceSheet(
+  props: Omit<AccountLoginChoiceSheetProps, 'confirmAndSwitch'>,
+) {
+  const { confirmAndSwitch } = useConfirmAccountSwitch();
+
+  return <AccountLoginChoiceSheetBody {...props} confirmAndSwitch={confirmAndSwitch} />;
+}
+
+export function AuthEntryAccountLoginChoiceSheet(
+  props: Omit<AccountLoginChoiceSheetProps, 'confirmAndSwitch'>,
+) {
+  const { confirmAndSwitch } = useAuthEntryAccountSwitch();
+
+  return <AccountLoginChoiceSheetBody {...props} confirmAndSwitch={confirmAndSwitch} />;
 }
 
 const styles = StyleSheet.create({

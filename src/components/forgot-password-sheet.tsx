@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PasswordInput } from '@/components/password-input';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
-import { useConfirmAccountSwitch } from '@/hooks/use-confirm-account-switch';
+import type { ConfirmAccountSwitchFn } from '@/hooks/use-auth-account-switch';
 import { AccountApiError } from '@/services/account';
 import {
   requestPasswordResetCode,
@@ -24,6 +24,7 @@ import {
 
 type ForgotPasswordSheetProps = {
   visible: boolean;
+  confirmAndSwitch: ConfirmAccountSwitchFn;
   initialEmail?: string;
   skipEmailEntry?: boolean;
   onClose: () => void;
@@ -58,13 +59,13 @@ function resolveVerifyError(error: unknown): string {
 
 export default function ForgotPasswordSheet({
   visible,
+  confirmAndSwitch,
   initialEmail = '',
   skipEmailEntry = false,
   onClose,
   onSuccess,
 }: ForgotPasswordSheetProps) {
   const insets = useSafeAreaInsets();
-  const { confirmAndSwitch } = useConfirmAccountSwitch();
   const initialStep: Step =
     skipEmailEntry && initialEmail.trim().length > 0 ? 'confirm-email' : 'email';
   const [step, setStep] = useState<Step>(initialStep);

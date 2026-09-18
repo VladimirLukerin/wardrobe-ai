@@ -6,13 +6,8 @@ import { useOutfitsSync } from '@/contexts/outfits-sync-context';
 import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
-import type { ServerUser } from '@/services/account';
+import type { AuthSwitchResult, ConfirmAccountSwitchFn } from '@/hooks/use-auth-account-switch';
 import { assessLocalAccountState } from '@/services/account-switch';
-
-type AuthSwitchResult = {
-  user: ServerUser;
-  token: string;
-};
 
 export function useConfirmAccountSwitch() {
   const { user, switchToAuthenticatedAccount } = useAccount();
@@ -29,8 +24,8 @@ export function useConfirmAccountSwitch() {
     [switchToAuthenticatedAccount],
   );
 
-  const confirmAndSwitch = useCallback(
-    async (authResult: AuthSwitchResult, onComplete?: () => void) => {
+  const confirmAndSwitch = useCallback<ConfirmAccountSwitchFn>(
+    async (authResult, onComplete) => {
       const isSameAccount = user?.id === authResult.user.id;
 
       if (isSameAccount) {
