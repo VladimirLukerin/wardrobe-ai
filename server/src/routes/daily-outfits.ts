@@ -113,7 +113,15 @@ dailyOutfitsRouter.post(
       });
     } catch (error) {
       if (error instanceof DailyOutfitGenerationError) {
-        res.status(error.status).json({ error: error.message });
+        if (error.retryAfterSeconds) {
+          res.setHeader('Retry-After', String(error.retryAfterSeconds));
+        }
+
+        res.status(error.status).json({
+          error: error.message,
+          ...(error.code ? { code: error.code } : {}),
+          ...(error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
+        });
         return;
       }
 

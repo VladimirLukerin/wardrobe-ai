@@ -32,8 +32,11 @@ import {
 import { AccountApiError } from '@/services/account';
 import { isDailyStylistDisabledError, isUnexpectedDailyMutationError } from '@/utils/daily-outfit-errors';
 import {
+  AI_PROVIDER_RATE_LIMIT_USER_MESSAGE,
   AI_RATE_LIMIT_USER_MESSAGE,
-  isAiRateLimitedError,
+  getAiRateLimitUserMessage,
+  isAiProviderRateLimitedError,
+  isAnyAiRateLimitError,
 } from '@/utils/ai-rate-limit-error';
 import { shouldAttemptDailyCreateOrRegenerate } from '@/utils/home-daily-preferences-sync';
 import type { PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
@@ -70,7 +73,7 @@ type Params = {
   wearHistory: WearHistoryLookup;
 };
 type LoadState = 'idle' | 'loading' | 'success' | 'error' | 'empty-wardrobe';
-export type HomeContentErrorKind = 'network' | 'server' | 'rate_limited';
+export type HomeContentErrorKind = 'network' | 'server' | 'rate_limited' | 'provider_rate_limited';
 
 const CACHE_SIGNATURE_PREFIX = 'v3';
 
@@ -261,18 +264,33 @@ export function useHomeDailyContent(params: Params) {
     let rateLimitBlocked = false;
 
     const markRateLimitBlocked = (error: unknown): boolean => {
-      if (
-        !isAiRateLimitedError(error) &&
-        !(error instanceof OutfitSuggestionError && error.code === 'rate_limited')
-      ) {
-        return false;
+      if (error instanceof OutfitSuggestionError) {
+        if (error.code === 'provider_rate_limited') {
+          rateLimitBlocked = true;
+          setOutfitErrorKind('provider_rate_limited');
+          setLoadState(previous ? 'success' : 'error');
+          setError(error.message || AI_PROVIDER_RATE_LIMIT_USER_MESSAGE);
+          return true;
+        }
+
+        if (error.code === 'rate_limited') {
+          rateLimitBlocked = true;
+          setOutfitErrorKind('rate_limited');
+          setLoadState(previous ? 'success' : 'error');
+          setError(error.message || AI_RATE_LIMIT_USER_MESSAGE);
+          return true;
+        }
       }
 
-      rateLimitBlocked = true;
-      setOutfitErrorKind('rate_limited');
-      setLoadState(previous ? 'success' : 'error');
-      setError(AI_RATE_LIMIT_USER_MESSAGE);
-      return true;
+      if (isAnyAiRateLimitError(error)) {
+        rateLimitBlocked = true;
+        setOutfitErrorKind(isAiProviderRateLimitedError(error) ? 'provider_rate_limited' : 'rate_limited');
+        setLoadState(previous ? 'success' : 'error');
+        setError(getAiRateLimitUserMessage(error));
+        return true;
+      }
+
+      return false;
     };
 
     try {
@@ -529,9 +547,10 @@ export function useHomeDailyContent(params: Params) {
                       return;
                     }
                   } catch (staleRegenError) {
-                    if (markRateLimitBlocked(staleRegenError)) {
-                      return;
-                    }
+        if (markRateLimitBlocked(staleRegenError)) {
+          setLoadState(previous ? 'success' : 'error');
+          return;
+        }
 
                     if (isDailyStylistDisabledError(staleRegenError)) {
                       devDailyHomeLog('[DAILY HOME] daily stylist disabled');
@@ -766,7 +785,9 @@ export function useHomeDailyContent(params: Params) {
               ? `${NETWORK_ERROR_TITLE}. Показываем предыдущий вариант.`
               : kind === 'rate_limited'
                 ? AI_RATE_LIMIT_USER_MESSAGE
-                : 'Не удалось обновить образ. Показываем предыдущий вариант.',
+                : kind === 'provider_rate_limited'
+                  ? AI_PROVIDER_RATE_LIMIT_USER_MESSAGE
+                  : 'Не удалось обновить образ. Показываем предыдущий вариант.',
           );
         } else {
           setError(
@@ -774,7 +795,11 @@ export function useHomeDailyContent(params: Params) {
               ? NETWORK_ERROR_TITLE
               : kind === 'rate_limited'
                 ? AI_RATE_LIMIT_USER_MESSAGE
-                : 'Не удалось подобрать образ. Попробуй ещё раз.',
+                : kind === 'provider_rate_limited'
+                  ? suggestFailure instanceof OutfitSuggestionError
+                    ? suggestFailure.message
+                    : AI_PROVIDER_RATE_LIMIT_USER_MESSAGE
+                  : 'Не удалось подобрать образ. Попробуй ещё раз.',
           );
         }
       }

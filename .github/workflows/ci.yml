@@ -70,3 +70,6 @@ jobs:
 
       - name: Run OTP request budgets test
         run: npm run test:otp-request-budgets
+
+      - name: Run outfit AI prompt test
+        run: npm run test:outfit-ai-prompt

@@ -2,6 +2,12 @@ import type { Request, Response } from 'express';
 import OpenAI from 'openai';
 
 import { enforceAiRateLimit } from '../ai-request-rate-limit';
+import {
+  AiProviderRateLimitError,
+  isOpenAiProviderRateLimitError,
+  respondAiProviderRateLimited,
+  toAiProviderRateLimitError,
+} from '../outfit-ai/provider-rate-limit';
 import { resolveFamilyMemberWardrobeAccess } from '../db/family-repository';
 import type { CurrentWeather } from '../providers/weather';
 import {
@@ -352,7 +358,7 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
 
     const considerWeather = personA.stylistPreferences.considerWeather;
     const weather = await resolveWeatherContext(considerWeather, parsedBody.location);
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({ apiKey, maxRetries: 0 });
 
     const promptLines = [
       'You are a stylist creating TWO coordinated outfits for two people going to the same event.',
@@ -410,7 +416,10 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
       'pairExplanation: 2-3 Russian sentences explaining why both outfits work together for the occasion.',
     );
 
-    const response = await openai.responses.create({
+    let response;
+
+    try {
+      response = await openai.responses.create({
       model: MODEL,
       input: [
         {
@@ -461,6 +470,13 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
         },
       },
     });
+    } catch (providerError) {
+      if (isOpenAiProviderRateLimitError(providerError)) {
+        throw toAiProviderRateLimitError(providerError);
+      }
+
+      throw providerError;
+    }
 
     const outputText = response.output_text;
 
@@ -498,6 +514,11 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
 
     res.json(result);
   } catch (error) {
+    if (error instanceof AiProviderRateLimitError) {
+      respondAiProviderRateLimited(res, error.retryAfterSeconds);
+      return;
+    }
+
     console.error('Failed to suggest paired outfits:', error);
     res.status(500).json({ error: 'Не удалось подобрать совместный образ.' });
   }

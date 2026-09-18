@@ -56,8 +56,8 @@ function testPurposeBudgetsAreIndependent(): void {
   process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
 
   const user = createAnonymousUser('OTP Budget User');
-  linkVerifiedEmailToUser(user.id, 'otp-budget@example.com');
-  const email = 'otp-budget@example.com';
+  const email = `otp-budget-${crypto.randomUUID()}@example.com`;
+  linkVerifiedEmailToUser(user.id, email);
   const now = Date.now();
   const sinceIso = new Date(now - OTP_MAX_REQUESTS_WINDOW_SECONDS * 1000).toISOString();
 
@@ -101,11 +101,12 @@ async function testFailedSendDoesNotLeaveBlockingChallenge(): Promise<void> {
   setEmailSenderForTests(failingSender);
 
   const user = createAnonymousUser('Send Failure User');
-  linkVerifiedEmailToUser(user.id, 'send-failure@example.com');
+  const email = `send-failure-${crypto.randomUUID()}@example.com`;
+  linkVerifiedEmailToUser(user.id, email);
 
   const firstAttempt = await requestEmailVerificationCode({
     userId: user.id,
-    email: 'send-failure@example.com',
+    email,
     purpose: 'password_reset',
     logPrefix: '[TEST PASSWORD RESET]',
   });
@@ -126,7 +127,7 @@ async function testFailedSendDoesNotLeaveBlockingChallenge(): Promise<void> {
 
   const secondAttempt = await requestEmailVerificationCode({
     userId: user.id,
-    email: 'send-failure@example.com',
+    email,
     purpose: 'password_reset',
     logPrefix: '[TEST PASSWORD RESET]',
   });

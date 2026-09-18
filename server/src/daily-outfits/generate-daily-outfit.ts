@@ -10,14 +10,27 @@ import {
   hasMinimumWardrobeForOutfit,
 } from '../suggest-outfits';
 import { buildDailyOutfitInputSignature } from './build-daily-outfit-input-signature';
+import {
+  AiProviderRateLimitError,
+  AI_PROVIDER_RATE_LIMIT_CODE,
+  AI_PROVIDER_RATE_LIMIT_MESSAGE,
+} from '../outfit-ai/provider-rate-limit';
 
 export class DailyOutfitGenerationError extends Error {
   readonly status: number;
+  readonly code?: string;
+  readonly retryAfterSeconds?: number;
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    options?: { code?: string; retryAfterSeconds?: number },
+  ) {
     super(message);
     this.name = 'DailyOutfitGenerationError';
     this.status = status;
+    this.code = options?.code;
+    this.retryAfterSeconds = options?.retryAfterSeconds;
   }
 }
 
@@ -90,7 +103,18 @@ async function generateAndStoreDailyOutfitInternal({
     location,
   };
 
-  const { outfits, weather } = await generateOutfitSuggestionsFromBody(requestBody, { userId });
+  const { outfits, weather } = await generateOutfitSuggestionsFromBody(requestBody, { userId }).catch(
+    (error) => {
+      if (error instanceof AiProviderRateLimitError) {
+        throw new DailyOutfitGenerationError(429, AI_PROVIDER_RATE_LIMIT_MESSAGE, {
+          code: AI_PROVIDER_RATE_LIMIT_CODE,
+          retryAfterSeconds: error.retryAfterSeconds,
+        });
+      }
+
+      throw error;
+    },
+  );
   const outfit = outfits.find((candidate) => candidate.itemIds.length >= 2);
 
   if (!outfit) {
