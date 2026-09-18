@@ -14,6 +14,7 @@ import { isAutoLocationFresh } from '@/utils/is-auto-location-fresh';
 
 export function useLocationBootstrap(enabled: boolean): void {
   const {
+    isHydrated,
     locationMode,
     autoLocation,
     manualLocation,
@@ -25,6 +26,7 @@ export function useLocationBootstrap(enabled: boolean): void {
     weatherSensitivity,
     setBodyParameters,
   } = useBodyParameters();
+  const isReady = enabled && isHydrated;
   const bootstrapStartedRef = useRef(false);
   const refreshInFlightRef = useRef(false);
 
@@ -86,7 +88,7 @@ export function useLocationBootstrap(enabled: boolean): void {
   );
 
   useEffect(() => {
-    if (!enabled || bootstrapStartedRef.current) {
+    if (!isReady || bootstrapStartedRef.current) {
       return;
     }
 
@@ -106,10 +108,10 @@ export function useLocationBootstrap(enabled: boolean): void {
       await markLocationBootstrapAsked();
       await refreshAutoLocation(true);
     })();
-  }, [autoLocation, enabled, refreshAutoLocation]);
+  }, [autoLocation, isReady, refreshAutoLocation]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!isReady) {
       return;
     }
 
@@ -130,5 +132,5 @@ export function useLocationBootstrap(enabled: boolean): void {
     return () => {
       subscription.remove();
     };
-  }, [autoLocation, enabled, refreshAutoLocation]);
+  }, [autoLocation, isReady, refreshAutoLocation]);
 }

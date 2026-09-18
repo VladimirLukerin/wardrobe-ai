@@ -11,6 +11,7 @@ import AppTabs from '@/components/app-tabs';
 import EmailLinkSheet from '@/components/email-link-sheet';
 import { DailyStylistReminderLifecycle } from '@/components/daily-stylist-reminder-lifecycle';
 import { FamilyInviteBanner } from '@/components/family-invite-banner';
+import { LocationBootstrapLifecycle } from '@/components/location-bootstrap-lifecycle';
 import { HomeLaunchOverlay } from '@/components/home-launch-overlay';
 import SetPasswordSheet from '@/components/set-password-sheet';
 import { useAccount } from '@/contexts/account-context';
@@ -27,7 +28,6 @@ import { WearHistorySyncProvider } from '@/contexts/wear-history-sync-context';
 import { WardrobeSyncProvider } from '@/contexts/wardrobe-sync-context';
 import { WardrobeProvider } from '@/contexts/wardrobe-context';
 import { useCameraPermissionStartup } from '@/hooks/use-camera-permission-startup';
-import { useLocationBootstrap } from '@/hooks/use-location-bootstrap';
 import type { ServerUser } from '@/services/account';
 import { isOnboardingCompleted, markOnboardingCompleted } from '@/storage/onboarding-storage';
 import {
@@ -176,7 +176,6 @@ export function AccountScopedApp() {
   const authEntryVariant = hasCompletedOnboarding ? 'returning' : 'firstLaunch';
 
   useCameraPermissionStartup(showMainApp);
-  useLocationBootstrap(showMainApp);
 
   return (
     <>
@@ -190,6 +189,7 @@ export function AccountScopedApp() {
                   <StylePreferencesProvider key={accountSessionKey}>
                     <StylistPreferencesProvider key={accountSessionKey}>
                       <BodyParametersProvider key={accountSessionKey}>
+                        <LocationBootstrapLifecycle enabled={showMainApp} />
                         <PreferencesSyncProvider key={accountSessionKey}>
                           <DailyStylistReminderLifecycle enabled={showMainApp} />
                           <FamilyProvider>
