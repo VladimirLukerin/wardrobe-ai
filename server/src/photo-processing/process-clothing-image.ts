@@ -12,10 +12,13 @@ import {
   logBackgroundRemovalSkipped,
   logPhotoTiming,
   logPhotoTimingTotal,
+  logPhotoAiRequest,
+  PHOTO_VISION_DETAIL,
   logPrimaryCrop,
   logPrimaryCropSizes,
 } from './photo-processing-error';
 import { createProcessingImage } from './create-processing-image';
+import { createAnalysisImage } from './create-analysis-image';
 import {
   cropProcessingImageToPrimaryItem,
   PRIMARY_ITEM_CROP_PADDING_RATIO,
@@ -38,8 +41,20 @@ class PhotoProcessingRateLimitedError extends Error {
 async function runProcessingPipeline(prepared: PreparedUploadedImage): Promise<PhotoProcessingResult> {
   const totalStartedAt = Date.now();
 
+  const analysisResizeStartedAt = Date.now();
+  const analysis = await createAnalysisImage(prepared);
+  logPhotoTiming('analysisResize', Date.now() - analysisResizeStartedAt);
+
+  logPhotoAiRequest({
+    cache: 'miss',
+    analysisWidth: analysis.width,
+    analysisHeight: analysis.height,
+    analysisBytes: analysis.buffer.byteLength,
+    detail: PHOTO_VISION_DETAIL,
+  });
+
   const openAiStartedAt = Date.now();
-  const recognition = await validateAndRecognizeClothingPhoto(prepared.buffer, prepared.mimeType);
+  const recognition = await validateAndRecognizeClothingPhoto(analysis.buffer, analysis.mimeType);
   logPhotoTiming('openai', Date.now() - openAiStartedAt);
 
   if (!recognition.accepted || !recognition.item || recognition.rejectReason) {
@@ -133,6 +148,16 @@ export async function handleProcessClothingImage(req: Request, res: Response): P
       }
 
       return runProcessingPipeline(prepared);
+    }, {
+      onCacheHit: () => {
+        logPhotoAiRequest({
+          cache: 'hit',
+          analysisWidth: prepared.width,
+          analysisHeight: prepared.height,
+          analysisBytes: 0,
+          detail: PHOTO_VISION_DETAIL,
+        });
+      },
     });
 
     if (!result.accepted) {

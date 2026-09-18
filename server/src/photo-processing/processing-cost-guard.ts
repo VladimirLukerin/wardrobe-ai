@@ -77,6 +77,7 @@ export function createImageFingerprint(buffer: Buffer): string {
 export async function runCachedImageProcessing(
   fingerprint: string,
   processor: () => Promise<PhotoProcessingResult>,
+  options?: { onCacheHit?: () => void },
 ): Promise<PhotoProcessingResult> {
   const now = Date.now();
   cleanupExpiredEntries(now);
@@ -85,10 +86,12 @@ export async function runCachedImageProcessing(
 
   if (existing && existing.expiresAt > now) {
     if (existing.promise) {
+      options?.onCacheHit?.();
       return existing.promise;
     }
 
     if (existing.result) {
+      options?.onCacheHit?.();
       return cloneCachedResult(existing.result);
     }
   }

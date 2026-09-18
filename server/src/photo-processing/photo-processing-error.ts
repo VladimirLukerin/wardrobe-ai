@@ -102,6 +102,55 @@ export function logPhotoImageSizes(
   );
 }
 
+export function logPhotoAnalysisSizes(
+  prepared: { width: number; height: number },
+  analysis: { width: number; height: number },
+): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  console.log(
+    `[PHOTO IMAGE] prepared=${prepared.width}x${prepared.height} analysis=${analysis.width}x${analysis.height}`,
+  );
+}
+
+export const PHOTO_VISION_DETAIL = 'auto' as const;
+
+export function logPhotoAiRequest(params: {
+  cache: 'hit' | 'miss';
+  analysisWidth: number;
+  analysisHeight: number;
+  analysisBytes: number;
+  detail: typeof PHOTO_VISION_DETAIL;
+}): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  console.log(
+    `[PHOTO AI] cache=${params.cache} analysisWidth=${params.analysisWidth} analysisHeight=${params.analysisHeight} analysisBytes=${params.analysisBytes} detail=${params.detail}`,
+  );
+}
+
+export function logPhotoAiUsage(params: {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  if (params.inputTokens === undefined) {
+    return;
+  }
+
+  console.log(
+    `[PHOTO AI] usage input=${params.inputTokens} output=${params.outputTokens ?? 0} total=${params.totalTokens ?? 0}`,
+  );
+}
+
 export function logPrimaryItem(clothingCount: number, primaryItemClear: boolean): void {
   if (process.env.NODE_ENV === 'production') {
     return;

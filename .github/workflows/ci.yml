@@ -80,6 +80,12 @@ jobs:
       - name: Run daily outfit AI test
         run: npm run test:daily-outfit-ai
 
+      - name: Run daily suggest fallback test
+        run: npm run test:daily-suggest-fallback
+
+      - name: Run photo AI path test
+        run: npm run test:photo-ai-path
+
       - name: Run outfit candidate selection test
         run: npm run test:outfit-candidate-selection
 

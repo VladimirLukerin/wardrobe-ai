@@ -22,6 +22,8 @@
     "test:outfit-ai-prompt": "tsx scripts/test-outfit-ai-prompt.ts",
     "test:paired-outfit-prompt": "tsx scripts/test-paired-outfit-prompt.ts",
     "test:daily-outfit-ai": "tsx scripts/test-daily-outfit-ai.ts",
+    "test:daily-suggest-fallback": "tsx scripts/test-daily-suggest-fallback.ts",
+    "test:photo-ai-path": "tsx scripts/test-photo-ai-path.ts",
     "test:outfit-candidate-selection": "tsx scripts/test-outfit-candidate-selection.ts",
     "test:guest-weather-advisor": "tsx scripts/test-guest-weather-advisor.ts",
     "test:auth-entry-flow": "tsx scripts/test-auth-entry-flow.ts",

@@ -10,7 +10,7 @@ import {
   type PhotoRecognitionSignals,
   type PhotoValidationRecognitionResult,
 } from './photo-decision';
-import { logPhotoValidationStarted } from './photo-processing-error';
+import { logPhotoValidationStarted, logPhotoAiUsage, PHOTO_VISION_DETAIL } from './photo-processing-error';
 
 const MODEL = 'gpt-4o';
 
@@ -208,7 +208,7 @@ export async function validateAndRecognizeClothingPhoto(
           {
             type: 'input_image',
             image_url: imageDataUrl,
-            detail: 'auto',
+            detail: PHOTO_VISION_DETAIL,
           },
         ],
       },
@@ -284,6 +284,14 @@ export async function validateAndRecognizeClothingPhoto(
       },
     },
   });
+
+  if (process.env.NODE_ENV !== 'production' && response.usage) {
+    logPhotoAiUsage({
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      totalTokens: response.usage.total_tokens,
+    });
+  }
 
   const outputText = response.output_text;
 

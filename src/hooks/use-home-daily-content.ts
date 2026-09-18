@@ -39,6 +39,10 @@ import {
   isAnyAiRateLimitError,
 } from '@/utils/ai-rate-limit-error';
 import { shouldAttemptDailyCreateOrRegenerate } from '@/utils/home-daily-preferences-sync';
+import {
+  getDailySuggestFallbackSkipReason,
+  shouldUseDailySuggestFallback,
+} from '@/utils/daily-ai-fallback-policy';
 import type { PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
 import { fetchOutfitFeedback, saveOutfitFeedback } from '@/services/outfit-feedback';
 import { getAuthToken } from '@/storage/auth-token-storage';
@@ -267,6 +271,7 @@ export function useHomeDailyContent(params: Params) {
     setRegenerating(true);
     let weatherTask: Promise<void> | undefined;
     let rateLimitBlocked = false;
+    let dailyProviderAttempted = false;
 
     const markRateLimitBlocked = (error: unknown): boolean => {
       if (error instanceof OutfitSuggestionError) {
@@ -480,6 +485,7 @@ export function useHomeDailyContent(params: Params) {
           }
 
           devDailyHomeLog('[DAILY HOME] manual regenerate');
+          dailyProviderAttempted = true;
           const daily = await regenerateDailyOutfit(token, p.localDate, p.requestLocation, {
             accountScope: p.accountScope,
             manual: true,
@@ -597,6 +603,7 @@ export function useHomeDailyContent(params: Params) {
                 if (canMutateDaily) {
                   try {
                     devDailyHomeLog('[DAILY HOME] stale regenerate');
+                    dailyProviderAttempted = true;
                     const regenerated = await regenerateDailyOutfit(
                       token,
                       p.localDate,
@@ -643,6 +650,7 @@ export function useHomeDailyContent(params: Params) {
 
                 try {
                   devDailyHomeLog('[DAILY HOME] stale regenerate');
+                  dailyProviderAttempted = true;
                   const regenerated = await regenerateDailyOutfit(
                     token,
                     p.localDate,
@@ -678,7 +686,7 @@ export function useHomeDailyContent(params: Params) {
                   }
                 }
 
-                devDailyHomeLog('[DAILY HOME] suggest fallback');
+                devDailyHomeLog('[DAILY HOME] invalid itemIds fallback');
               } else if (!sanitizedItemIds) {
                 devDailyHomeLog('[DAILY HOME] invalid itemIds fallback');
               }
@@ -689,6 +697,7 @@ export function useHomeDailyContent(params: Params) {
                 devDailyHomeLog('[DAILY HOME] create missing daily');
 
                 try {
+                  dailyProviderAttempted = true;
                   const created = await regenerateDailyOutfit(
                     token,
                     p.localDate,
@@ -801,6 +810,38 @@ export function useHomeDailyContent(params: Params) {
       }
 
       if (rateLimitBlocked) {
+        return;
+      }
+
+      const fallbackSkipReason = getDailySuggestFallbackSkipReason({
+        isServerAccount: p.isServerAccount,
+        dailyStylistEnabled: p.stylistPreferences.dailyStylistEnabled,
+        dailyProviderAttempted,
+      });
+
+      if (
+        !shouldUseDailySuggestFallback({
+          isServerAccount: p.isServerAccount,
+          dailyStylistEnabled: p.stylistPreferences.dailyStylistEnabled,
+          dailyProviderAttempted,
+        })
+      ) {
+        if (fallbackSkipReason === 'provider_failure') {
+          devDailyHomeLog('[DAILY AI] fallback skipped reason=provider_failure');
+        } else if (fallbackSkipReason === 'daily_stylist_enabled') {
+          devDailyHomeLog('[DAILY AI] fallback skipped reason=daily_stylist_enabled');
+        }
+
+        if (dailyProviderAttempted) {
+          setOutfitErrorKind((current) => current ?? 'server');
+          setLoadState(fallback ? 'success' : 'error');
+          setError(
+            fallback
+              ? 'Не удалось обновить образ. Показываем предыдущий вариант.'
+              : 'Не удалось подобрать образ на сегодня. Попробуй ещё раз.',
+          );
+        }
+
         return;
       }
 
