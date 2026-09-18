@@ -9,6 +9,7 @@ import {
 } from '@/storage/daily-stylist-reminder-storage';
 import type { StylistPreferences } from '@/constants/stylist-preferences';
 import {
+  buildReminderStateWhenDailyStylistDisabled,
   isDailyStylistScheduleCorrect,
   parseDailyStylistTime,
   resolveDailyStylistReminderAction,
@@ -214,6 +215,27 @@ export async function reconcileDailyStylistReminder({
   reminderState?: DailyStylistReminderState;
 }): Promise<DailyStylistReminderReconcileResult> {
   const currentState = reminderState ?? (await loadDailyStylistReminderState());
+
+  if (!stylistPreferences.dailyStylistEnabled) {
+    const scheduled = await findScheduledDailyStylistReminder();
+    const hasScheduledNotification =
+      scheduled !== null || currentState.scheduledNotificationId !== null;
+    const { nextState, shouldPersist } = buildReminderStateWhenDailyStylistDisabled(currentState);
+
+    if (hasScheduledNotification) {
+      await cancelDailyStylistReminderById(currentState.scheduledNotificationId);
+    }
+
+    if (shouldPersist) {
+      await saveDailyStylistReminderState(nextState);
+    }
+
+    return {
+      state: shouldPersist ? nextState : currentState,
+      action: hasScheduledNotification ? 'cancel' : 'none',
+    };
+  }
+
   const permissionGranted = (await getDailyStylistReminderPermissionStatus()) === 'granted';
   const scheduled = await findScheduledDailyStylistReminder();
   const parsedTime = parseDailyStylistTime(stylistPreferences.dailyStylistTime);

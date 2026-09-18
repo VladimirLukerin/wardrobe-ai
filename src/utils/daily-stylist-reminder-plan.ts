@@ -110,3 +110,22 @@ export function resolveDailyStylistReminderAction({
 export function shouldClearReminderStateOnAccountCleanup(): boolean {
   return true;
 }
+
+export type DailyStylistReminderStateShape = {
+  dailyStylistReminderEnabled: boolean;
+  scheduledNotificationId: string | null;
+};
+
+export function buildReminderStateWhenDailyStylistDisabled(
+  currentState: DailyStylistReminderStateShape,
+): { nextState: DailyStylistReminderStateShape; shouldPersist: boolean } {
+  const nextState: DailyStylistReminderStateShape = {
+    dailyStylistReminderEnabled: false,
+    scheduledNotificationId: null,
+  };
+
+  const shouldPersist =
+    currentState.dailyStylistReminderEnabled || currentState.scheduledNotificationId !== null;
+
+  return { nextState, shouldPersist };
+}

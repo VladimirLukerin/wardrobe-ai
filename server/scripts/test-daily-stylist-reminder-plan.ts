@@ -1,4 +1,5 @@
 import {
+  buildReminderStateWhenDailyStylistDisabled,
   isDailyStylistScheduleCorrect,
   parseDailyStylistTime,
   resolveDailyStylistReminderAction,
@@ -106,12 +107,54 @@ function testAccountCleanupFlag(): void {
   assert(shouldClearReminderStateOnAccountCleanup() === true, 'account cleanup clears reminder');
 }
 
+function testDailyDisabledClearsReminderState(): void {
+  const disabledFromSync = buildReminderStateWhenDailyStylistDisabled({
+    dailyStylistReminderEnabled: true,
+    scheduledNotificationId: 'wardrobe-ai.daily-stylist-reminder',
+  });
+
+  assert(disabledFromSync.nextState.dailyStylistReminderEnabled === false, 'sync off disables reminder');
+  assert(disabledFromSync.nextState.scheduledNotificationId === null, 'sync off clears schedule id');
+  assert(disabledFromSync.shouldPersist === true, 'sync off persists cleared reminder state');
+
+  const disabledWithoutSchedule = buildReminderStateWhenDailyStylistDisabled({
+    dailyStylistReminderEnabled: true,
+    scheduledNotificationId: null,
+  });
+
+  assert(
+    disabledWithoutSchedule.nextState.dailyStylistReminderEnabled === false,
+    'sync off clears reminder even without schedule id',
+  );
+  assert(disabledWithoutSchedule.shouldPersist === true, 'reminder true requires persist on daily off');
+
+  const alreadyDisabled = buildReminderStateWhenDailyStylistDisabled({
+    dailyStylistReminderEnabled: false,
+    scheduledNotificationId: null,
+  });
+
+  assert(alreadyDisabled.shouldPersist === false, 'already disabled reminder needs no persist');
+
+  assert(
+    resolveDailyStylistReminderAction({
+      dailyStylistEnabled: true,
+      reminderEnabled: false,
+      permissionGranted: true,
+      dailyStylistTime: '09:00',
+      hasCorrectSchedule: false,
+      hasScheduledNotification: false,
+    }) === 'none',
+    'daily back on does not auto schedule reminder',
+  );
+}
+
 function main(): void {
   testParseDailyStylistTime();
   testResolveDailyStylistReminderAction();
   testTimezoneHelpers();
   testScheduleMatch();
   testAccountCleanupFlag();
+  testDailyDisabledClearsReminderState();
   console.log('All daily-stylist-reminder-plan checks passed.');
 }
 
