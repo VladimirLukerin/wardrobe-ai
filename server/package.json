@@ -6,8 +6,9 @@
     "node": ">=22 <24"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "bash scripts/dev-with-node22.sh",
+    "dev:raw": "tsx watch src/index.ts",
+    "start": "bash scripts/dev-with-node22.sh start",
     "test:photo-decision": "tsx scripts/test-photo-decision.ts",
     "test:processing-cost-guard": "tsx scripts/test-processing-cost-guard.ts",
     "test:daily-stylist-reminder-plan": "tsx scripts/test-daily-stylist-reminder-plan.ts",
