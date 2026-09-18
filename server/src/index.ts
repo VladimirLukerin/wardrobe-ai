@@ -6,7 +6,7 @@ import multer from 'multer';
 
 import { getDatabase } from './db/database';
 import { currentWeatherHandler } from './current-weather';
-import { requireAuth, optionalAuth } from './middleware/auth';
+import { requireAuth } from './middleware/auth';
 import { handleProcessClothingImage } from './photo-processing/process-clothing-image';
 import { authRouter, meHandler, patchMeHandler } from './routes/auth';
 import { dailyOutfitsRouter } from './routes/daily-outfits';
@@ -77,7 +77,7 @@ app.use('/me/wardrobe', wardrobeImagesRouter);
 app.get('/me', requireAuth, meHandler);
 app.patch('/me', requireAuth, patchMeHandler);
 
-app.post('/suggest-outfits', optionalAuth, suggestOutfitsHandler);
+app.post('/suggest-outfits', requireAuth, suggestOutfitsHandler);
 app.post('/current-weather', currentWeatherHandler);
 
 app.post('/process-clothing-image', requireAuth, upload.single('image'), (req, res) => {

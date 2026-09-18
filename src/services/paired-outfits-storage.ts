@@ -66,13 +66,20 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
       payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
         ? payload.error
         : `Request failed with status ${response.status}`;
+    const code =
+      payload &&
+      typeof payload === 'object' &&
+      'code' in payload &&
+      typeof payload.code === 'string'
+        ? payload.code
+        : null;
 
     if (isServerUnavailableStatus(response.status)) {
       logExpectedNetworkFailure('API', `status ${response.status}`);
       throw new ClientNetworkError();
     }
 
-    throw new AccountApiError(response.status, message);
+    throw new AccountApiError(response.status, message, code);
   }
 
   return payload as T;

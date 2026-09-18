@@ -8,6 +8,7 @@ import {
 import { isDailyOutfitInputSignatureStale } from '../daily-outfits/build-daily-outfit-input-signature';
 import { getDailyOutfitForDate } from '../db/daily-outfits-repository';
 import { requireAuth } from '../middleware/auth';
+import { enforceAiRateLimit } from '../ai-request-rate-limit';
 import type { SuggestOutfitsLocation } from '../suggest-outfits';
 
 const dailyOutfitsRouter = Router();
@@ -92,6 +93,10 @@ dailyOutfitsRouter.post(
     const localDateRaw = typeof req.body?.localDate === 'string' ? req.body.localDate.trim() : '';
     const localDate = isLocalDate(localDateRaw) ? localDateRaw : new Date().toISOString().slice(0, 10);
     const location = parseLocation(req.body?.location);
+
+    if (!enforceAiRateLimit(res, req.authUser.id, 'daily')) {
+      return;
+    }
 
     try {
       const outfit = await generateAndStoreDailyOutfit({

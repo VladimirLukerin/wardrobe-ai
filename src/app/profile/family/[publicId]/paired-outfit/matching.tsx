@@ -18,6 +18,7 @@ import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/cons
 import { useBodyParameters } from '@/contexts/body-parameters-context';
 import { useFamily } from '@/contexts/family-context';
 import { AccountApiError } from '@/services/account';
+import { getAiRateLimitUserMessage, isAiRateLimitedError } from '@/utils/ai-rate-limit-error';
 import { fetchPairedOutfits } from '@/services/paired-outfits';
 import { getActiveLocation } from '@/utils/get-active-location';
 import { isRetryableNetworkError } from '@/utils/network-error';
@@ -113,7 +114,7 @@ export default function PairedOutfitMatchingScreen() {
       }
 
       if (error instanceof AccountApiError) {
-        setSubmitError(error.message);
+        setSubmitError(isAiRateLimitedError(error) ? getAiRateLimitUserMessage(error) : error.message);
         return;
       }
 

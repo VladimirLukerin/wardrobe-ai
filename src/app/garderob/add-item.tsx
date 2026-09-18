@@ -323,6 +323,12 @@ export default function AddItemScreen() {
         return;
       }
 
+      if (error instanceof ClothingImageProcessingError && error.code === 'rate_limited') {
+        setAnalysisMessage(error.message);
+        setImageProcessingMessage(error.message);
+        return;
+      }
+
       const message =
         error instanceof Error && error.message.trim().length > 0
           ? error.message

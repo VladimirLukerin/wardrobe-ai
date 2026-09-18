@@ -46,3 +46,12 @@ jobs:
 
       - name: Run processing cost guard test
         run: npm run test:processing-cost-guard
+
+      - name: Run daily stylist reminder plan test
+        run: npm run test:daily-stylist-reminder-plan
+
+      - name: Run home daily preferences sync test
+        run: npm run test:home-daily-preferences-sync
+
+      - name: Run AI rate limit test
+        run: npm run test:ai-rate-limit

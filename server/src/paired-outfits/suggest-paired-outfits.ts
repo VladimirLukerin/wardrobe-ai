@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import OpenAI from 'openai';
 
+import { enforceAiRateLimit } from '../ai-request-rate-limit';
 import { resolveFamilyMemberWardrobeAccess } from '../db/family-repository';
 import type { CurrentWeather } from '../providers/weather';
 import {
@@ -324,6 +325,10 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
       !hasMinimumWardrobeForOutfit(personB.wardrobe)
     ) {
       res.status(422).json({ error: 'Недостаточно вещей для совместного образа' });
+      return;
+    }
+
+    if (!enforceAiRateLimit(res, req.authUser.id, 'paired')) {
       return;
     }
 

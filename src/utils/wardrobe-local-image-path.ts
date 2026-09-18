@@ -101,3 +101,19 @@ export async function clearAllWardrobeLocalImageFiles(): Promise<void> {
     root.delete();
   }
 }
+
+export async function clearWardrobeItemLocalImageFiles(
+  userId: string,
+  itemId: string,
+): Promise<void> {
+  if (!userId || !itemId) {
+    return;
+  }
+
+  const hash = await buildWardrobeLocalStorageHash(userId, itemId);
+  const directory = new Directory(Paths.document, WARDROBE_ROOT, hash);
+
+  if (directory.exists) {
+    directory.delete();
+  }
+}

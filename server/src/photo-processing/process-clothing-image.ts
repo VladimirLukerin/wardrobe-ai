@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 
+import { enforceAiRateLimit } from '../ai-request-rate-limit';
 import { normalizeProcessedClothingImage } from '../normalize-processed-image';
 import {
   BackgroundRemovalError,
@@ -108,6 +109,15 @@ export async function handleProcessClothingImage(req: Request, res: Response): P
     }
 
     validateUploadedImage(req.file);
+
+    if (!req.authUser) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    if (!enforceAiRateLimit(res, req.authUser.id, 'photo')) {
+      return;
+    }
 
     const prepareStartedAt = Date.now();
     const prepared = await prepareUploadedImage(req.file.buffer, req.file.mimetype);

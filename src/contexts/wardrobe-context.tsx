@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { randomUUID } from 'expo-crypto';
+import { useAccount } from '@/contexts/account-context';
 import {
   normalizeWardrobeItemImageFields,
   type ImageProcessingStatus,
@@ -21,6 +22,7 @@ import {
   markWardrobeItemUpdated,
 } from '@/storage/wardrobe-sync-storage';
 import { queueWardrobeSyncFromMutation } from '@/utils/wardrobe-sync-queue';
+import { clearWardrobeItemLocalImageFiles } from '@/utils/wardrobe-local-image-path';
 import { shortWardrobeItemId } from '@/utils/short-wardrobe-item-id';
 
 export type WardrobeItem = WardrobeItemImageFields & {
@@ -88,9 +90,27 @@ function normalizeWardrobeItem(item: WardrobeItem): WardrobeItem {
 }
 
 export function WardrobeProvider({ children }: { children: ReactNode }) {
+  const { user } = useAccount();
   const [items, setItems] = useState<WardrobeItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const persistQueueRef = useRef(Promise.resolve());
+
+  const cleanupItemLocalImages = useCallback(
+    (itemId: string) => {
+      const userId = user?.id;
+
+      if (!userId) {
+        return;
+      }
+
+      void clearWardrobeItemLocalImageFiles(userId, itemId).catch((error) => {
+        if (__DEV__) {
+          console.warn(`[WARDROBE CLEANUP] item=${shortWardrobeItemId(itemId)}`, error);
+        }
+      });
+    },
+    [user?.id],
+  );
 
   const persistItems = useCallback((nextItems: WardrobeItem[]) => {
     if (__DEV__) {
@@ -166,8 +186,9 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         persistItems(nextItems);
         return nextItems;
       });
+      cleanupItemLocalImages(id);
     },
-    [persistItems],
+    [cleanupItemLocalImages, persistItems],
   );
 
   const applySyncedWardrobeItem = useCallback(
@@ -325,9 +346,10 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         return nextItems;
       });
 
+      cleanupItemLocalImages(id);
       queueWardrobeSyncFromMutation();
     },
-    [persistItems],
+    [cleanupItemLocalImages, persistItems],
   );
 
   const resetForDevServerRestore = useCallback(async () => {

@@ -58,6 +58,14 @@ export async function buildFamilyWardrobeImageMetaFile(
   return new File(directory, 'meta.json');
 }
 
+export async function clearAllFamilyWardrobeLocalImageFiles(): Promise<void> {
+  const root = new Directory(Paths.document, FAMILY_WARDROBE_ROOT);
+
+  if (root.exists) {
+    root.delete();
+  }
+}
+
 export function localFamilyImageFileExists(uri: string | undefined): boolean {
   if (!uri) {
     return false;

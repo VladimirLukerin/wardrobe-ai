@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { clearDevSyncTimestampsAndCache } from '@/storage/dev-sync-cache-clear';
+import { clearAllFamilyWardrobeLocalImageFiles } from '@/utils/family-wardrobe-local-image-path';
 import { clearAllWardrobeLocalImageFiles } from '@/utils/wardrobe-local-image-path';
 
 export const DEV_WARDROBE_LOCAL_DATA_KEYS = [
@@ -13,6 +14,7 @@ export async function clearDevLocalWardrobeData(): Promise<void> {
   await AsyncStorage.multiRemove([...DEV_WARDROBE_LOCAL_DATA_KEYS]);
   await clearDevSyncTimestampsAndCache();
   await clearAllWardrobeLocalImageFiles();
+  await clearAllFamilyWardrobeLocalImageFiles();
 
   if (__DEV__) {
     const { Image } = await import('expo-image');

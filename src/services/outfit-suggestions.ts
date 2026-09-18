@@ -11,6 +11,7 @@ import {
 import type { StylistPreferences } from '@/constants/stylist-preferences';
 import type { WardrobeSuggestionItemPayload } from '@/utils/build-wardrobe-suggestion-payload';
 import { getAuthToken } from '@/storage/auth-token-storage';
+import { AI_RATE_LIMIT_USER_MESSAGE } from '@/utils/ai-rate-limit-error';
 import { isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
 
 export type OutfitSuggestion = {
@@ -39,7 +40,7 @@ export type SuggestOutfitsResult = {
   weather: OutfitWeather | null;
 };
 
-export type OutfitSuggestionErrorCode = 'network' | 'server';
+export type OutfitSuggestionErrorCode = 'network' | 'server' | 'rate_limited';
 
 export class OutfitSuggestionError extends Error {
   readonly code: OutfitSuggestionErrorCode;
@@ -200,6 +201,16 @@ export async function suggestOutfits({
   if (!response.ok) {
     if (__DEV__) {
       console.warn(`[SUGGEST OUTFITS] server responded with status ${response.status}`);
+    }
+
+    if (
+      response.status === 429 &&
+      payload &&
+      typeof payload === 'object' &&
+      'code' in payload &&
+      payload.code === 'rate_limited'
+    ) {
+      throw new OutfitSuggestionError('rate_limited', AI_RATE_LIMIT_USER_MESSAGE);
     }
 
     throw new OutfitSuggestionError('server');

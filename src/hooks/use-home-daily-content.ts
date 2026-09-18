@@ -31,6 +31,10 @@ import {
 } from '@/services/paired-outfits-storage';
 import { AccountApiError } from '@/services/account';
 import { isDailyStylistDisabledError, isUnexpectedDailyMutationError } from '@/utils/daily-outfit-errors';
+import {
+  AI_RATE_LIMIT_USER_MESSAGE,
+  isAiRateLimitedError,
+} from '@/utils/ai-rate-limit-error';
 import { shouldAttemptDailyCreateOrRegenerate } from '@/utils/home-daily-preferences-sync';
 import type { PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
 import { fetchOutfitFeedback, saveOutfitFeedback } from '@/services/outfit-feedback';
@@ -66,7 +70,7 @@ type Params = {
   wearHistory: WearHistoryLookup;
 };
 type LoadState = 'idle' | 'loading' | 'success' | 'error' | 'empty-wardrobe';
-export type HomeContentErrorKind = 'network' | 'server';
+export type HomeContentErrorKind = 'network' | 'server' | 'rate_limited';
 
 const CACHE_SIGNATURE_PREFIX = 'v3';
 
@@ -254,6 +258,22 @@ export function useHomeDailyContent(params: Params) {
     setOutfitErrorKind(null);
     setRegenerating(true);
     let weatherTask: Promise<void> | undefined;
+    let rateLimitBlocked = false;
+
+    const markRateLimitBlocked = (error: unknown): boolean => {
+      if (
+        !isAiRateLimitedError(error) &&
+        !(error instanceof OutfitSuggestionError && error.code === 'rate_limited')
+      ) {
+        return false;
+      }
+
+      rateLimitBlocked = true;
+      setOutfitErrorKind('rate_limited');
+      setLoadState(previous ? 'success' : 'error');
+      setError(AI_RATE_LIMIT_USER_MESSAGE);
+      return true;
+    };
 
     try {
       if (p.items.length < 2) {
@@ -403,6 +423,10 @@ export function useHomeDailyContent(params: Params) {
         } catch (manualRegenError) {
           if (!active()) return;
 
+          if (markRateLimitBlocked(manualRegenError)) {
+            return;
+          }
+
           const kind: HomeContentErrorKind = isRetryableNetworkError(manualRegenError)
             ? 'network'
             : 'server';
@@ -505,6 +529,10 @@ export function useHomeDailyContent(params: Params) {
                       return;
                     }
                   } catch (staleRegenError) {
+                    if (markRateLimitBlocked(staleRegenError)) {
+                      return;
+                    }
+
                     if (isDailyStylistDisabledError(staleRegenError)) {
                       devDailyHomeLog('[DAILY HOME] daily stylist disabled');
                     } else if (isUnexpectedDailyMutationError(staleRegenError)) {
@@ -546,6 +574,10 @@ export function useHomeDailyContent(params: Params) {
                     return;
                   }
                 } catch (invalidRegenError) {
+                  if (markRateLimitBlocked(invalidRegenError)) {
+                    return;
+                  }
+
                   if (isDailyStylistDisabledError(invalidRegenError)) {
                     devDailyHomeLog('[DAILY HOME] daily stylist disabled');
                   } else if (isUnexpectedDailyMutationError(invalidRegenError)) {
@@ -601,6 +633,10 @@ export function useHomeDailyContent(params: Params) {
                     return;
                   }
                 } catch (createMissingError) {
+                  if (markRateLimitBlocked(createMissingError)) {
+                    return;
+                  }
+
                   if (isRetryableNetworkError(createMissingError)) {
                     devDailyHomeLog('[DAILY HOME] network fallback');
                   } else if (isDailyStylistDisabledError(createMissingError)) {
@@ -671,6 +707,10 @@ export function useHomeDailyContent(params: Params) {
         return;
       }
 
+      if (rateLimitBlocked) {
+        return;
+      }
+
       try {
         devDailyHomeLog('[DAILY HOME] suggest fallback');
         const stylistContext = buildStylistContext({
@@ -724,10 +764,18 @@ export function useHomeDailyContent(params: Params) {
           setError(
             kind === 'network'
               ? `${NETWORK_ERROR_TITLE}. Показываем предыдущий вариант.`
-              : 'Не удалось обновить образ. Показываем предыдущий вариант.',
+              : kind === 'rate_limited'
+                ? AI_RATE_LIMIT_USER_MESSAGE
+                : 'Не удалось обновить образ. Показываем предыдущий вариант.',
           );
         } else {
-          setError(kind === 'network' ? NETWORK_ERROR_TITLE : 'Не удалось подобрать образ. Попробуй ещё раз.');
+          setError(
+            kind === 'network'
+              ? NETWORK_ERROR_TITLE
+              : kind === 'rate_limited'
+                ? AI_RATE_LIMIT_USER_MESSAGE
+                : 'Не удалось подобрать образ. Попробуй ещё раз.',
+          );
         }
       }
     } finally {

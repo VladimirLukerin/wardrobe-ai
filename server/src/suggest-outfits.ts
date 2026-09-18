@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import type { OutfitFeedbackReason } from './db/outfit-feedback-reasons';
 import { mergeOutfitFeedbackIntoBehavioralContext } from './outfit-feedback/build-outfit-feedback-context';
+import { enforceAiRateLimit } from './ai-request-rate-limit';
 import OpenAI from 'openai';
 
 import { getCurrentWeather, type CurrentWeather } from './providers/weather';
@@ -1087,6 +1088,11 @@ export async function generateOutfitSuggestionsFromBody(
 
 export async function suggestOutfitsHandler(req: Request, res: Response): Promise<void> {
   try {
+    if (!req.authUser) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
     const parsedBody = parseRequestBody(req.body);
 
     if (!parsedBody) {
@@ -1094,8 +1100,12 @@ export async function suggestOutfitsHandler(req: Request, res: Response): Promis
       return;
     }
 
+    if (!enforceAiRateLimit(res, req.authUser.id, 'suggest')) {
+      return;
+    }
+
     const result = await generateOutfitSuggestionsFromBody(parsedBody, {
-      userId: req.authUser?.id,
+      userId: req.authUser.id,
     });
 
     res.json(result);

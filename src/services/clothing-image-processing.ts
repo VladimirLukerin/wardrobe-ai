@@ -17,6 +17,7 @@ import {
 } from '@/constants/wardrobe-options';
 import { buildClothingDisplayName } from '@/utils/build-clothing-display-name';
 import { getAuthToken } from '@/storage/auth-token-storage';
+import { AI_RATE_LIMIT_USER_MESSAGE } from '@/utils/ai-rate-limit-error';
 
 export type ClothingImageProcessingResult = {
   name: string;
@@ -31,11 +32,23 @@ export type ClothingImageProcessingResult = {
 };
 
 export class ClothingImageProcessingError extends Error {
-  readonly code: 'network' | 'server' | 'photo_guard' | 'background_removal' | 'unauthorized';
+  readonly code:
+    | 'network'
+    | 'server'
+    | 'photo_guard'
+    | 'background_removal'
+    | 'unauthorized'
+    | 'rate_limited';
   readonly photoGuardReason?: PhotoGuardRejectReason;
 
   constructor(
-    code: 'network' | 'server' | 'photo_guard' | 'background_removal' | 'unauthorized',
+    code:
+      | 'network'
+      | 'server'
+      | 'photo_guard'
+      | 'background_removal'
+      | 'unauthorized'
+      | 'rate_limited',
     message?: string,
     photoGuardReason?: PhotoGuardRejectReason,
   ) {
@@ -149,6 +162,10 @@ async function requestClothingProcessing(imageUri: string): Promise<ClothingImag
       payload && typeof payload.error === 'string' && payload.error.trim().length > 0
         ? payload.error
         : 'Не удалось обработать изображение.';
+
+    if (payload?.code === 'rate_limited' && response.status === 429) {
+      throw new ClothingImageProcessingError('rate_limited', AI_RATE_LIMIT_USER_MESSAGE);
+    }
 
     if (payload?.code === 'background_removal') {
       throw new ClothingImageProcessingError('background_removal', message);

@@ -11,6 +11,8 @@ import { loadWardrobeSyncMetadata } from '@/storage/wardrobe-sync-storage';
 import { DAILY_STYLIST_REMINDER_STORAGE_KEY } from '@/storage/daily-stylist-reminder-storage';
 import { clearDailyStylistReminderForAccountSwitch } from '@/services/daily-stylist-reminder';
 import { clearAccountRuntimeCaches } from '@/utils/clear-account-runtime-caches';
+import { clearAllFamilyWardrobeLocalImageFiles } from '@/utils/family-wardrobe-local-image-path';
+import { clearAllWardrobeLocalImageFiles } from '@/utils/wardrobe-local-image-path';
 
 export const USER_SCOPED_STORAGE_KEYS = [
   '@wardrobe-ai/profile/body-parameters',
@@ -38,9 +40,28 @@ export type LocalAccountAssessment = {
   hasPendingSyncMetadata: boolean;
 };
 
+async function clearAccountImageDiskCachesBestEffort(): Promise<void> {
+  try {
+    await clearAllWardrobeLocalImageFiles();
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[ACCOUNT SWITCH] Failed to clear wardrobe image files:', error);
+    }
+  }
+
+  try {
+    await clearAllFamilyWardrobeLocalImageFiles();
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[ACCOUNT SWITCH] Failed to clear family wardrobe image files:', error);
+    }
+  }
+}
+
 export async function prepareLocalStateForAccountSwitch(): Promise<void> {
   await clearDailyStylistReminderForAccountSwitch();
   clearAccountRuntimeCaches();
+  await clearAccountImageDiskCachesBestEffort();
   await AsyncStorage.multiRemove([...USER_SCOPED_STORAGE_KEYS]);
 }
 
