@@ -2,25 +2,19 @@ import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 
+import { requestEmailVerificationCode } from '../auth/email-verification-send';
 import { normalizeEmail } from '../auth/normalize-email';
 import { ensureDevOtpBypassEnabled, withDevBypassFlag } from '../auth/dev-otp-bypass';
 import {
-  generateOtpCode,
-  hashOtpCode,
-  isEmailVerificationConfigured,
   OTP_MAX_ATTEMPTS,
-  OTP_MAX_REQUESTS_PER_WINDOW,
-  OTP_MAX_REQUESTS_WINDOW_SECONDS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
+  isEmailVerificationConfigured,
   verifyOtpCode,
 } from '../auth/otp-code';
 import {
   consumeEmailVerificationChallenge,
-  countRecentChallengesForUser,
-  createEmailVerificationChallenge,
   findEmailVerificationChallengeById,
-  getLatestChallengeForUserEmail,
   incrementChallengeAttemptCount,
 } from '../db/email-verification-challenges-repository';
 import {
@@ -87,74 +81,35 @@ emailLinkRouter.post('/email/request-code', requireAuth, async (req: Request, re
   }
 
   const now = Date.now();
-  const windowStart = new Date(now - OTP_MAX_REQUESTS_WINDOW_SECONDS * 1000).toISOString();
-  const recentCount = countRecentChallengesForUser({
-    userId: currentUser.id,
-    sinceIso: windowStart,
-  });
 
-  if (recentCount >= OTP_MAX_REQUESTS_PER_WINDOW) {
-    res.status(429).json({ error: 'Слишком много запросов кода. Попробуйте позже.' });
-    return;
-  }
-
-  const latestChallenge = getLatestChallengeForUserEmail({
+  const sendResult = await requestEmailVerificationCode({
     userId: currentUser.id,
     email: normalized.email,
     purpose: 'link',
+    logPrefix: '[EMAIL LINK]',
+    now,
   });
 
-  if (latestChallenge) {
-    const lastSentAt = new Date(latestChallenge.last_sent_at).getTime();
-    const elapsedSeconds = Math.floor((now - lastSentAt) / 1000);
-
-    if (elapsedSeconds < OTP_RESEND_COOLDOWN_SECONDS) {
+  if (!sendResult.ok) {
+    if (sendResult.kind === 'cooldown') {
       res.status(429).json({
-        error: 'Подождите перед повторной отправкой кода.',
-        resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS - elapsedSeconds,
+        error: sendResult.message,
+        resendAfterSeconds: sendResult.resendAfterSeconds,
       });
       return;
     }
+
+    res.status(sendResult.kind === 'send_failed' ? 500 : 429).json({ error: sendResult.message });
+    return;
   }
 
-  try {
-    const code = generateOtpCode();
-    const challengeId = crypto.randomUUID();
-    const expiresAt = new Date(now + OTP_TTL_SECONDS * 1000).toISOString();
-    const codeHash = hashOtpCode({
-      challengeId,
-      email: normalized.email,
-      purpose: 'link',
-      code,
-    });
-
-    const challenge = createEmailVerificationChallenge({
-      id: challengeId,
-      userId: currentUser.id,
-      email: normalized.email,
-      purpose: 'link',
-      codeHash,
-      expiresAt,
-    });
-
-    const emailSender = getEmailSender();
-    await emailSender.sendVerificationCode({
-      email: normalized.email,
-      code,
-      expiresInMinutes: OTP_TTL_SECONDS / 60,
-    });
-
-    res.status(201).json(
-      withDevBypassFlag({
-        challengeId: challenge.id,
-        expiresInSeconds: OTP_TTL_SECONDS,
-        resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS,
-      }),
-    );
-  } catch (error) {
-    console.error('Failed to request email verification code:', error);
-    res.status(500).json({ error: 'Не удалось отправить код подтверждения.' });
-  }
+  res.status(201).json(
+    withDevBypassFlag({
+      challengeId: sendResult.challengeId,
+      expiresInSeconds: sendResult.expiresInSeconds,
+      resendAfterSeconds: sendResult.resendAfterSeconds,
+    }),
+  );
 });
 
 emailLinkRouter.post('/email/verify', requireAuth, (req: Request, res: Response) => {

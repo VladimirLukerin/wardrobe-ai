@@ -14,24 +14,20 @@ import {
   respondPasswordLoginRateLimited,
 } from '../auth/password-login-rate-limit';
 import { hashPassword, validatePasswordInput, verifyPassword } from '../auth/password';
+import { requestEmailVerificationCode } from '../auth/email-verification-send';
 import {
-  generateOtpCode,
-  hashOtpCode,
-  isEmailVerificationConfigured,
   OTP_MAX_ATTEMPTS,
   OTP_MAX_REQUESTS_PER_WINDOW,
   OTP_MAX_REQUESTS_WINDOW_SECONDS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
+  isEmailVerificationConfigured,
   verifyOtpCode,
 } from '../auth/otp-code';
 import {
   consumeEmailVerificationChallenge,
   countRecentChallengesForEmail,
-  countRecentChallengesForUser,
-  createEmailVerificationChallenge,
   findEmailVerificationChallengeById,
-  getLatestChallengeForUserEmail,
   incrementChallengeAttemptCount,
 } from '../db/email-verification-challenges-repository';
 import {
@@ -165,74 +161,40 @@ passwordAuthRouter.post('/password/reset/request-code', async (req: Request, res
   const targetUser = findUserByVerifiedEmail(normalized.email);
 
   if (!targetUser) {
-    console.log('[PASSWORD RESET] request accepted without verified account');
+    console.log('[PASSWORD RESET] request accepted');
     res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(crypto.randomUUID())));
     return;
   }
 
-  const recentUserCount = countRecentChallengesForUser({
-    userId: targetUser.id,
-    sinceIso: windowStart,
-  });
+  console.log('[PASSWORD RESET] request accepted');
 
-  if (recentUserCount >= OTP_MAX_REQUESTS_PER_WINDOW) {
-    res.status(429).json({ error: 'Слишком много запросов кода. Попробуйте позже.' });
-    return;
-  }
-
-  const latestChallenge = getLatestChallengeForUserEmail({
+  const sendResult = await requestEmailVerificationCode({
     userId: targetUser.id,
     email: normalized.email,
     purpose: 'password_reset',
+    logPrefix: '[PASSWORD RESET]',
+    now,
   });
 
-  if (latestChallenge) {
-    const lastSentAt = new Date(latestChallenge.last_sent_at).getTime();
-    const elapsedSeconds = Math.floor((now - lastSentAt) / 1000);
-
-    if (elapsedSeconds < OTP_RESEND_COOLDOWN_SECONDS) {
+  if (!sendResult.ok) {
+    if (sendResult.kind === 'cooldown') {
+      console.log('[PASSWORD RESET] cooldown');
       res.status(429).json({
-        error: 'Подождите перед повторной отправкой кода.',
-        resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS - elapsedSeconds,
+        error: sendResult.message,
+        resendAfterSeconds: sendResult.resendAfterSeconds,
       });
       return;
     }
+
+    if (sendResult.kind === 'rate_limited') {
+      console.log('[PASSWORD RESET] rate limited');
+    }
+
+    res.status(sendResult.kind === 'send_failed' ? 500 : 429).json({ error: sendResult.message });
+    return;
   }
 
-  try {
-    const code = generateOtpCode();
-    const challengeId = crypto.randomUUID();
-    const expiresAt = new Date(now + OTP_TTL_SECONDS * 1000).toISOString();
-    const codeHash = hashOtpCode({
-      challengeId,
-      email: normalized.email,
-      purpose: 'password_reset',
-      code,
-    });
-
-    const challenge = createEmailVerificationChallenge({
-      id: challengeId,
-      userId: targetUser.id,
-      email: normalized.email,
-      purpose: 'password_reset',
-      codeHash,
-      expiresAt,
-    });
-
-    const emailSender = getEmailSender();
-    await emailSender.sendVerificationCode({
-      email: normalized.email,
-      code,
-      expiresInMinutes: OTP_TTL_SECONDS / 60,
-    });
-
-    console.log('[PASSWORD RESET] verification code sent');
-
-    res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(challenge.id)));
-  } catch (error) {
-    console.error('Failed to request password reset code:', error);
-    res.status(500).json({ error: 'Не удалось отправить код подтверждения.' });
-  }
+  res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(sendResult.challengeId)));
 });
 
 passwordAuthRouter.post('/password/reset/verify', async (req: Request, res: Response) => {

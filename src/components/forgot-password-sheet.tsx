@@ -25,11 +25,12 @@ import {
 type ForgotPasswordSheetProps = {
   visible: boolean;
   initialEmail?: string;
+  skipEmailEntry?: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 };
 
-type Step = 'email' | 'code' | 'password';
+type Step = 'email' | 'confirm-email' | 'code' | 'password';
 
 function resolveRequestError(error: unknown): string {
   if (error instanceof AccountApiError) {
@@ -58,12 +59,15 @@ function resolveVerifyError(error: unknown): string {
 export default function ForgotPasswordSheet({
   visible,
   initialEmail = '',
+  skipEmailEntry = false,
   onClose,
   onSuccess,
 }: ForgotPasswordSheetProps) {
   const insets = useSafeAreaInsets();
   const { confirmAndSwitch } = useConfirmAccountSwitch();
-  const [step, setStep] = useState<Step>('email');
+  const initialStep: Step =
+    skipEmailEntry && initialEmail.trim().length > 0 ? 'confirm-email' : 'email';
+  const [step, setStep] = useState<Step>(initialStep);
   const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -77,7 +81,7 @@ export default function ForgotPasswordSheet({
   const bottomInset = Math.max(insets.bottom, Spacing.three);
 
   const resetState = useCallback(() => {
-    setStep('email');
+    setStep(initialStep);
     setEmail(initialEmail);
     setCode('');
     setNewPassword('');
@@ -87,7 +91,7 @@ export default function ForgotPasswordSheet({
     setIsRequesting(false);
     setIsSubmitting(false);
     setErrorMessage(null);
-  }, [initialEmail]);
+  }, [initialEmail, initialStep]);
 
   useEffect(() => {
     if (!visible) {
@@ -96,7 +100,8 @@ export default function ForgotPasswordSheet({
     }
 
     setEmail(initialEmail);
-  }, [visible, initialEmail, resetState]);
+    setStep(skipEmailEntry && initialEmail.trim().length > 0 ? 'confirm-email' : 'email');
+  }, [visible, initialEmail, resetState, skipEmailEntry]);
 
   useEffect(() => {
     if (resendAfterSeconds <= 0) {
@@ -130,6 +135,17 @@ export default function ForgotPasswordSheet({
       setStep('code');
       setCode('');
     } catch (error) {
+      if (error instanceof AccountApiError && error.status === 429 && error.resendAfterSeconds) {
+        setResendAfterSeconds(error.resendAfterSeconds);
+        setErrorMessage(null);
+
+        if (challengeId) {
+          return;
+        }
+
+        return;
+      }
+
       setErrorMessage(resolveRequestError(error));
     } finally {
       setIsRequesting(false);
@@ -222,14 +238,55 @@ export default function ForgotPasswordSheet({
 
                   {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
 
+                  {resendAfterSeconds > 0 ? (
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Отправить снова через {resendAfterSeconds} сек
+                    </ThemedText>
+                  ) : null}
+
                   <Pressable
                     onPress={() => {
                       void handleRequestCode();
                     }}
-                    disabled={isRequesting}
+                    disabled={isRequesting || resendAfterSeconds > 0}
                     style={({ pressed }) => [
                       styles.primaryButton,
-                      isRequesting && styles.primaryButtonDisabled,
+                      (isRequesting || resendAfterSeconds > 0) && styles.primaryButtonDisabled,
+                      pressed && styles.pressed,
+                    ]}>
+                    {isRequesting ? (
+                      <ActivityIndicator color={Colors.light.background} />
+                    ) : (
+                      <ThemedText style={styles.primaryButtonText}>Отправить код</ThemedText>
+                    )}
+                  </Pressable>
+                </>
+              ) : null}
+
+              {step === 'confirm-email' ? (
+                <>
+                  <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                    Мы отправим код для сброса пароля на этот email.
+                  </ThemedText>
+
+                  <ThemedText style={styles.emailValue}>{email.trim()}</ThemedText>
+
+                  {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                  {resendAfterSeconds > 0 ? (
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Отправить снова через {resendAfterSeconds} сек
+                    </ThemedText>
+                  ) : null}
+
+                  <Pressable
+                    onPress={() => {
+                      void handleRequestCode();
+                    }}
+                    disabled={isRequesting || resendAfterSeconds > 0}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      (isRequesting || resendAfterSeconds > 0) && styles.primaryButtonDisabled,
                       pressed && styles.pressed,
                     ]}>
                     {isRequesting ? (
@@ -261,6 +318,12 @@ export default function ForgotPasswordSheet({
                   />
 
                   {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                  {resendAfterSeconds > 0 && !errorMessage ? (
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Отправить снова через {resendAfterSeconds} сек
+                    </ThemedText>
+                  ) : null}
 
                   <Pressable
                     onPress={handleContinueToPassword}
@@ -375,6 +438,11 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     lineHeight: 22,
+  },
+  emailValue: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: Colors.light.text,
   },
   textInput: {
     backgroundColor: Colors.light.backgroundElement,

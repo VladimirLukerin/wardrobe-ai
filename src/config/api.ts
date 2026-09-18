@@ -129,6 +129,7 @@ export function familyInviteRejectEndpoint(inviteId: string): string {
 
 export const EMAIL_LINK_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/me/email/request-code`;
 export const EMAIL_LINK_VERIFY_ENDPOINT = `${API_BASE_URL}/me/email/verify`;
+export const EMAIL_LOOKUP_ENDPOINT = `${API_BASE_URL}/auth/email/lookup`;
 export const EMAIL_LOGIN_REQUEST_CODE_ENDPOINT = `${API_BASE_URL}/auth/email/request-code`;
 export const EMAIL_LOGIN_VERIFY_ENDPOINT = `${API_BASE_URL}/auth/email/verify`;
 export const EMAIL_LOGIN_DEV_BYPASS_ENDPOINT = `${API_BASE_URL}/auth/email/dev-bypass`;

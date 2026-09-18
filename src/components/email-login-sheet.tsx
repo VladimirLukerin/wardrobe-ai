@@ -20,6 +20,7 @@ import { useConfirmAccountSwitch } from '@/hooks/use-confirm-account-switch';
 import { AccountApiError } from '@/services/account';
 import {
   devBypassEmailLoginCode,
+  lookupEmailAccount,
   requestEmailLoginCode,
   verifyEmailLoginCode,
 } from '@/services/email-auth';
@@ -30,9 +31,10 @@ type EmailLoginSheetProps = {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  onCreateAccount?: (email: string) => void | Promise<void>;
 };
 
-type Step = 'password' | 'otp-email' | 'otp-code';
+type Step = 'email' | 'password' | 'no-password' | 'unknown' | 'otp-code';
 
 function resolvePasswordError(error: unknown): string {
   if (error instanceof AccountApiError) {
@@ -52,6 +54,18 @@ function resolvePasswordError(error: unknown): string {
   }
 
   return 'Не удалось выполнить вход';
+}
+
+function resolveLookupError(error: unknown): string {
+  if (error instanceof AccountApiError) {
+    if (error.status === 0) {
+      return 'Не удалось подключиться к серверу';
+    }
+
+    return error.message;
+  }
+
+  return 'Не удалось проверить email';
 }
 
 function resolveRequestError(error: unknown): string {
@@ -78,34 +92,43 @@ function resolveVerifyError(error: unknown): string {
   return 'Не удалось подтвердить код';
 }
 
-export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLoginSheetProps) {
+export default function EmailLoginSheet({
+  visible,
+  onClose,
+  onSuccess,
+  onCreateAccount,
+}: EmailLoginSheetProps) {
   const insets = useSafeAreaInsets();
   const { confirmAndSwitch } = useConfirmAccountSwitch();
 
-  const [step, setStep] = useState<Step>('password');
+  const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [resendAfterSeconds, setResendAfterSeconds] = useState(0);
+  const [isLookingUp, setIsLookingUp] = useState(false);
   const [isPasswordLoggingIn, setIsPasswordLoggingIn] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isForgotPasswordVisible, setIsForgotPasswordVisible] = useState(false);
 
   const bottomInset = Math.max(insets.bottom, Spacing.three);
 
   const resetState = useCallback(() => {
-    setStep('password');
+    setStep('email');
     setEmail('');
     setPassword('');
     setCode('');
     setChallengeId(null);
     setResendAfterSeconds(0);
+    setIsLookingUp(false);
     setIsPasswordLoggingIn(false);
     setIsRequesting(false);
     setIsVerifying(false);
+    setIsCreatingAccount(false);
     setErrorMessage(null);
     setIsForgotPasswordVisible(false);
   }, []);
@@ -130,7 +153,25 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
     };
   }, [resendAfterSeconds]);
 
-  const handlePasswordLogin = async () => {
+  const returnToEmailStep = () => {
+    setStep('email');
+    setPassword('');
+    setCode('');
+    setChallengeId(null);
+    setErrorMessage(null);
+  };
+
+  const handleEmailChange = (nextEmail: string) => {
+    setEmail(nextEmail);
+
+    if (step !== 'email') {
+      setPassword('');
+      setStep('email');
+      setErrorMessage(null);
+    }
+  };
+
+  const handleContinueEmail = async () => {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
@@ -138,8 +179,34 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
       return;
     }
 
-    if (!password) {
-      setErrorMessage('Введите пароль');
+    setIsLookingUp(true);
+    setErrorMessage(null);
+
+    try {
+      const lookup = await lookupEmailAccount(trimmedEmail);
+
+      if (lookup.exists && lookup.hasPassword) {
+        setStep('password');
+        return;
+      }
+
+      if (lookup.exists && !lookup.hasPassword) {
+        setStep('no-password');
+        return;
+      }
+
+      setStep('unknown');
+    } catch (error) {
+      setErrorMessage(resolveLookupError(error));
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
+  const handlePasswordLogin = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail || !password) {
       return;
     }
 
@@ -200,6 +267,12 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
       setStep('otp-code');
       setCode('');
     } catch (error) {
+      if (error instanceof AccountApiError && error.status === 429 && error.resendAfterSeconds) {
+        setResendAfterSeconds(error.resendAfterSeconds);
+        setErrorMessage(null);
+        return;
+      }
+
       setErrorMessage(resolveRequestError(error));
     } finally {
       setIsRequesting(false);
@@ -246,6 +319,25 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
     await handleRequestCode();
   };
 
+  const handleCreateAccount = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail || !onCreateAccount) {
+      return;
+    }
+
+    setIsCreatingAccount(true);
+    setErrorMessage(null);
+
+    try {
+      await onCreateAccount(trimmedEmail);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Не удалось создать аккаунт');
+    } finally {
+      setIsCreatingAccount(false);
+    }
+  };
+
   return (
     <>
       <Modal visible={visible && !isForgotPasswordVisible} transparent animationType="slide" onRequestClose={onClose}>
@@ -266,15 +358,11 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
                 contentContainerStyle={styles.content}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}>
-                {step === 'password' ? (
+                {step === 'email' ? (
                   <>
-                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                      Введите email и пароль от вашего аккаунта Wardrobe AI.
-                    </ThemedText>
-
                     <TextInput
                       value={email}
-                      onChangeText={setEmail}
+                      onChangeText={handleEmailChange}
                       style={styles.textInput}
                       placeholder="Email"
                       placeholderTextColor={Colors.light.textSecondary}
@@ -282,8 +370,41 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
                       autoCorrect={false}
                       keyboardType="email-address"
                       textContentType="emailAddress"
-                      returnKeyType="next"
+                      returnKeyType="done"
+                      onSubmitEditing={() => {
+                        void handleContinueEmail();
+                      }}
                     />
+
+                    {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                    <Pressable
+                      onPress={() => {
+                        void handleContinueEmail();
+                      }}
+                      disabled={isLookingUp}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        isLookingUp && styles.primaryButtonDisabled,
+                        pressed && styles.pressed,
+                      ]}>
+                      {isLookingUp ? (
+                        <ActivityIndicator color={Colors.light.background} />
+                      ) : (
+                        <ThemedText style={styles.primaryButtonText}>Продолжить</ThemedText>
+                      )}
+                    </Pressable>
+                  </>
+                ) : null}
+
+                {step === 'password' ? (
+                  <>
+                    <View style={styles.emailRow}>
+                      <ThemedText style={styles.emailValue}>{email.trim()}</ThemedText>
+                      <Pressable onPress={returnToEmailStep} style={({ pressed }) => [pressed && styles.pressed]}>
+                        <ThemedText style={styles.linkButtonText}>Изменить</ThemedText>
+                      </Pressable>
+                    </View>
 
                     <PasswordInput
                       value={password}
@@ -292,28 +413,32 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
                       placeholderTextColor={Colors.light.textSecondary}
                       returnKeyType="done"
                       onSubmitEditing={() => {
-                        void handlePasswordLogin();
+                        if (password.length > 0) {
+                          void handlePasswordLogin();
+                        }
                       }}
                     />
 
                     {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
 
-                    <Pressable
-                      onPress={() => {
-                        void handlePasswordLogin();
-                      }}
-                      disabled={isPasswordLoggingIn}
-                      style={({ pressed }) => [
-                        styles.primaryButton,
-                        isPasswordLoggingIn && styles.primaryButtonDisabled,
-                        pressed && styles.pressed,
-                      ]}>
-                      {isPasswordLoggingIn ? (
-                        <ActivityIndicator color={Colors.light.background} />
-                      ) : (
-                        <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
-                      )}
-                    </Pressable>
+                    {password.length > 0 ? (
+                      <Pressable
+                        onPress={() => {
+                          void handlePasswordLogin();
+                        }}
+                        disabled={isPasswordLoggingIn}
+                        style={({ pressed }) => [
+                          styles.primaryButton,
+                          isPasswordLoggingIn && styles.primaryButtonDisabled,
+                          pressed && styles.pressed,
+                        ]}>
+                        {isPasswordLoggingIn ? (
+                          <ActivityIndicator color={Colors.light.background} />
+                        ) : (
+                          <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
+                        )}
+                      </Pressable>
+                    ) : null}
 
                     <Pressable
                       onPress={() => setIsForgotPasswordVisible(true)}
@@ -323,36 +448,27 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
 
                     <Pressable
                       onPress={() => {
-                        setStep('otp-email');
-                        setErrorMessage(null);
+                        void handleRequestCode();
                       }}
+                      disabled={isRequesting}
                       style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
                       <ThemedText style={styles.secondaryButtonText}>Войти по коду из email</ThemedText>
                     </Pressable>
                   </>
                 ) : null}
 
-                {step === 'otp-email' ? (
+                {step === 'no-password' ? (
                   <>
-                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                      Введите email, который вы ранее подключили к Wardrobe AI.
-                    </ThemedText>
+                    <View style={styles.emailRow}>
+                      <ThemedText style={styles.emailValue}>{email.trim()}</ThemedText>
+                      <Pressable onPress={returnToEmailStep} style={({ pressed }) => [pressed && styles.pressed]}>
+                        <ThemedText style={styles.linkButtonText}>Изменить</ThemedText>
+                      </Pressable>
+                    </View>
 
-                    <TextInput
-                      value={email}
-                      onChangeText={setEmail}
-                      style={styles.textInput}
-                      placeholder="Email"
-                      placeholderTextColor={Colors.light.textSecondary}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType="email-address"
-                      textContentType="emailAddress"
-                      returnKeyType="done"
-                      onSubmitEditing={() => {
-                        void handleRequestCode();
-                      }}
-                    />
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Для этого аккаунта пароль ещё не создан.
+                    </ThemedText>
 
                     {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
 
@@ -369,17 +485,54 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
                       {isRequesting ? (
                         <ActivityIndicator color={Colors.light.background} />
                       ) : (
-                        <ThemedText style={styles.primaryButtonText}>Получить код</ThemedText>
+                        <ThemedText style={styles.primaryButtonText}>Войти по коду из email</ThemedText>
                       )}
                     </Pressable>
 
                     <Pressable
-                      onPress={() => {
-                        setStep('password');
-                        setErrorMessage(null);
-                      }}
+                      onPress={returnToEmailStep}
                       style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-                      <ThemedText style={styles.secondaryButtonText}>Войти по паролю</ThemedText>
+                      <ThemedText style={styles.secondaryButtonText}>Использовать другой email</ThemedText>
+                    </Pressable>
+                  </>
+                ) : null}
+
+                {step === 'unknown' ? (
+                  <>
+                    <View style={styles.emailRow}>
+                      <ThemedText style={styles.emailValue}>{email.trim()}</ThemedText>
+                      <Pressable onPress={returnToEmailStep} style={({ pressed }) => [pressed && styles.pressed]}>
+                        <ThemedText style={styles.linkButtonText}>Изменить</ThemedText>
+                      </Pressable>
+                    </View>
+
+                    <ThemedText themeColor="textSecondary" style={styles.subtitle}>
+                      Аккаунт с таким email не найден.
+                    </ThemedText>
+
+                    {errorMessage ? <ThemedText style={styles.errorText}>{errorMessage}</ThemedText> : null}
+
+                    <Pressable
+                      onPress={() => {
+                        void handleCreateAccount();
+                      }}
+                      disabled={isCreatingAccount || !onCreateAccount}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        (isCreatingAccount || !onCreateAccount) && styles.primaryButtonDisabled,
+                        pressed && styles.pressed,
+                      ]}>
+                      {isCreatingAccount ? (
+                        <ActivityIndicator color={Colors.light.background} />
+                      ) : (
+                        <ThemedText style={styles.primaryButtonText}>Создать аккаунт</ThemedText>
+                      )}
+                    </Pressable>
+
+                    <Pressable
+                      onPress={returnToEmailStep}
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.secondaryButtonText}>Использовать другой email</ThemedText>
                     </Pressable>
                   </>
                 ) : null}
@@ -449,6 +602,7 @@ export default function EmailLoginSheet({ visible, onClose, onSuccess }: EmailLo
       <ForgotPasswordSheet
         visible={visible && isForgotPasswordVisible}
         initialEmail={email}
+        skipEmailEntry
         onClose={() => setIsForgotPasswordVisible(false)}
         onSuccess={onSuccess}
       />
@@ -497,6 +651,17 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     lineHeight: 22,
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  emailValue: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.light.text,
   },
   textInput: {
     backgroundColor: Colors.light.backgroundElement,

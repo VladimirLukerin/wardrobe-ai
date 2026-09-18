@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -21,6 +21,8 @@ import { isDevOtpBypassAvailable } from '@/utils/dev-otp-bypass';
 
 type EmailLinkSheetProps = {
   visible: boolean;
+  initialEmail?: string;
+  skipEmailEntry?: boolean;
   onClose: () => void;
   onLinked?: (user: ServerUser) => void;
 };
@@ -63,12 +65,19 @@ function resolveVerifyError(error: unknown): string {
   return 'Не удалось подтвердить код';
 }
 
-export default function EmailLinkSheet({ visible, onClose, onLinked }: EmailLinkSheetProps) {
+export default function EmailLinkSheet({
+  visible,
+  initialEmail = '',
+  skipEmailEntry = false,
+  onClose,
+  onLinked,
+}: EmailLinkSheetProps) {
   const insets = useSafeAreaInsets();
   const { applyAuthenticatedUser } = useAccount();
 
-  const [step, setStep] = useState<Step>('email');
-  const [email, setEmail] = useState('');
+  const initialStep: Step = skipEmailEntry && initialEmail.trim().length > 0 ? 'code' : 'email';
+  const [step, setStep] = useState<Step>(initialStep);
+  const [email, setEmail] = useState(initialEmail);
   const [code, setCode] = useState('');
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [resendAfterSeconds, setResendAfterSeconds] = useState(0);
@@ -77,20 +86,22 @@ export default function EmailLinkSheet({ visible, onClose, onLinked }: EmailLink
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const bottomInset = Math.max(insets.bottom, Spacing.three);
+  const autoRequestStartedRef = useRef(false);
 
   const resetState = useCallback(() => {
-    setStep('email');
-    setEmail('');
+    setStep(initialStep);
+    setEmail(initialEmail);
     setCode('');
     setChallengeId(null);
     setResendAfterSeconds(0);
     setIsRequesting(false);
     setIsVerifying(false);
     setErrorMessage(null);
-  }, []);
+  }, [initialEmail, initialStep]);
 
   useEffect(() => {
     if (!visible) {
+      autoRequestStartedRef.current = false;
       resetState();
     }
   }, [visible, resetState]);
@@ -109,46 +120,71 @@ export default function EmailLinkSheet({ visible, onClose, onLinked }: EmailLink
     };
   }, [resendAfterSeconds]);
 
-  const handleRequestCode = async () => {
-    const trimmedEmail = email.trim();
+  const requestCodeForEmail = useCallback(
+    async (targetEmail: string) => {
+      const trimmedEmail = targetEmail.trim();
 
-    if (!trimmedEmail) {
-      setErrorMessage('Введите email');
+      if (!trimmedEmail) {
+        setErrorMessage('Введите email');
+        return;
+      }
+
+      setIsRequesting(true);
+      setErrorMessage(null);
+
+      try {
+        const response = await requestEmailLinkCode(trimmedEmail);
+
+        if (isDevOtpBypassAvailable(response)) {
+          setIsVerifying(true);
+
+          try {
+            const verifyResponse = await devBypassEmailLinkCode(response.challengeId);
+            applyAuthenticatedUser(verifyResponse.user);
+            onClose();
+            onLinked?.(verifyResponse.user);
+            return;
+          } catch (error) {
+            setErrorMessage(resolveVerifyError(error));
+            return;
+          } finally {
+            setIsVerifying(false);
+          }
+        }
+
+        setChallengeId(response.challengeId);
+        setResendAfterSeconds(response.resendAfterSeconds);
+        setStep('code');
+        setCode('');
+      } catch (error) {
+        if (error instanceof AccountApiError && error.status === 429 && error.resendAfterSeconds) {
+          setResendAfterSeconds(error.resendAfterSeconds);
+          setStep('code');
+          setErrorMessage(null);
+          return;
+        }
+
+        setErrorMessage(resolveRequestError(error));
+      } finally {
+        setIsRequesting(false);
+      }
+    },
+    [applyAuthenticatedUser, onClose, onLinked],
+  );
+
+  useEffect(() => {
+    if (!visible || !skipEmailEntry || initialEmail.trim().length === 0 || autoRequestStartedRef.current) {
       return;
     }
 
-    setIsRequesting(true);
-    setErrorMessage(null);
+    autoRequestStartedRef.current = true;
+    setEmail(initialEmail);
+    setStep('code');
+    void requestCodeForEmail(initialEmail);
+  }, [visible, skipEmailEntry, initialEmail, requestCodeForEmail]);
 
-    try {
-      const response = await requestEmailLinkCode(trimmedEmail);
-
-      if (isDevOtpBypassAvailable(response)) {
-        setIsVerifying(true);
-
-        try {
-          const verifyResponse = await devBypassEmailLinkCode(response.challengeId);
-          applyAuthenticatedUser(verifyResponse.user);
-          onClose();
-          onLinked?.(verifyResponse.user);
-          return;
-        } catch (error) {
-          setErrorMessage(resolveVerifyError(error));
-          return;
-        } finally {
-          setIsVerifying(false);
-        }
-      }
-
-      setChallengeId(response.challengeId);
-      setResendAfterSeconds(response.resendAfterSeconds);
-      setStep('code');
-      setCode('');
-    } catch (error) {
-      setErrorMessage(resolveRequestError(error));
-    } finally {
-      setIsRequesting(false);
-    }
+  const handleRequestCode = async () => {
+    await requestCodeForEmail(email);
   };
 
   const handleVerifyCode = async () => {

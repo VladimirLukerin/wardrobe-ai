@@ -2,8 +2,17 @@ import type { EmailSender } from './email-sender';
 import { DevEmailSender } from './dev-email-sender';
 
 let emailSender: EmailSender | null = null;
+let emailSenderOverride: EmailSender | null = null;
+
+export function setEmailSenderForTests(sender: EmailSender | null): void {
+  emailSenderOverride = sender;
+}
 
 export function getEmailSender(): EmailSender {
+  if (emailSenderOverride) {
+    return emailSenderOverride;
+  }
+
   if (emailSender) {
     return emailSender;
   }

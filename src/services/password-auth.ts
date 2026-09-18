@@ -24,7 +24,7 @@ export type PasswordResetRequestCodeResponse = {
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => null)) as
     | T
-    | { error?: string; code?: string; retryAfterSeconds?: number }
+    | { error?: string; code?: string; retryAfterSeconds?: number; resendAfterSeconds?: number }
     | null;
 
   if (!response.ok) {
@@ -36,8 +36,20 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
       payload && typeof payload === 'object' && 'code' in payload && typeof payload.code === 'string'
         ? payload.code
         : null;
+    const resendAfterSeconds =
+      payload &&
+      typeof payload === 'object' &&
+      'resendAfterSeconds' in payload &&
+      typeof payload.resendAfterSeconds === 'number'
+        ? payload.resendAfterSeconds
+        : payload &&
+            typeof payload === 'object' &&
+            'retryAfterSeconds' in payload &&
+            typeof payload.retryAfterSeconds === 'number'
+          ? payload.retryAfterSeconds
+          : undefined;
 
-    throw new AccountApiError(response.status, message, code);
+    throw new AccountApiError(response.status, message, code, resendAfterSeconds);
   }
 
   return payload as T;

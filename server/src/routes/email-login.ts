@@ -2,31 +2,24 @@ import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 
-import { normalizeEmail } from '../auth/normalize-email';
 import { ensureDevOtpBypassEnabled, withDevBypassFlag } from '../auth/dev-otp-bypass';
+import { requestEmailVerificationCode } from '../auth/email-verification-send';
+import { normalizeEmail } from '../auth/normalize-email';
 import {
-  generateOtpCode,
-  hashOtpCode,
-  isEmailVerificationConfigured,
   OTP_MAX_ATTEMPTS,
-  OTP_MAX_REQUESTS_PER_WINDOW,
-  OTP_MAX_REQUESTS_WINDOW_SECONDS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
+  isEmailVerificationConfigured,
   verifyOtpCode,
 } from '../auth/otp-code';
 import {
   consumeEmailVerificationChallenge,
   countRecentChallengesForEmail,
-  countRecentChallengesForUser,
-  createEmailVerificationChallenge,
   findEmailVerificationChallengeById,
-  getLatestChallengeForUserEmail,
   incrementChallengeAttemptCount,
 } from '../db/email-verification-challenges-repository';
 import { createSessionForUser } from '../db/sessions-repository';
 import { findUserById, findUserByVerifiedEmail, toUserResponse } from '../db/users-repository';
-import { getEmailSender } from '../email/get-email-sender';
 
 const emailLoginRouter = Router();
 
@@ -68,19 +61,6 @@ emailLoginRouter.post('/email/request-code', async (req: Request, res: Response)
     return;
   }
 
-  const now = Date.now();
-  const windowStart = new Date(now - OTP_MAX_REQUESTS_WINDOW_SECONDS * 1000).toISOString();
-  const recentEmailCount = countRecentChallengesForEmail({
-    email: normalized.email,
-    purpose: 'login',
-    sinceIso: windowStart,
-  });
-
-  if (recentEmailCount >= OTP_MAX_REQUESTS_PER_WINDOW) {
-    res.status(429).json({ error: 'Слишком много запросов кода. Попробуйте позже.' });
-    return;
-  }
-
   const targetUser = findUserByVerifiedEmail(normalized.email);
 
   if (!targetUser) {
@@ -89,69 +69,27 @@ emailLoginRouter.post('/email/request-code', async (req: Request, res: Response)
     return;
   }
 
-  const recentUserCount = countRecentChallengesForUser({
-    userId: targetUser.id,
-    sinceIso: windowStart,
-  });
-
-  if (recentUserCount >= OTP_MAX_REQUESTS_PER_WINDOW) {
-    res.status(429).json({ error: 'Слишком много запросов кода. Попробуйте позже.' });
-    return;
-  }
-
-  const latestChallenge = getLatestChallengeForUserEmail({
+  const sendResult = await requestEmailVerificationCode({
     userId: targetUser.id,
     email: normalized.email,
     purpose: 'login',
+    logPrefix: '[EMAIL LOGIN]',
   });
 
-  if (latestChallenge) {
-    const lastSentAt = new Date(latestChallenge.last_sent_at).getTime();
-    const elapsedSeconds = Math.floor((now - lastSentAt) / 1000);
-
-    if (elapsedSeconds < OTP_RESEND_COOLDOWN_SECONDS) {
+  if (!sendResult.ok) {
+    if (sendResult.kind === 'cooldown') {
       res.status(429).json({
-        error: 'Подождите перед повторной отправкой кода.',
-        resendAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS - elapsedSeconds,
+        error: sendResult.message,
+        resendAfterSeconds: sendResult.resendAfterSeconds,
       });
       return;
     }
+
+    res.status(sendResult.kind === 'send_failed' ? 500 : 429).json({ error: sendResult.message });
+    return;
   }
 
-  try {
-    const code = generateOtpCode();
-    const challengeId = crypto.randomUUID();
-    const expiresAt = new Date(now + OTP_TTL_SECONDS * 1000).toISOString();
-    const codeHash = hashOtpCode({
-      challengeId,
-      email: normalized.email,
-      purpose: 'login',
-      code,
-    });
-
-    const challenge = createEmailVerificationChallenge({
-      id: challengeId,
-      userId: targetUser.id,
-      email: normalized.email,
-      purpose: 'login',
-      codeHash,
-      expiresAt,
-    });
-
-    const emailSender = getEmailSender();
-    await emailSender.sendVerificationCode({
-      email: normalized.email,
-      code,
-      expiresInMinutes: OTP_TTL_SECONDS / 60,
-    });
-
-    console.log('[EMAIL LOGIN] verification code sent');
-
-    res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(challenge.id)));
-  } catch (error) {
-    console.error('Failed to request email login code:', error);
-    res.status(500).json({ error: 'Не удалось отправить код подтверждения.' });
-  }
+  res.status(201).json(withDevBypassFlag(buildNeutralChallengeResponse(sendResult.challengeId)));
 });
 
 emailLoginRouter.post('/email/verify', (req: Request, res: Response) => {

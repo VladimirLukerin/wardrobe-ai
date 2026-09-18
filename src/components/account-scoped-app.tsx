@@ -6,9 +6,11 @@ import { AccountProfileReloader } from '@/components/account-profile-reloader';
 import { AccountRestoreOverlay } from '@/components/account-restore-overlay';
 import { AppAuthEntryOverlay } from '@/components/app-auth-entry-overlay';
 import AppTabs from '@/components/app-tabs';
+import EmailLinkSheet from '@/components/email-link-sheet';
 import { DailyStylistReminderLifecycle } from '@/components/daily-stylist-reminder-lifecycle';
 import { FamilyInviteBanner } from '@/components/family-invite-banner';
 import { HomeLaunchOverlay } from '@/components/home-launch-overlay';
+import SetPasswordSheet from '@/components/set-password-sheet';
 import { useAccount } from '@/contexts/account-context';
 import { BodyParametersProvider } from '@/contexts/body-parameters-context';
 import { FamilyProvider } from '@/contexts/family-context';
@@ -23,6 +25,7 @@ import { WearHistorySyncProvider } from '@/contexts/wear-history-sync-context';
 import { WardrobeSyncProvider } from '@/contexts/wardrobe-sync-context';
 import { WardrobeProvider } from '@/contexts/wardrobe-context';
 import { useCameraPermissionStartup } from '@/hooks/use-camera-permission-startup';
+import type { ServerUser } from '@/services/account';
 import { isOnboardingCompleted, markOnboardingCompleted } from '@/storage/onboarding-storage';
 import { DefaultTheme, ThemeProvider } from 'expo-router';
 
@@ -37,11 +40,18 @@ export function AccountScopedApp() {
     needsAuthEntry,
     error,
     startGuestSession,
+    createGuestAccountForRegistration,
+    completeAuthEntry,
+    applyAuthenticatedUser,
   } = useAccount();
   const [showLaunch, setShowLaunch] = useState(!launchPlayed);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const [isLoginChoiceVisible, setIsLoginChoiceVisible] = useState(false);
+  const [isAuthRegistrationFlow, setIsAuthRegistrationFlow] = useState(false);
+  const [registrationEmail, setRegistrationEmail] = useState('');
+  const [isEmailLinkVisible, setIsEmailLinkVisible] = useState(false);
+  const [isSetPasswordVisible, setIsSetPasswordVisible] = useState(false);
 
   const finishLaunch = useCallback(() => {
     launchPlayed = true;
@@ -61,6 +71,10 @@ export function AccountScopedApp() {
     }
 
     setIsLoginChoiceVisible(false);
+    setIsAuthRegistrationFlow(false);
+    setRegistrationEmail('');
+    setIsEmailLinkVisible(false);
+    setIsSetPasswordVisible(false);
     refreshOnboardingState();
   }, [accountSessionKey, refreshOnboardingState]);
 
@@ -97,11 +111,45 @@ export function AccountScopedApp() {
     await markOnboardingCompleted();
     setHasCompletedOnboarding(true);
     setIsLoginChoiceVisible(false);
-  }, []);
+    completeAuthEntry();
+  }, [completeAuthEntry]);
+
+  const handleCreateAccountFromEmail = useCallback(
+    async (email: string) => {
+      const createdUser = await createGuestAccountForRegistration();
+
+      if (!createdUser) {
+        throw new Error('Не удалось создать аккаунт');
+      }
+
+      setRegistrationEmail(email);
+      setIsAuthRegistrationFlow(true);
+      setIsLoginChoiceVisible(false);
+      setIsEmailLinkVisible(true);
+    },
+    [createGuestAccountForRegistration],
+  );
+
+  const handleRegistrationLinked = useCallback(
+    async (linkedUser: ServerUser) => {
+      applyAuthenticatedUser(linkedUser);
+      setIsEmailLinkVisible(false);
+      setIsAuthRegistrationFlow(false);
+      await markOnboardingCompleted();
+      setHasCompletedOnboarding(true);
+      completeAuthEntry();
+
+      if (!linkedUser.hasPassword) {
+        setIsSetPasswordVisible(true);
+      }
+    },
+    [applyAuthenticatedUser, completeAuthEntry],
+  );
 
   const showAuthEntry = isHydrated && onboardingChecked && needsAuthEntry;
-  const showAuthEntryOverlay = showAuthEntry && !isLoginChoiceVisible;
-  const showMainApp = isHydrated && !needsAuthEntry;
+  const showAuthSplash = showAuthEntry || isAuthRegistrationFlow;
+  const showAuthEntryOverlay = showAuthSplash;
+  const showMainApp = isHydrated && !needsAuthEntry && !isAuthRegistrationFlow;
   const authEntryVariant = hasCompletedOnboarding ? 'returning' : 'firstLaunch';
 
   useCameraPermissionStartup(showMainApp);
@@ -132,11 +180,6 @@ export function AccountScopedApp() {
                                   {showMainApp && !showLaunch && !isRestoringAccount ? (
                                     <FamilyInviteBanner />
                                   ) : null}
-                                  <AccountLoginChoiceSheet
-                                    visible={isLoginChoiceVisible}
-                                    onClose={() => setIsLoginChoiceVisible(false)}
-                                    onSuccess={handleLoginSuccess}
-                                  />
                                 </View>
                               </HomeDailyContentProvider>
                             </ThemeProvider>
@@ -161,6 +204,35 @@ export function AccountScopedApp() {
           void handleStartGuest();
         }}
         onLogin={handleOpenLogin}
+      />
+
+      {showAuthSplash ? (
+        <>
+          <AccountLoginChoiceSheet
+            visible={isLoginChoiceVisible}
+            onClose={() => setIsLoginChoiceVisible(false)}
+            onSuccess={handleLoginSuccess}
+            onCreateAccount={handleCreateAccountFromEmail}
+          />
+          <EmailLinkSheet
+            visible={isEmailLinkVisible}
+            initialEmail={registrationEmail}
+            skipEmailEntry
+            onClose={() => {
+              setIsEmailLinkVisible(false);
+              setIsAuthRegistrationFlow(false);
+              setIsLoginChoiceVisible(true);
+            }}
+            onLinked={(user) => {
+              void handleRegistrationLinked(user);
+            }}
+          />
+        </>
+      ) : null}
+
+      <SetPasswordSheet
+        visible={isSetPasswordVisible}
+        onClose={() => setIsSetPasswordVisible(false)}
       />
     </>
   );

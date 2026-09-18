@@ -64,3 +64,9 @@ jobs:
 
       - name: Run password auth test
         run: npm run test:password-auth
+
+      - name: Run email lookup test
+        run: npm run test:email-lookup
+
+      - name: Run OTP request budgets test
+        run: npm run test:otp-request-budgets

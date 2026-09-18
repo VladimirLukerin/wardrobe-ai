@@ -5,6 +5,7 @@ import {
   EMAIL_LOGIN_DEV_BYPASS_ENDPOINT,
   EMAIL_LOGIN_REQUEST_CODE_ENDPOINT,
   EMAIL_LOGIN_VERIFY_ENDPOINT,
+  EMAIL_LOOKUP_ENDPOINT,
 } from '@/config/api';
 import { AccountApiError, type ServerUser } from '@/services/account';
 import { NETWORK_ERROR_MESSAGE, isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
@@ -26,10 +27,15 @@ export type EmailLoginVerifyResponse = {
   token: string;
 };
 
+export type EmailLookupResponse = {
+  exists: boolean;
+  hasPassword: boolean;
+};
+
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => null)) as
     | T
-    | { error?: string; code?: string; resendAfterSeconds?: number }
+    | { error?: string; code?: string; resendAfterSeconds?: number; retryAfterSeconds?: number }
     | null;
 
   if (!response.ok) {
@@ -41,11 +47,47 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
       payload && typeof payload === 'object' && 'code' in payload && typeof payload.code === 'string'
         ? payload.code
         : null;
+    const resendAfterSeconds =
+      payload &&
+      typeof payload === 'object' &&
+      'resendAfterSeconds' in payload &&
+      typeof payload.resendAfterSeconds === 'number'
+        ? payload.resendAfterSeconds
+        : payload &&
+            typeof payload === 'object' &&
+            'retryAfterSeconds' in payload &&
+            typeof payload.retryAfterSeconds === 'number'
+          ? payload.retryAfterSeconds
+          : undefined;
 
-    throw new AccountApiError(response.status, message, code);
+    throw new AccountApiError(response.status, message, code, resendAfterSeconds);
   }
 
   return payload as T;
+}
+
+export async function lookupEmailAccount(email: string): Promise<EmailLookupResponse> {
+  let response: Response;
+
+  try {
+    response = await fetch(EMAIL_LOOKUP_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    });
+  } catch (error) {
+    if (isNetworkFailure(error)) {
+      warnNetworkFailure('AUTH', error);
+      throw new AccountApiError(0, NETWORK_ERROR_MESSAGE, 'network');
+    }
+
+    throw error;
+  }
+
+  return parseJsonResponse<EmailLookupResponse>(response);
 }
 
 export async function requestEmailLinkCode(email: string): Promise<EmailLinkRequestCodeResponse> {

@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import EmailLoginSheet from '@/components/email-login-sheet';
-import PhoneLoginSheet from '@/components/phone-login-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
 
@@ -11,25 +10,29 @@ type AccountLoginChoiceSheetProps = {
   visible: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  onCreateAccount?: (email: string) => void | Promise<void>;
 };
 
 export default function AccountLoginChoiceSheet({
   visible,
   onClose,
   onSuccess,
+  onCreateAccount,
 }: AccountLoginChoiceSheetProps) {
   const insets = useSafeAreaInsets();
   const [isEmailLoginVisible, setIsEmailLoginVisible] = useState(false);
-  const [isPhoneLoginVisible, setIsPhoneLoginVisible] = useState(false);
 
   const bottomInset = Math.max(insets.bottom, Spacing.three);
-  const showChoice = visible && !isEmailLoginVisible && !isPhoneLoginVisible;
+  const showChoice = visible && !isEmailLoginVisible;
 
   const handleLoginSuccess = () => {
     setIsEmailLoginVisible(false);
-    setIsPhoneLoginVisible(false);
     onClose();
     onSuccess?.();
+  };
+
+  const handlePhonePress = () => {
+    Alert.alert('Вход по телефону появится позже');
   };
 
   return (
@@ -55,7 +58,7 @@ export default function AccountLoginChoiceSheet({
             </Pressable>
 
             <Pressable
-              onPress={() => setIsPhoneLoginVisible(true)}
+              onPress={handlePhonePress}
               style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
               <ThemedText style={styles.secondaryButtonText}>Войти по телефону</ThemedText>
             </Pressable>
@@ -67,11 +70,7 @@ export default function AccountLoginChoiceSheet({
         visible={isEmailLoginVisible}
         onClose={() => setIsEmailLoginVisible(false)}
         onSuccess={handleLoginSuccess}
-      />
-      <PhoneLoginSheet
-        visible={isPhoneLoginVisible}
-        onClose={() => setIsPhoneLoginVisible(false)}
-        onSuccess={handleLoginSuccess}
+        onCreateAccount={onCreateAccount}
       />
     </>
   );

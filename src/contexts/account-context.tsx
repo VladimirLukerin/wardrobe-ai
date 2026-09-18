@@ -46,6 +46,8 @@ type AccountContextValue = {
   finishAccountRestore: () => void;
   logoutFromProfile: () => Promise<void>;
   startGuestSession: () => Promise<boolean>;
+  createGuestAccountForRegistration: () => Promise<ServerUser | null>;
+  completeAuthEntry: () => void;
   devResetTestAccount: () => Promise<void>;
 };
 
@@ -322,6 +324,41 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     }
   }, [applyServerUser, displayName]);
 
+  const createGuestAccountForRegistration = useCallback(async (): Promise<ServerUser | null> => {
+    setIsSyncing(true);
+
+    try {
+      const created = await createAnonymousAccount(displayName);
+      await setAuthToken(created.token);
+      await saveValidatedAccountUser(created.user);
+      setUser(created.user);
+      setIsServerAccount(true);
+      setError(null);
+      syncServerIdentity({
+        publicId: created.user.publicId,
+        serverUserId: created.user.id,
+        displayName: created.user.displayName,
+      });
+      return created.user;
+    } catch (createError) {
+      if (createError instanceof AccountApiError) {
+        setError(createError.message);
+        return null;
+      }
+
+      console.error('Unexpected registration guest error:', createError);
+      setError(OFFLINE_ERROR);
+      return null;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [displayName, syncServerIdentity]);
+
+  const completeAuthEntry = useCallback(() => {
+    setNeedsAuthEntry(false);
+    setPendingProviderRemount(true);
+  }, []);
+
   const logoutFromProfile = useCallback(async () => {
     setIsSyncing(true);
 
@@ -404,6 +441,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       finishAccountRestore,
       logoutFromProfile,
       startGuestSession,
+      createGuestAccountForRegistration,
+      completeAuthEntry,
       devResetTestAccount,
     }),
     [
@@ -423,6 +462,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       finishAccountRestore,
       logoutFromProfile,
       startGuestSession,
+      createGuestAccountForRegistration,
+      completeAuthEntry,
       devResetTestAccount,
     ],
   );

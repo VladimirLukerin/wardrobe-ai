@@ -29,12 +29,19 @@ type MeResponse = {
 export class AccountApiError extends Error {
   status: number;
   code: string | null;
+  resendAfterSeconds?: number;
 
-  constructor(status: number, message: string, code: string | null = null) {
+  constructor(
+    status: number,
+    message: string,
+    code: string | null = null,
+    resendAfterSeconds?: number,
+  ) {
     super(message);
     this.name = 'AccountApiError';
     this.status = status;
     this.code = code;
+    this.resendAfterSeconds = resendAfterSeconds;
   }
 
   /** status 0 = request never reached the server (offline, refused, timeout). */

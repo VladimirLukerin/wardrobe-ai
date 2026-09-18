@@ -85,9 +85,11 @@ export function getLatestChallengeForUserEmail({
 
 export function countRecentChallengesForUser({
   userId,
+  purpose,
   sinceIso,
 }: {
   userId: string;
+  purpose: EmailVerificationPurpose;
   sinceIso: string;
 }): number {
   const db = getDatabase();
@@ -95,11 +97,20 @@ export function countRecentChallengesForUser({
     .prepare(
       `SELECT COUNT(*) AS count
        FROM email_verification_challenges
-       WHERE user_id = ? AND created_at >= ?`,
+       WHERE user_id = ? AND purpose = ? AND created_at >= ?`,
     )
-    .get(userId, sinceIso) as { count: number };
+    .get(userId, purpose, sinceIso) as { count: number };
 
   return row.count;
+}
+
+export function deleteEmailVerificationChallenge(challengeId: string): boolean {
+  const db = getDatabase();
+  const result = db
+    .prepare('DELETE FROM email_verification_challenges WHERE id = ?')
+    .run(challengeId);
+
+  return result.changes > 0;
 }
 
 export function countRecentChallengesForEmail({

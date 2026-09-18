@@ -11,6 +11,7 @@ import { handleProcessClothingImage } from './photo-processing/process-clothing-
 import { authRouter, meHandler, patchMeHandler } from './routes/auth';
 import { dailyOutfitsRouter } from './routes/daily-outfits';
 import { devDailyOutfitRouter } from './routes/dev-daily-outfit';
+import { emailLookupRouter } from './routes/email-lookup';
 import { emailLoginRouter } from './routes/email-login';
 import { emailLinkRouter } from './routes/email-link';
 import { familyRouter } from './routes/family';
@@ -63,6 +64,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/auth', authRouter);
+app.use('/auth', emailLookupRouter);
 app.use('/auth', emailLoginRouter);
 app.use('/auth', phoneLoginRouter);
 app.use('/auth', passwordAuthRouter);

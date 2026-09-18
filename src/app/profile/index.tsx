@@ -1,7 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
@@ -100,6 +100,8 @@ export default function ProfileScreen() {
     rejectInvite,
   } = useFamily();
   const isProtected = isAccountProtected(user);
+  const { height: viewportHeight } = useWindowDimensions();
+  const guestDevSpacerHeight = viewportHeight * 0.8;
 
   useFocusEffect(
     useCallback(() => {
@@ -402,44 +404,45 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          <Pressable
-            onPress={() => router.push('/profile/my-style')}
-            style={({ pressed }) => [styles.myStyleBlock, pressed && styles.pressed]}>
-            <View style={styles.myStyleHeader}>
-              <ThemedText style={styles.myStyleTitle}>МОЙ СТИЛЬ</ThemedText>
-              <SymbolView
-                name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-                size={14}
-                tintColor={Colors.light.textSecondary}
-              />
-            </View>
-
-            {hasStylePreferences ? (
-              <View style={styles.myStyleContent}>
-                {preferredStyles.length > 0 && (
-                  <ThemedText style={styles.myStyleValues}>{displayedStyles}</ThemedText>
-                )}
-
-                {preferredColors.length > 0 && (
-                  <View style={styles.favoriteColors}>
-                    <ThemedText themeColor="textSecondary" style={styles.favoriteColorsLabel}>
-                      Любимые цвета
-                    </ThemedText>
-                    <ThemedText style={styles.myStyleValues}>
-                      {preferredColors.join(' · ')}
-                    </ThemedText>
-                  </View>
-                )}
-              </View>
-            ) : (
-              <ThemedText themeColor="textSecondary" style={styles.myStyleEmpty}>
-                Добавьте стили и любимые цвета
-              </ThemedText>
-            )}
-          </Pressable>
-
           {isProtected ? (
-            <View style={styles.familyBlock}>
+            <>
+              <Pressable
+                onPress={() => router.push('/profile/my-style')}
+                style={({ pressed }) => [styles.myStyleBlock, pressed && styles.pressed]}>
+                <View style={styles.myStyleHeader}>
+                  <ThemedText style={styles.myStyleTitle}>МОЙ СТИЛЬ</ThemedText>
+                  <SymbolView
+                    name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                    size={14}
+                    tintColor={Colors.light.textSecondary}
+                  />
+                </View>
+
+                {hasStylePreferences ? (
+                  <View style={styles.myStyleContent}>
+                    {preferredStyles.length > 0 && (
+                      <ThemedText style={styles.myStyleValues}>{displayedStyles}</ThemedText>
+                    )}
+
+                    {preferredColors.length > 0 && (
+                      <View style={styles.favoriteColors}>
+                        <ThemedText themeColor="textSecondary" style={styles.favoriteColorsLabel}>
+                          Любимые цвета
+                        </ThemedText>
+                        <ThemedText style={styles.myStyleValues}>
+                          {preferredColors.join(' · ')}
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <ThemedText themeColor="textSecondary" style={styles.myStyleEmpty}>
+                    Добавьте стили и любимые цвета
+                  </ThemedText>
+                )}
+              </Pressable>
+
+              <View style={styles.familyBlock}>
               <View style={styles.familyHeader}>
                 <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
                 {pendingIncomingCount > 0 ? (
@@ -574,79 +577,54 @@ export default function ProfileScreen() {
                 </Pressable>
               </ScrollView>
             </View>
-          ) : (
-            <View style={styles.familyBlock}>
-              <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
-              <ThemedText themeColor="textSecondary" style={styles.familyLockedText}>
-                Сохраните аккаунт, чтобы добавить близких и создавать совместные образы.
-              </ThemedText>
+
               <Pressable
-                onPress={() => setIsSaveAccountVisible(true)}
-                style={({ pressed }) => [styles.familyLockedButton, pressed && styles.pressed]}>
-                <ThemedText style={styles.familyLockedButtonText}>Сохранить аккаунт</ThemedText>
+                onPress={() => setIsBodyParametersSheetVisible(true)}
+                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
+                <ThemedText style={styles.settingsTitle}>Мои параметры</ThemedText>
+                <SymbolView
+                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                  size={12}
+                  tintColor={Colors.light.textSecondary}
+                />
               </Pressable>
-            </View>
+
+              <Pressable
+                onPress={() => setIsStylistSettingsSheetVisible(true)}
+                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
+                <ThemedText style={styles.settingsTitle}>Настройки стилиста</ThemedText>
+                <SymbolView
+                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                  size={12}
+                  tintColor={Colors.light.textSecondary}
+                />
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push('/profile/paired-outfits')}
+                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
+                <ThemedText style={styles.settingsTitle}>Совместные образы</ThemedText>
+                <SymbolView
+                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                  size={12}
+                  tintColor={Colors.light.textSecondary}
+                />
+              </Pressable>
+
+              <Pressable
+                onPress={() => setIsAccountSheetVisible(true)}
+                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
+                <ThemedText style={styles.settingsTitle}>Аккаунт</ThemedText>
+                <SymbolView
+                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+                  size={12}
+                  tintColor={Colors.light.textSecondary}
+                />
+              </Pressable>
+            </>
+          ) : (
+            <View style={{ minHeight: guestDevSpacerHeight }} />
           )}
-
-          <Pressable
-            onPress={() => setIsBodyParametersSheetVisible(true)}
-            style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-            <ThemedText style={styles.settingsTitle}>Мои параметры</ThemedText>
-            <SymbolView
-              name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-              size={12}
-              tintColor={Colors.light.textSecondary}
-            />
-          </Pressable>
-
-          <Pressable
-            onPress={() => setIsStylistSettingsSheetVisible(true)}
-            style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-            <ThemedText style={styles.settingsTitle}>Настройки стилиста</ThemedText>
-            <SymbolView
-              name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-              size={12}
-              tintColor={Colors.light.textSecondary}
-            />
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
-              if (isProtected) {
-                router.push('/profile/paired-outfits');
-                return;
-              }
-
-              setIsSaveAccountVisible(true);
-            }}
-            style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-            <View style={styles.settingsRowContent}>
-              <ThemedText style={styles.settingsTitle}>Совместные образы</ThemedText>
-              {!isProtected ? (
-                <ThemedText themeColor="textSecondary" style={styles.settingsSubtitle}>
-                  Доступно после сохранения аккаунта
-                </ThemedText>
-              ) : null}
-            </View>
-            <SymbolView
-              name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-              size={12}
-              tintColor={Colors.light.textSecondary}
-            />
-          </Pressable>
-
-          {isProtected ? (
-            <Pressable
-              onPress={() => setIsAccountSheetVisible(true)}
-              style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-              <ThemedText style={styles.settingsTitle}>Аккаунт</ThemedText>
-              <SymbolView
-                name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-                size={12}
-                tintColor={Colors.light.textSecondary}
-              />
-            </Pressable>
-          ) : null}
 
           <View style={styles.logoutBlock}>
             {isProtected ? (
