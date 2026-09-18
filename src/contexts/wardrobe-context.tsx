@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { randomUUID } from 'expo-crypto';
 import {
   normalizeWardrobeItemImageFields,
   type ImageProcessingStatus,
@@ -70,8 +71,8 @@ type WardrobeContextValue = {
 
 const WardrobeContext = createContext<WardrobeContextValue | null>(null);
 
-function createWardrobeItemId(originalImageUri: string): string {
-  return `${Date.now()}-${originalImageUri}`;
+function createWardrobeItemId(): string {
+  return randomUUID();
 }
 
 function normalizeWardrobeItem(item: WardrobeItem): WardrobeItem {
@@ -248,7 +249,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       const nextItem: WardrobeItem = normalizeWardrobeItem({
         ...item,
         ...imageFields,
-        id: createWardrobeItemId(imageFields.originalImageUri),
+        id: createWardrobeItemId(),
       });
 
       setItems((current) => {

@@ -9,6 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "test:photo-decision": "tsx scripts/test-photo-decision.ts",
+    "test:processing-cost-guard": "tsx scripts/test-processing-cost-guard.ts",
     "test:local-background-removal": "tsx scripts/test-local-background-removal.ts",
     "test:photo-pipeline-timings": "tsx scripts/test-photo-pipeline-timings.ts",
     "test:processing-resize-benchmark": "tsx scripts/test-processing-resize-benchmark.ts",

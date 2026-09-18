@@ -13,7 +13,8 @@ import { getLocalCalendarDateKeyForTimezone } from '@/utils/wear-date';
 const HomeDailyContentContext = createContext<ReturnType<typeof useHomeDailyContent> | null>(null);
 
 export function HomeDailyContentProvider({ children }: { children: ReactNode }) {
-  const { isServerAccount } = useAccount();
+  const { isServerAccount, user, accountSessionKey } = useAccount();
+  const accountScope = user?.id ?? `session-${accountSessionKey}`;
   const { items, isHydrated: wardrobeReady } = useWardrobe();
   const { savedOutfits, isHydrated: outfitsReady } = useOutfits();
   const stylistPreferencesValue = useStylistPreferences();
@@ -66,6 +67,7 @@ export function HomeDailyContentProvider({ children }: { children: ReactNode }) 
   const value = useHomeDailyContent({
     isHydrated: wardrobeReady && outfitsReady && stylistReady && bodyReady && wearHistoryReady,
     isServerAccount,
+    accountScope,
     localDate,
     items,
     savedOutfits,

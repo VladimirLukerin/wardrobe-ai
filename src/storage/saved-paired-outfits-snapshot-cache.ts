@@ -17,3 +17,7 @@ export function removeSavedPairedOutfitFromSnapshotCache(outfitId: string): void
 
   snapshotCache = snapshotCache.filter((outfit) => outfit.id !== outfitId);
 }
+
+export function clearSavedPairedOutfitsSnapshotCache(): void {
+  snapshotCache = null;
+}

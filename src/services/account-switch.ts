@@ -8,6 +8,7 @@ import { loadWardrobeItems } from '@/storage/wardrobe-storage';
 import { loadOutfitsSyncMetadata } from '@/storage/outfits-sync-storage';
 import { loadWearHistorySyncMetadata } from '@/storage/wear-history-sync-storage';
 import { loadWardrobeSyncMetadata } from '@/storage/wardrobe-sync-storage';
+import { clearAccountRuntimeCaches } from '@/utils/clear-account-runtime-caches';
 
 export const USER_SCOPED_STORAGE_KEYS = [
   '@wardrobe-ai/profile/body-parameters',
@@ -35,6 +36,7 @@ export type LocalAccountAssessment = {
 };
 
 export async function prepareLocalStateForAccountSwitch(): Promise<void> {
+  clearAccountRuntimeCaches();
   await AsyncStorage.multiRemove([...USER_SCOPED_STORAGE_KEYS]);
 }
 

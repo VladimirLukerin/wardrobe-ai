@@ -48,6 +48,7 @@ import type { WearHistoryLookup } from '@/utils/build-wardrobe-suggestion-payloa
 type Params = {
   isHydrated: boolean;
   isServerAccount: boolean;
+  accountScope: string;
   localDate: string;
   items: WardrobeItem[];
   savedOutfits: SavedOutfit[];
@@ -143,6 +144,7 @@ export function useHomeDailyContent(params: Params) {
   const {
     isHydrated,
     isServerAccount,
+    accountScope,
     localDate,
     items,
     savedOutfits,
@@ -361,7 +363,9 @@ export function useHomeDailyContent(params: Params) {
           }
 
           devDailyHomeLog('[DAILY HOME] manual regenerate');
-          const daily = await regenerateDailyOutfit(token, p.localDate, p.requestLocation);
+          const daily = await regenerateDailyOutfit(token, p.localDate, p.requestLocation, {
+            accountScope: p.accountScope,
+          });
           if (!active()) return;
 
           const sanitizedItemIds = sanitizeDailyOutfitItemIds(daily.itemIds, p.items);
@@ -475,6 +479,7 @@ export function useHomeDailyContent(params: Params) {
                     token,
                     p.localDate,
                     p.requestLocation,
+                    { accountScope: p.accountScope },
                   );
                   if (!active()) return;
 
@@ -512,6 +517,7 @@ export function useHomeDailyContent(params: Params) {
                     token,
                     p.localDate,
                     p.requestLocation,
+                    { accountScope: p.accountScope },
                   );
                   if (!active()) return;
 
@@ -551,7 +557,10 @@ export function useHomeDailyContent(params: Params) {
                     token,
                     p.localDate,
                     p.requestLocation,
-                    { dedupLogLabel: '[DAILY HOME] create dedup' },
+                    {
+                      accountScope: p.accountScope,
+                      dedupLogLabel: '[DAILY HOME] create dedup',
+                    },
                   );
                   if (!active()) return;
 
