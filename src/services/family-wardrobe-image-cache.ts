@@ -7,6 +7,9 @@ import type { FamilyWardrobeItem } from '@/services/family-api';
 import {
   buildFamilyWardrobeCachedImageFile,
   buildFamilyWardrobeImageMetaFile,
+  buildLegacyFamilyWardrobeCachedImageFile,
+  buildLegacyFamilyWardrobeImageMetaFile,
+  clearFamilyMemberWardrobeLocalImageFiles,
   localFamilyImageFileExists,
 } from '@/utils/family-wardrobe-local-image-path';
 
@@ -43,14 +46,8 @@ function getServerUpdatedAt(item: FamilyWardrobeItem, kind: FamilyImageKind): st
   return kind === 'processed' ? item.images.processedUpdatedAt : item.images.originalUpdatedAt;
 }
 
-async function readFamilyImageMeta(
-  memberPublicId: string,
-  itemId: string,
-  kind: FamilyImageKind,
-): Promise<FamilyImageMeta | null> {
+async function readFamilyImageMetaFile(metaFile: Awaited<ReturnType<typeof buildFamilyWardrobeImageMetaFile>>): Promise<FamilyImageMeta | null> {
   try {
-    const metaFile = await buildFamilyWardrobeImageMetaFile(memberPublicId, itemId, kind);
-
     if (!metaFile.exists) {
       return null;
     }
@@ -66,6 +63,23 @@ async function readFamilyImageMeta(
   } catch {
     return null;
   }
+}
+
+async function readFamilyImageMeta(
+  memberPublicId: string,
+  itemId: string,
+  kind: FamilyImageKind,
+): Promise<FamilyImageMeta | null> {
+  const metaFile = await buildFamilyWardrobeImageMetaFile(memberPublicId, itemId, kind);
+  const meta = await readFamilyImageMetaFile(metaFile);
+
+  if (meta) {
+    return meta;
+  }
+
+  const legacyMetaFile = await buildLegacyFamilyWardrobeImageMetaFile(memberPublicId, itemId, kind);
+
+  return readFamilyImageMetaFile(legacyMetaFile);
 }
 
 async function writeFamilyImageMeta(
@@ -97,11 +111,22 @@ async function readCachedFamilyImageUri(
     meta.contentType,
   );
 
-  if (!localFamilyImageFileExists(cachedFile.uri)) {
-    return null;
+  if (localFamilyImageFileExists(cachedFile.uri)) {
+    return cachedFile.uri;
   }
 
-  return cachedFile.uri;
+  const legacyCachedFile = await buildLegacyFamilyWardrobeCachedImageFile(
+    memberPublicId,
+    itemId,
+    kind,
+    meta.contentType,
+  );
+
+  if (localFamilyImageFileExists(legacyCachedFile.uri)) {
+    return legacyCachedFile.uri;
+  }
+
+  return null;
 }
 
 export async function resolveFamilyWardrobeItemImageUri(
@@ -144,26 +169,13 @@ export async function resolveFamilyWardrobeItemImageUri(
   }
 }
 
-export async function clearFamilyWardrobeImageCache(memberPublicId: string, itemId: string): Promise<void> {
-  for (const kind of ['original', 'processed'] as const) {
-    try {
-      const imageFile = await buildFamilyWardrobeCachedImageFile(
-        memberPublicId,
-        itemId,
-        kind,
-        'image/png',
-      );
-      const metaFile = await buildFamilyWardrobeImageMetaFile(memberPublicId, itemId, kind);
-
-      if (imageFile.exists) {
-        imageFile.delete();
-      }
-
-      if (metaFile.exists) {
-        metaFile.delete();
-      }
-    } catch {
-      // Ignore cache cleanup failures.
-    }
+export async function clearFamilyWardrobeImageCache(
+  memberPublicId: string,
+  itemId: string,
+): Promise<void> {
+  try {
+    await clearFamilyMemberWardrobeLocalImageFiles(memberPublicId, [itemId]);
+  } catch {
+    // Ignore cache cleanup failures.
   }
 }

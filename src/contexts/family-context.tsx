@@ -23,6 +23,7 @@ import {
 } from '@/services/family-api';
 import { getAuthToken } from '@/storage/auth-token-storage';
 import { NETWORK_ERROR_TITLE } from '@/utils/network-error';
+import { pruneRemovedFamilyMemberCaches } from '@/utils/clear-family-member-caches';
 
 type FamilyStatus = 'idle' | 'loading' | 'loaded' | 'error';
 type FamilyErrorKind = 'network' | 'server';
@@ -170,6 +171,10 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
     setDismissedPopupInviteIds([]);
     void refreshFamily();
   }, [refreshFamily, accountSessionKey]);
+
+  useEffect(() => {
+    pruneRemovedFamilyMemberCaches(members);
+  }, [members]);
 
   useEffect(() => {
     let previousState: AppStateStatus | null = AppState.currentState;

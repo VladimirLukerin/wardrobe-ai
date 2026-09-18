@@ -10,7 +10,6 @@ import { useWardrobe } from '@/contexts/wardrobe-context';
 import { getAuthToken } from '@/storage/auth-token-storage';
 import {
   buildHomeWornOutfitFeedDisplayEntries,
-  pruneHomeWornOutfitFeedCaches,
   shouldRefreshHomeWornOutfitFeed,
   type WornOutfitFeedDisplayEntry,
 } from '@/services/home-worn-outfit-feed';
@@ -43,10 +42,6 @@ export function useHomeWornOutfitFeed(): UseHomeWornOutfitFeedResult {
   const hasEntriesRef = useRef(false);
 
   const isHydrated = isWearHistoryHydrated && isOutfitsHydrated && isWardrobeHydrated;
-
-  useEffect(() => {
-    pruneHomeWornOutfitFeedCaches(members);
-  }, [members]);
 
   const refresh = useCallback(
     async (forceRefresh = false) => {

@@ -19,13 +19,13 @@ import {
   clearFamilyWearHistorySnapshotCache,
   getFamilyWearHistorySnapshotCache,
   isFamilyWearHistorySnapshotFresh,
-  pruneFamilyWearHistorySnapshotCache,
   setFamilyWearHistorySnapshotCache,
 } from '@/storage/family-wear-history-snapshot-cache';
 import {
   getFamilyWardrobeSnapshotCache,
   setFamilyWardrobeSnapshotCache,
 } from '@/storage/family-wardrobe-snapshot-cache';
+import { pruneRemovedFamilyMemberCaches } from '@/utils/clear-family-member-caches';
 import {
   buildWornOutfitFeed,
   type FamilyWearFeedMemberInput,
@@ -300,5 +300,5 @@ export function shouldRefreshHomeWornOutfitFeed(
 }
 
 export function pruneHomeWornOutfitFeedCaches(familyMembers: FamilyMember[]): void {
-  pruneFamilyWearHistorySnapshotCache(familyMembers.map((member) => member.publicId));
+  pruneRemovedFamilyMemberCaches(familyMembers);
 }

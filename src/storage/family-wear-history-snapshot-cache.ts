@@ -45,6 +45,10 @@ export function clearFamilyWearHistorySnapshotCache(memberPublicId?: string): vo
   snapshotCache.clear();
 }
 
+export function listFamilyWearHistorySnapshotCacheMemberPublicIds(): string[] {
+  return [...snapshotCache.keys()];
+}
+
 export function pruneFamilyWearHistorySnapshotCache(activeMemberPublicIds: string[]): void {
   const activeIds = new Set(activeMemberPublicIds);
 

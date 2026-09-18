@@ -23,3 +23,7 @@ export function clearFamilyWardrobeSnapshotCache(memberPublicId?: string): void 
 
   snapshotCache.clear();
 }
+
+export function listFamilyWardrobeSnapshotCacheMemberPublicIds(): string[] {
+  return [...snapshotCache.keys()];
+}

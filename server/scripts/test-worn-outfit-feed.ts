@@ -8,6 +8,7 @@ import {
   HOME_WORN_OUTFIT_FEED_LIMIT,
   WORN_OUTFIT_FALLBACK_TITLE,
 } from '../../src/utils/build-worn-outfit-feed';
+import { collectKnownFamilyItemIdsForMemberCleanup } from '../../src/utils/collect-known-family-item-ids';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -247,6 +248,68 @@ function testFamilyWearHistoryDefaultLimit(): void {
   console.log('OK family wear history default limit');
 }
 
+function testCollectKnownFamilyItemIdsForMemberCleanup(): void {
+  const itemIds = collectKnownFamilyItemIdsForMemberCleanup({
+    wardrobeSnapshot: {
+      member: { publicId: 'member-1', displayName: 'Anna' },
+      items: [
+        {
+          id: 'item-a',
+          name: 'Shirt',
+          baseName: 'Shirt',
+          category: 'Shirt',
+          color: 'White',
+          pattern: 'Plain',
+          printDescription: null,
+          style: 'Casual',
+          isFavorite: false,
+          imageProcessingStatus: 'completed',
+          images: {
+            originalAvailable: true,
+            processedAvailable: true,
+            originalUpdatedAt: null,
+            processedUpdatedAt: null,
+          },
+          updatedAt: '2026-09-18T10:00:00.000Z',
+          createdAt: '2026-09-18T10:00:00.000Z',
+        },
+      ],
+    },
+    wearHistorySnapshot: {
+      member: { publicId: 'member-1', displayName: 'Anna' },
+      events: [
+        {
+          id: 'event-1',
+          outfitId: 'outfit-1',
+          itemIds: ['item-b', 'item-a'],
+          wornAt: '2026-09-18T11:00:00.000Z',
+        },
+      ],
+    },
+    outfitsSnapshot: {
+      member: { publicId: 'member-1', displayName: 'Anna' },
+      outfits: [
+        {
+          id: 'outfit-1',
+          title: 'Look',
+          description: '',
+          source: 'manual',
+          itemIds: ['item-c', 'item-b'],
+          createdAt: '2026-09-18T09:00:00.000Z',
+          updatedAt: '2026-09-18T09:00:00.000Z',
+        },
+      ],
+    },
+  });
+
+  assert(itemIds.length === 3, 'Expected deduped known item ids from all family snapshots');
+  assert(itemIds.includes('item-a'), 'Expected wardrobe item id');
+  assert(itemIds.includes('item-b'), 'Expected wear history item id');
+  assert(itemIds.includes('item-c'), 'Expected outfit item id');
+
+  console.log('OK collect known family item ids for cleanup');
+}
+
 function main(): void {
   testFamilyWearHistoryLimitAndSort();
   testFamilyWearHistoryDefaultLimit();
@@ -256,6 +319,7 @@ function main(): void {
   testSelfOnlyWithoutFamily();
   testFeedLimitAfterMerge();
   testDedupeFamilyItemIds();
+  testCollectKnownFamilyItemIdsForMemberCleanup();
   console.log('All worn-outfit feed checks passed.');
 }
 
