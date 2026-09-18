@@ -77,6 +77,7 @@ outfitFeedbackRouter.put('/outfit-feedback/:recommendationKey', requireAuth, (re
   const itemIds = parseItemIds(req.body?.itemIds);
   const rating = req.body?.rating;
   const rawReason = req.body?.reason;
+  const rawTargetItemId = req.body?.targetItemId;
 
   if (!itemIds) {
     res.status(400).json({ error: 'Invalid itemIds.' });
@@ -99,6 +100,25 @@ outfitFeedbackRouter.put('/outfit-feedback/:recommendationKey', requireAuth, (re
     reason = rawReason;
   }
 
+  let targetItemId: string | null = null;
+
+  if (reason === 'item_disliked') {
+    if (typeof rawTargetItemId !== 'string' || rawTargetItemId.trim().length === 0) {
+      res.status(400).json({ error: 'targetItemId is required for item_disliked.' });
+      return;
+    }
+
+    targetItemId = rawTargetItemId.trim();
+
+    if (!itemIds.includes(targetItemId)) {
+      res.status(400).json({ error: 'targetItemId must be included in itemIds.' });
+      return;
+    }
+  } else if (rawTargetItemId !== undefined && rawTargetItemId !== null) {
+    res.status(400).json({ error: 'targetItemId is only allowed for item_disliked.' });
+    return;
+  }
+
   if (!validateItemIdsBelongToUser(req.authUser.id, itemIds)) {
     res.status(400).json({ error: 'Some itemIds do not belong to the current user.' });
     return;
@@ -110,6 +130,7 @@ outfitFeedbackRouter.put('/outfit-feedback/:recommendationKey', requireAuth, (re
     itemIds,
     rating,
     reason,
+    targetItemId,
   });
 
   res.json({ feedback });

@@ -90,7 +90,7 @@ async function generateAndStoreDailyOutfitInternal({
     location,
   };
 
-  const { outfits, weather } = await generateOutfitSuggestionsFromBody(requestBody);
+  const { outfits, weather } = await generateOutfitSuggestionsFromBody(requestBody, { userId });
   const outfit = outfits.find((candidate) => candidate.itemIds.length >= 2);
 
   if (!outfit) {

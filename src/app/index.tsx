@@ -124,7 +124,7 @@ function HomeOutfitCard({
   feedbackLoadError: boolean;
   feedbackSubmitError: boolean;
   onLikeFeedback: () => void;
-  onDislikeFeedback: (reason: OutfitFeedbackReason | null) => void;
+  onDislikeFeedback: (reason: OutfitFeedbackReason | null, targetItemId?: string) => void;
   onRetryFeedbackLoad: () => void;
   onRetryFeedbackSubmit: () => void;
 }) {
@@ -213,6 +213,7 @@ function HomeOutfitCard({
       <HomeOutfitFeedback
         enabled={feedbackEnabled}
         feedback={outfitFeedback}
+        outfitItems={outfitItems}
         isLoading={isFeedbackLoading}
         isSubmitting={isFeedbackSubmitting}
         loadError={feedbackLoadError}
@@ -465,8 +466,8 @@ export default function HomeScreen() {
                 onLikeFeedback={() => {
                   void submitOutfitFeedback('like');
                 }}
-                onDislikeFeedback={(reason) => {
-                  void submitOutfitFeedback('dislike', reason);
+                onDislikeFeedback={(reason, targetItemId) => {
+                  void submitOutfitFeedback('dislike', reason, targetItemId);
                 }}
                 onRetryFeedbackLoad={() => {
                   void retryOutfitFeedbackLoad();

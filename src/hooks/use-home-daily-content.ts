@@ -34,7 +34,8 @@ import { fetchOutfitFeedback, saveOutfitFeedback } from '@/services/outfit-feedb
 import { getAuthToken } from '@/storage/auth-token-storage';
 import {
   buildDailyRecommendationKey,
-  buildHomeSuggestRecommendationKey,
+  createHomeSuggestRecommendationKey,
+  resolveCachedRecommendationKey,
 } from '@/utils/build-recommendation-key';
 import { isRetryableNetworkError, NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import type { WardrobeItem } from '@/contexts/wardrobe-context';
@@ -117,7 +118,7 @@ type ApplyServerDailyParams = {
 
 function applyServerDailyOutfit(params: ApplyServerDailyParams): OutfitSuggestion {
   const outfit = dailyOutfitToSuggestion(params.daily, params.sanitizedItemIds, params.wardrobe);
-  const recommendationKey = buildDailyRecommendationKey(params.localDate, params.daily.inputSignature);
+  const recommendationKey = buildDailyRecommendationKey(params.localDate, params.daily.id);
   const entry = {
     outfit,
     inputSignature: buildDailyCacheSignature(params.localDate),
@@ -167,6 +168,7 @@ export function useHomeDailyContent(params: Params) {
   const [feedbackSubmitError, setFeedbackSubmitError] = useState(false);
   const pendingFeedbackRating = useRef<'like' | 'dislike' | null>(null);
   const pendingFeedbackReason = useRef<OutfitFeedbackReason | null | undefined>(undefined);
+  const pendingFeedbackTargetItemId = useRef<string | undefined>(undefined);
   const generation = useRef(0);
   const busy = useRef(false);
   const currentOutfit = useRef<OutfitSuggestion | null>(null);
@@ -213,7 +215,7 @@ export function useHomeDailyContent(params: Params) {
         currentOutfit.current = cachedOutfit.outfit;
         currentEntry.current = cachedOutfit;
         setHomeOutfit(cachedOutfit.outfit);
-        setRecommendationKey(cachedOutfit.recommendationKey ?? null);
+        setRecommendationKey(resolveCachedRecommendationKey(cachedOutfit, localDate));
         setLoadState('success');
       }
 
@@ -604,10 +606,7 @@ export function useHomeDailyContent(params: Params) {
         currentOutfit.current = cached.outfit;
         currentEntry.current = resolvedEntry;
         setHomeOutfit(cached.outfit);
-        setRecommendationKey(
-          resolvedEntry.recommendationKey ??
-            (dailyCacheUsable ? null : buildHomeSuggestRecommendationKey(cachedSignature)),
-        );
+        setRecommendationKey(resolveCachedRecommendationKey(resolvedEntry, p.localDate));
         setWeather(legacyWeatherData);
         setLoadState('success');
         setWeatherLoading(false);
@@ -637,10 +636,7 @@ export function useHomeDailyContent(params: Params) {
             ? cached
             : { ...cached, inputSignature: cachedSignature };
           currentEntry.current = resolvedEntry;
-          setRecommendationKey(
-            resolvedEntry.recommendationKey ??
-              (dailyCacheUsable ? null : buildHomeSuggestRecommendationKey(cachedSignature)),
-          );
+          setRecommendationKey(resolveCachedRecommendationKey(resolvedEntry, p.localDate));
         }
         setHomeOutfit(fallback);
         setLoadState('success');
@@ -671,7 +667,7 @@ export function useHomeDailyContent(params: Params) {
             candidate.itemIds.every((id) => p.items.some((item) => item.id === id)),
         );
         if (!outfit) throw new Error('No usable outfit');
-        const recommendationKeyForSuggest = buildHomeSuggestRecommendationKey(cachedSignature);
+        const recommendationKeyForSuggest = createHomeSuggestRecommendationKey();
         const entry = {
           outfit,
           inputSignature: cachedSignature,
@@ -759,7 +755,11 @@ export function useHomeDailyContent(params: Params) {
   }, [loadOutfitFeedback]);
 
   const submitOutfitFeedback = useCallback(
-    async (rating: 'like' | 'dislike', reason?: OutfitFeedbackReason | null) => {
+    async (
+      rating: 'like' | 'dislike',
+      reason?: OutfitFeedbackReason | null,
+      targetItemId?: string,
+    ) => {
       if (!isServerAccount || !recommendationKey || !currentOutfit.current) {
         return;
       }
@@ -768,12 +768,14 @@ export function useHomeDailyContent(params: Params) {
       setFeedbackSubmitError(false);
       pendingFeedbackRating.current = rating;
       pendingFeedbackReason.current = reason;
+      pendingFeedbackTargetItemId.current = targetItemId;
 
       const optimisticFeedback: OutfitFeedback = {
         recommendationKey,
         itemIds: currentOutfit.current.itemIds,
         rating,
         reason: reason ?? null,
+        targetItemId: targetItemId ?? null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -790,10 +792,12 @@ export function useHomeDailyContent(params: Params) {
           itemIds: currentOutfit.current.itemIds,
           rating,
           ...(reason ? { reason } : {}),
+          ...(targetItemId ? { targetItemId } : {}),
         });
         setOutfitFeedback(feedback);
         pendingFeedbackRating.current = null;
         pendingFeedbackReason.current = undefined;
+        pendingFeedbackTargetItemId.current = undefined;
       } catch (error) {
         setOutfitFeedback(null);
         if (isRetryableNetworkError(error)) {
@@ -815,7 +819,11 @@ export function useHomeDailyContent(params: Params) {
       return;
     }
 
-    void submitOutfitFeedback(rating, pendingFeedbackReason.current);
+    void submitOutfitFeedback(
+      rating,
+      pendingFeedbackReason.current,
+      pendingFeedbackTargetItemId.current,
+    );
   }, [submitOutfitFeedback]);
 
   useEffect(() => {

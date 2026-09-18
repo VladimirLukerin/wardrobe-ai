@@ -9,6 +9,7 @@ export type OutfitFeedbackResponse = {
   itemIds: string[];
   rating: OutfitFeedbackRating;
   reason: OutfitFeedbackReason | null;
+  targetItemId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -20,11 +21,16 @@ type OutfitFeedbackRow = {
   item_ids_json: string;
   rating: OutfitFeedbackRating;
   reason: OutfitFeedbackReason | null;
+  target_item_id: string | null;
   created_at: string;
   updated_at: string;
 };
 
 const RECENT_FEEDBACK_LIMIT = 30;
+
+const FEEDBACK_SELECT_COLUMNS = `
+  feedback_id, user_id, recommendation_key, item_ids_json, rating, reason, target_item_id, created_at, updated_at
+`;
 
 function parseItemIdsJson(value: string): string[] {
   try {
@@ -47,6 +53,7 @@ function mapRow(row: OutfitFeedbackRow): OutfitFeedbackResponse {
     itemIds: parseItemIdsJson(row.item_ids_json),
     rating: row.rating,
     reason: row.reason,
+    targetItemId: row.target_item_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -58,18 +65,20 @@ export function upsertOutfitFeedback({
   itemIds,
   rating,
   reason,
+  targetItemId,
 }: {
   userId: string;
   recommendationKey: string;
   itemIds: string[];
   rating: OutfitFeedbackRating;
   reason: OutfitFeedbackReason | null;
+  targetItemId: string | null;
 }): OutfitFeedbackResponse {
   const db = getDatabase();
   const now = new Date().toISOString();
   const existing = db
     .prepare(
-      `SELECT feedback_id, user_id, recommendation_key, item_ids_json, rating, reason, created_at, updated_at
+      `SELECT ${FEEDBACK_SELECT_COLUMNS}
        FROM outfit_feedback
        WHERE user_id = ? AND recommendation_key = ?`,
     )
@@ -81,17 +90,30 @@ export function upsertOutfitFeedback({
 
   db.prepare(
     `INSERT INTO outfit_feedback (
-      feedback_id, user_id, recommendation_key, item_ids_json, rating, reason, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      feedback_id, user_id, recommendation_key, item_ids_json, rating, reason, target_item_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id, recommendation_key) DO UPDATE SET
       item_ids_json = excluded.item_ids_json,
       rating = excluded.rating,
       reason = excluded.reason,
+      target_item_id = excluded.target_item_id,
       updated_at = excluded.updated_at`,
-  ).run(feedbackId, userId, recommendationKey, itemIdsJson, rating, reason, createdAt, now);
+  ).run(
+    feedbackId,
+    userId,
+    recommendationKey,
+    itemIdsJson,
+    rating,
+    reason,
+    targetItemId,
+    createdAt,
+    now,
+  );
 
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`[OUTFIT FEEDBACK] rating=${rating} reason=${reason ?? 'none'}`);
+    const targetSuffix =
+      reason === 'item_disliked' && targetItemId ? ' targetItem=yes' : '';
+    console.log(`[OUTFIT FEEDBACK] rating=${rating} reason=${reason ?? 'none'}${targetSuffix}`);
   }
 
   return {
@@ -100,6 +122,7 @@ export function upsertOutfitFeedback({
     itemIds,
     rating,
     reason,
+    targetItemId,
     createdAt,
     updatedAt: now,
   };
@@ -112,7 +135,7 @@ export function getOutfitFeedbackForKey(
   const db = getDatabase();
   const row = db
     .prepare(
-      `SELECT feedback_id, user_id, recommendation_key, item_ids_json, rating, reason, created_at, updated_at
+      `SELECT ${FEEDBACK_SELECT_COLUMNS}
        FROM outfit_feedback
        WHERE user_id = ? AND recommendation_key = ?`,
     )
@@ -125,7 +148,7 @@ export function getRecentOutfitFeedback(userId: string, limit = RECENT_FEEDBACK_
   const db = getDatabase();
   const rows = db
     .prepare(
-      `SELECT feedback_id, user_id, recommendation_key, item_ids_json, rating, reason, created_at, updated_at
+      `SELECT ${FEEDBACK_SELECT_COLUMNS}
        FROM outfit_feedback
        WHERE user_id = ?
        ORDER BY updated_at DESC

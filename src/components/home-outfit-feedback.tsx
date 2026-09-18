@@ -3,19 +3,22 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { NetworkErrorCard } from '@/components/network-error-card';
 import { OutfitFeedbackDislikeSheet } from '@/components/outfit-feedback-dislike-sheet';
+import { OutfitFeedbackItemPickerSheet } from '@/components/outfit-feedback-item-picker-sheet';
 import { ThemedText } from '@/components/themed-text';
 import type { OutfitFeedback, OutfitFeedbackReason } from '@/constants/outfit-feedback';
 import { Colors, Spacing } from '@/constants/theme';
+import type { WardrobeItem } from '@/contexts/wardrobe-context';
 
 type Props = {
   enabled: boolean;
   feedback: OutfitFeedback | null;
+  outfitItems: WardrobeItem[];
   isLoading: boolean;
   isSubmitting: boolean;
   loadError: boolean;
   submitError: boolean;
   onLike: () => void;
-  onDislike: (reason: OutfitFeedbackReason | null) => void;
+  onDislike: (reason: OutfitFeedbackReason | null, targetItemId?: string) => void;
   onRetryLoad: () => void;
   onRetrySubmit: () => void;
 };
@@ -23,6 +26,7 @@ type Props = {
 export function HomeOutfitFeedback({
   enabled,
   feedback,
+  outfitItems,
   isLoading,
   isSubmitting,
   loadError,
@@ -33,11 +37,16 @@ export function HomeOutfitFeedback({
   onRetrySubmit,
 }: Props) {
   const [isDislikeSheetVisible, setDislikeSheetVisible] = useState(false);
+  const [isItemPickerVisible, setItemPickerVisible] = useState(false);
   const dislikeSubmittedRef = useRef(false);
 
   const closeDislikeSheet = () => {
     setDislikeSheetVisible(false);
     dislikeSubmittedRef.current = false;
+  };
+
+  const closeItemPicker = () => {
+    setItemPickerVisible(false);
   };
 
   const handleOpenDislikeSheet = () => {
@@ -46,6 +55,12 @@ export function HomeOutfitFeedback({
   };
 
   const handleDislikeSubmit = (reason: OutfitFeedbackReason | null) => {
+    if (reason === 'item_disliked') {
+      setDislikeSheetVisible(false);
+      setItemPickerVisible(true);
+      return;
+    }
+
     if (dislikeSubmittedRef.current) {
       return;
     }
@@ -62,6 +77,16 @@ export function HomeOutfitFeedback({
     }
 
     closeDislikeSheet();
+  };
+
+  const handleItemSelect = (itemId: string) => {
+    if (dislikeSubmittedRef.current) {
+      return;
+    }
+
+    dislikeSubmittedRef.current = true;
+    onDislike('item_disliked', itemId);
+    closeItemPicker();
   };
 
   if (!enabled) {
@@ -137,6 +162,13 @@ export function HomeOutfitFeedback({
         isSubmitting={isSubmitting}
         onClose={handleDislikeSheetClose}
         onSelectReason={handleDislikeSubmit}
+      />
+      <OutfitFeedbackItemPickerSheet
+        visible={isItemPickerVisible}
+        items={outfitItems}
+        isSubmitting={isSubmitting}
+        onClose={closeItemPicker}
+        onSelectItem={handleItemSelect}
       />
     </View>
   );

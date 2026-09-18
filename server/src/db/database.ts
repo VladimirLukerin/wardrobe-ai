@@ -139,6 +139,7 @@ function migrateOutfitFeedbackTable(db: Database.Database): void {
       item_ids_json TEXT NOT NULL,
       rating TEXT NOT NULL CHECK (rating IN ('like', 'dislike')),
       reason TEXT NULL,
+      target_item_id TEXT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, recommendation_key),
@@ -151,6 +152,17 @@ function migrateOutfitFeedbackTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_outfit_feedback_user_updated
       ON outfit_feedback(user_id, updated_at DESC);
   `);
+
+  migrateOutfitFeedbackTargetItemColumn(db);
+}
+
+function migrateOutfitFeedbackTargetItemColumn(db: Database.Database): void {
+  const columns = db.prepare('PRAGMA table_info(outfit_feedback)').all() as Array<{ name: string }>;
+  const columnNames = new Set(columns.map((column) => column.name));
+
+  if (!columnNames.has('target_item_id')) {
+    db.exec('ALTER TABLE outfit_feedback ADD COLUMN target_item_id TEXT NULL');
+  }
 }
 
 function migrateDailyOutfitsTable(db: Database.Database): void {

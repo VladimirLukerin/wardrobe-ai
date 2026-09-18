@@ -89,15 +89,23 @@ function aggregateFeedback(
     }
 
     if (entry.reason === 'item_disliked') {
-      for (const itemId of itemIds) {
-        pushUnique(stronglyDislikedItemIds, itemId, MAX_ITEM_IDS);
+      if (entry.targetItemId && wardrobeIds.has(entry.targetItemId)) {
+        pushUnique(stronglyDislikedItemIds, entry.targetItemId, MAX_ITEM_IDS);
       }
 
       continue;
     }
 
-    for (const itemId of itemIds) {
-      pushUnique(recentlyDislikedItemIds, itemId, MAX_ITEM_IDS);
+    if (
+      entry.reason === 'too_familiar' ||
+      entry.reason === 'too_unusual' ||
+      entry.reason === 'weather_mismatch'
+    ) {
+      continue;
+    }
+
+    if (entry.reason === 'other' || entry.reason === null) {
+      pushCombination(dislikedCombinations, itemIds, MAX_COMBINATIONS);
     }
   }
 

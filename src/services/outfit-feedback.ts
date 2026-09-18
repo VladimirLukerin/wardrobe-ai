@@ -37,11 +37,17 @@ function parseOutfitFeedback(value: unknown): OutfitFeedback | null {
       ? feedback.reason
       : null;
 
+  const targetItemId =
+    typeof feedback.targetItemId === 'string' && feedback.targetItemId.trim().length > 0
+      ? feedback.targetItemId.trim()
+      : null;
+
   return {
     recommendationKey: feedback.recommendationKey,
     itemIds: feedback.itemIds.filter((itemId): itemId is string => typeof itemId === 'string'),
     rating: feedback.rating,
     reason,
+    targetItemId,
     createdAt: feedback.createdAt,
     updatedAt: feedback.updatedAt,
   };
@@ -103,6 +109,7 @@ export async function saveOutfitFeedback(
       itemIds: input.itemIds,
       rating: input.rating,
       ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.targetItemId ? { targetItemId: input.targetItemId } : {}),
     }),
   });
 

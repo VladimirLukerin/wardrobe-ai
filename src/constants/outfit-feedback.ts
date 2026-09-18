@@ -27,6 +27,7 @@ export type OutfitFeedback = {
   itemIds: string[];
   rating: OutfitFeedbackRating;
   reason: OutfitFeedbackReason | null;
+  targetItemId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -35,4 +36,5 @@ export type SaveOutfitFeedbackInput = {
   itemIds: string[];
   rating: OutfitFeedbackRating;
   reason?: OutfitFeedbackReason;
+  targetItemId?: string;
 };
