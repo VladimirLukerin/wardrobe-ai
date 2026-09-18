@@ -89,6 +89,13 @@ export default function FamilyMemberScreen() {
     });
   };
 
+  const handleCreatePairedOutfit = () => {
+    router.push({
+      pathname: '/profile/family/[publicId]/paired-outfit',
+      params: { publicId },
+    });
+  };
+
   // Member disappears from the list after a successful removal; don't flash the
   // "not in family" state while we are already navigating back.
   const memberMissing =
@@ -139,6 +146,17 @@ export default function FamilyMemberScreen() {
                   pressed && !isRemoving && styles.pressed,
                 ]}>
                 <ThemedText style={styles.primaryButtonText}>Гардероб</ThemedText>
+              </Pressable>
+
+              <Pressable
+                onPress={handleCreatePairedOutfit}
+                disabled={isRemoving}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  isRemoving && styles.buttonDisabled,
+                  pressed && !isRemoving && styles.pressed,
+                ]}>
+                <ThemedText style={styles.secondaryButtonText}>Создать совместный образ</ThemedText>
               </Pressable>
 
               {removeError?.kind === 'network' ? (
@@ -259,6 +277,19 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: Colors.light.background,
+  },
+  secondaryButton: {
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.light.backgroundSelected,
+  },
+  secondaryButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: Colors.light.text,
   },
   destructiveButton: {
     minHeight: 50,

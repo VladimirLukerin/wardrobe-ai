@@ -10,10 +10,24 @@ import { PAIRED_OCCASION_OPTIONS } from '@/constants/paired-outfit';
 import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useFamily } from '@/contexts/family-context';
 import { getFamilyMemberLabel } from '@/constants/family';
+import {
+  buildPairedOutfitMatchingParams,
+  parseFixedItemOwner,
+} from '@/utils/paired-outfit-route';
 
 export default function PairedOutfitOccasionScreen() {
-  const { publicId: publicIdParam } = useLocalSearchParams<{ publicId: string }>();
+  const {
+    publicId: publicIdParam,
+    fixedItemId: fixedItemIdParam,
+    fixedItemOwner: fixedItemOwnerParam,
+  } = useLocalSearchParams<{
+    publicId: string;
+    fixedItemId?: string;
+    fixedItemOwner?: string;
+  }>();
   const publicId = typeof publicIdParam === 'string' ? publicIdParam : '';
+  const fixedItemId = typeof fixedItemIdParam === 'string' ? fixedItemIdParam : undefined;
+  const fixedItemOwner = parseFixedItemOwner(fixedItemOwnerParam);
   const { members } = useFamily();
   const [selectedOccasionId, setSelectedOccasionId] = useState<string | null>(null);
   const [customOccasion, setCustomOccasion] = useState('');
@@ -35,11 +49,13 @@ export default function PairedOutfitOccasionScreen() {
 
     router.push({
       pathname: '/profile/family/[publicId]/paired-outfit/matching',
-      params: {
-        publicId,
+      params: buildPairedOutfitMatchingParams({
+        memberPublicId: publicId,
         occasionId: selectedOccasionId,
         customOccasion: selectedOccasionId === 'other' ? customOccasion.trim() : '',
-      },
+        fixedItemId,
+        fixedItemOwner,
+      }),
     });
   };
 

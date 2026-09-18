@@ -3,6 +3,13 @@ import OpenAI from 'openai';
 
 import { enforceAiRateLimit } from '../ai-request-rate-limit';
 import {
+  buildCompactWardrobeSummary,
+  capBehavioralContext,
+  estimatePromptTokens,
+  selectOutfitCandidates,
+  summarizeCandidateSelection,
+} from '../outfit-ai/prompt-optimization';
+import {
   AiProviderRateLimitError,
   isOpenAiProviderRateLimitError,
   respondAiProviderRateLimited,
@@ -23,12 +30,13 @@ import {
   type WardrobeItemPayload,
 } from '../suggest-outfits';
 import { buildPersonPairedOutfitContext, type PersonPairedOutfitContext } from './build-person-context';
-import type { PairedWardrobeItemPayload } from './build-person-context';
 
 const MODEL = 'gpt-4o';
 const MATCHING_MODES = ['natural', 'same_style', 'colors', 'photo'] as const;
+const FIXED_ITEM_OWNERS = ['self', 'member'] as const;
 
 type MatchingMode = (typeof MATCHING_MODES)[number];
+type FixedItemOwner = (typeof FIXED_ITEM_OWNERS)[number];
 
 export type PairedOutfitPersonResult = {
   itemIds: string[];
@@ -51,6 +59,8 @@ type ParsedPairedOutfitsRequest = {
   occasion: string;
   matchingMode: MatchingMode;
   location: SuggestOutfitsLocation | null;
+  fixedItemId?: string;
+  fixedItemOwner?: FixedItemOwner;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,6 +111,14 @@ function parseLocation(value: unknown): SuggestOutfitsLocation | null {
   };
 }
 
+function parseFixedItemOwner(value: unknown): FixedItemOwner | null {
+  if (typeof value === 'string' && FIXED_ITEM_OWNERS.includes(value as FixedItemOwner)) {
+    return value as FixedItemOwner;
+  }
+
+  return null;
+}
+
 function parsePairedOutfitsRequest(body: unknown): ParsedPairedOutfitsRequest | null {
   if (!isRecord(body)) {
     return null;
@@ -118,16 +136,31 @@ function parsePairedOutfitsRequest(body: unknown): ParsedPairedOutfitsRequest | 
     return null;
   }
 
+  const fixedItemId =
+    typeof body.fixedItemId === 'string' && body.fixedItemId.trim().length > 0
+      ? body.fixedItemId.trim()
+      : undefined;
+  const fixedItemOwner = fixedItemId
+    ? (parseFixedItemOwner(body.fixedItemOwner) ?? undefined)
+    : undefined;
+
+  if (fixedItemId && !fixedItemOwner) {
+    return null;
+  }
+
+  if (!fixedItemId && body.fixedItemOwner !== undefined) {
+    return null;
+  }
+
   return {
     occasion,
     matchingMode,
     location: parseLocation(body.location),
+    fixedItemId,
+    fixedItemOwner,
   };
 }
 
-function shortMemberPublicId(publicId: string): string {
-  return publicId.slice(0, 8);
-}
 
 function buildPairedPriorityOrderSection(): string[] {
   return [
@@ -221,7 +254,12 @@ function formatCompactOutfits(
     .join('\n');
 }
 
-function buildPersonSection(label: string, person: PersonPairedOutfitContext): string[] {
+function buildPersonSection(
+  label: string,
+  person: PersonPairedOutfitContext,
+  shortlist: WardrobeItemPayload[],
+  fixedItemId?: string,
+): string[] {
   const { stylistPreferences, userParameters, behavioralContext } = person;
 
   const lines = [
@@ -243,6 +281,18 @@ function buildPersonSection(label: string, person: PersonPairedOutfitContext): s
     lines.push('', ...buildWeatherSensitivityInstructions(userParameters.weatherSensitivity));
   }
 
+  if (fixedItemId) {
+    const fixedItem = shortlist.find((item) => item.id === fixedItemId);
+
+    lines.push(
+      '',
+      'FIXED ITEM (mandatory):',
+      `- fixedItemId "${fixedItemId}" MUST appear in this person's itemIds.`,
+      `- Never replace or omit it; build the safest reasonable outfit around it.`,
+      fixedItem ? `- fixed item: ${fixedItem.name} (${fixedItem.category}, ${fixedItem.color})` : '',
+    );
+  }
+
   lines.push(
     '',
     'behavior summary:',
@@ -254,41 +304,83 @@ function buildPersonSection(label: string, person: PersonPairedOutfitContext): s
     'recentSavedAiOutfits (secondary preference):',
     formatCompactOutfits(behavioralContext.recentSavedAiOutfits),
     '',
-    'wardrobe with behavior signals:',
-    buildPairedWardrobeSummary(person.wardrobe),
+    'shortlisted wardrobe:',
+    buildCompactWardrobeSummary(shortlist),
   );
 
   return lines;
 }
 
-function buildPairedWardrobeSummary(wardrobe: PairedWardrobeItemPayload[]): string {
-  return wardrobe
-    .map((item) => {
-      const printPart =
-        item.printDescription && item.pattern !== 'Без принта'
-          ? `; print: ${item.printDescription}`
-          : '';
+function validateFixedItemAccess(
+  parsedBody: ParsedPairedOutfitsRequest,
+  personA: PersonPairedOutfitContext,
+  personB: PersonPairedOutfitContext,
+): { status: number; message: string } | null {
+  if (!parsedBody.fixedItemId || !parsedBody.fixedItemOwner) {
+    return null;
+  }
 
-      return (
-        `- id: ${item.id}; name: ${item.name}; category: ${item.category}; color: ${item.color}; ` +
-        `pattern: ${item.pattern}${printPart}; style: ${item.style}; isFavorite: ${item.isFavorite}; ` +
-        `wearCount: ${item.wearCount}; daysSinceLastWorn: ${item.daysSinceLastWorn ?? 'null'}; ` +
-        `neverWorn: ${item.neverWorn}; savedOutfitUseCount: ${item.savedOutfitUseCount}; usageTier: ${item.usageTier}`
-      );
-    })
-    .join('\n');
+  const targetWardrobe =
+    parsedBody.fixedItemOwner === 'self' ? personA.wardrobe : personB.wardrobe;
+  const ownerLabel = parsedBody.fixedItemOwner === 'self' ? 'вашем гардеробе' : 'гардеробе члена семьи';
+
+  if (!targetWardrobe.some((item) => item.id === parsedBody.fixedItemId)) {
+    return {
+      status: 404,
+      message: `Выбранная вещь недоступна в ${ownerLabel}.`,
+    };
+  }
+
+  return null;
+}
+
+function buildPersonShortlist(
+  person: PersonPairedOutfitContext,
+  weather: CurrentWeather | null,
+  occasion: string,
+  matchingMode: MatchingMode,
+  mode: 'paired-owner' | 'paired-member',
+  fixedItemId?: string,
+): WardrobeItemPayload[] {
+  const cappedBehavior = capBehavioralContext(person.behavioralContext);
+
+  return selectOutfitCandidates({
+    wardrobe: person.wardrobe,
+    weather,
+    stylistPreferences: person.stylistPreferences,
+    userParameters: person.userParameters,
+    behavioralContext: cappedBehavior,
+    fixedItemId,
+    occasion,
+    mode,
+    matchingMode,
+  });
+}
+
+function assertFixedItemPresent(itemIds: string[], fixedItemId: string | undefined): boolean {
+  if (!fixedItemId) {
+    return true;
+  }
+
+  return itemIds.includes(fixedItemId);
 }
 
 function sanitizePersonOutfitItemIds(
   rawItemIds: string[],
   wardrobe: WardrobeItemPayload[],
+  fixedItemId?: string,
 ): string[] {
   const validIds = new Set(wardrobe.map((item) => item.id));
   const filteredIds = rawItemIds.filter((itemId) => validIds.has(itemId));
   const uniqueIds = [...new Set(filteredIds)];
+
+  if (fixedItemId && validIds.has(fixedItemId) && !uniqueIds.includes(fixedItemId)) {
+    uniqueIds.unshift(fixedItemId);
+  }
+
   const wardrobeById = new Map(wardrobe.map((item) => [item.id, item]));
 
-  return sanitizeItemIdsByCategory(uniqueIds, wardrobeById);
+  return sanitizeItemIdsByCategory(uniqueIds, wardrobeById, fixedItemId);
 }
 
 function hasValidPairedOutfit(itemIds: string[]): boolean {
@@ -326,6 +418,13 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
     const personA = buildPersonPairedOutfitContext(req.authUser.id);
     const personB = buildPersonPairedOutfitContext(access.targetUserId);
 
+    const fixedItemError = validateFixedItemAccess(parsedBody, personA, personB);
+
+    if (fixedItemError) {
+      res.status(fixedItemError.status).json({ error: fixedItemError.message });
+      return;
+    }
+
     if (
       !hasMinimumWardrobeForOutfit(personA.wardrobe) ||
       !hasMinimumWardrobeForOutfit(personB.wardrobe)
@@ -334,19 +433,43 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
       return;
     }
 
-    if (!enforceAiRateLimit(res, req.authUser.id, 'paired')) {
+    const considerWeather = personA.stylistPreferences.considerWeather;
+    const weather = await resolveWeatherContext(considerWeather, parsedBody.location);
+    const ownerFixedItemId =
+      parsedBody.fixedItemOwner === 'self' ? parsedBody.fixedItemId : undefined;
+    const memberFixedItemId =
+      parsedBody.fixedItemOwner === 'member' ? parsedBody.fixedItemId : undefined;
+    const ownerShortlist = buildPersonShortlist(
+      personA,
+      weather,
+      parsedBody.occasion,
+      parsedBody.matchingMode,
+      'paired-owner',
+      ownerFixedItemId,
+    );
+    const memberShortlist = buildPersonShortlist(
+      personB,
+      weather,
+      parsedBody.occasion,
+      parsedBody.matchingMode,
+      'paired-member',
+      memberFixedItemId,
+    );
+
+    if (ownerFixedItemId && !ownerShortlist.some((item) => item.id === ownerFixedItemId)) {
+      res.status(422).json({ error: 'Не удалось включить выбранную вещь в подбор для вашего образа.' });
       return;
     }
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(
-        `[PAIR OUTFIT] occasion=${parsedBody.occasion} mode=${parsedBody.matchingMode}`,
-      );
-      console.log(
-        `[PAIR OUTFIT] A wardrobe=${personA.wardrobe.length} B wardrobe=${personB.wardrobe.length}`,
-      );
-      console.log(`[PAIR BEHAVIOR] A ${personA.stylistPreferences.styleExperiment}`);
-      console.log(`[PAIR BEHAVIOR] B ${personB.stylistPreferences.styleExperiment}`);
+    if (memberFixedItemId && !memberShortlist.some((item) => item.id === memberFixedItemId)) {
+      res.status(422).json({
+        error: 'Не удалось включить выбранную вещь в подбор для образа члена семьи.',
+      });
+      return;
+    }
+
+    if (!enforceAiRateLimit(res, req.authUser.id, 'paired')) {
+      return;
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -356,8 +479,6 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
       return;
     }
 
-    const considerWeather = personA.stylistPreferences.considerWeather;
-    const weather = await resolveWeatherContext(considerWeather, parsedBody.location);
     const openai = new OpenAI({ apiKey, maxRetries: 0 });
 
     const promptLines = [
@@ -401,10 +522,10 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
     promptLines.push(
       '',
       'D. PERSON A (initiator — current user)',
-      ...buildPersonSection('PERSON A profile:', personA),
+      ...buildPersonSection('PERSON A profile:', personA, ownerShortlist, ownerFixedItemId),
       '',
       'E. PERSON B (family member)',
-      ...buildPersonSection('PERSON B profile:', personB),
+      ...buildPersonSection('PERSON B profile:', personB, memberShortlist, memberFixedItemId),
       '',
       'F. TASK',
       'Pick ONE complete outfit for PERSON A and ONE complete outfit for PERSON B.',
@@ -415,6 +536,19 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
       '',
       'pairExplanation: 2-3 Russian sentences explaining why both outfits work together for the occasion.',
     );
+
+    const promptText = promptLines.join('\n');
+
+    if (process.env.NODE_ENV !== 'production') {
+      const ownerSummary = summarizeCandidateSelection(personA.wardrobe.length, ownerShortlist);
+      const memberSummary = summarizeCandidateSelection(personB.wardrobe.length, memberShortlist);
+
+      console.log(
+        `[PAIRED AI] owner total=${ownerSummary.total} selected=${ownerSummary.selected} ` +
+          `member total=${memberSummary.total} selected=${memberSummary.selected} ` +
+          `promptChars=${promptText.length} estimatedTokens=${estimatePromptTokens(promptText)}`,
+      );
+    }
 
     let response;
 
@@ -427,7 +561,7 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
           content: [
             {
               type: 'input_text',
-              text: promptLines.join('\n'),
+              text: promptText,
             },
           ],
         },
@@ -488,8 +622,16 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
     const parsed = JSON.parse(outputText) as RawPairedOutfitResponse;
     const rawPersonAIds = Array.isArray(parsed.personA?.itemIds) ? parsed.personA.itemIds : [];
     const rawPersonBIds = Array.isArray(parsed.personB?.itemIds) ? parsed.personB.itemIds : [];
-    const personAItemIds = sanitizePersonOutfitItemIds(rawPersonAIds, personA.wardrobe);
-    const personBItemIds = sanitizePersonOutfitItemIds(rawPersonBIds, personB.wardrobe);
+    const personAItemIds = sanitizePersonOutfitItemIds(rawPersonAIds, personA.wardrobe, ownerFixedItemId);
+    const personBItemIds = sanitizePersonOutfitItemIds(rawPersonBIds, personB.wardrobe, memberFixedItemId);
+
+    if (
+      !assertFixedItemPresent(personAItemIds, ownerFixedItemId) ||
+      !assertFixedItemPresent(personBItemIds, memberFixedItemId)
+    ) {
+      res.status(422).json({ error: 'Не удалось сохранить выбранную вещь в совместном образе.' });
+      return;
+    }
 
     if (!hasValidPairedOutfit(personAItemIds) || !hasValidPairedOutfit(personBItemIds)) {
       res.status(422).json({ error: 'Недостаточно вещей для совместного образа' });

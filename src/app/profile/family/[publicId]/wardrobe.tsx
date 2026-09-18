@@ -57,7 +57,16 @@ export default function FamilyMemberWardrobeScreen() {
         ) : null}
 
         {state.status === 'ready' ? (
-          <ReadOnlyWardrobeGrid memberPublicId={publicId} items={state.items} />
+          <ReadOnlyWardrobeGrid
+            memberPublicId={publicId}
+            items={state.items}
+            onItemPress={(item) => {
+              router.push({
+                pathname: '/profile/family/[publicId]/item/[itemId]',
+                params: { publicId, itemId: item.id },
+              });
+            }}
+          />
         ) : null}
 
         {state.status === 'error' && state.errorKind === 'network' ? (

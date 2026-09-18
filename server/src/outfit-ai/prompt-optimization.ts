@@ -2,8 +2,16 @@ import type {
   BehavioralContextPayload,
   CompactOutfitRef,
   OutfitFeedbackContextPayload,
+  StylistPreferencesPayload,
+  UserParametersPayload,
   WardrobeItemPayload,
 } from '../suggest-outfits';
+import {
+  OutfitCandidateSelectionError,
+  selectOutfitCandidates,
+  summarizeCandidateSelection,
+  type PairedMatchingModeHint,
+} from './candidate-selection';
 
 export const MAX_AI_WARDROBE_ITEMS = 100;
 
@@ -134,64 +142,31 @@ export function selectWardrobeForAi(
     frequentlyWorn: BehavioralContextPayload['frequentlyWorn'];
   },
 ): WardrobeItemPayload[] {
-  if (wardrobe.length <= MAX_AI_WARDROBE_ITEMS) {
-    return wardrobe;
-  }
-
-  const byId = new Map(wardrobe.map((item) => [item.id, item]));
-  const selectedIds = new Set<string>();
-
-  const addItemId = (itemId: string | undefined) => {
-    if (!itemId || !byId.has(itemId) || selectedIds.has(itemId)) {
-      return;
-    }
-
-    selectedIds.add(itemId);
+  const behavioralContext: BehavioralContextPayload = {
+    favoriteItemIds: options.favoriteItemIds,
+    frequentlyWorn: options.frequentlyWorn,
+    recentManualOutfits: [],
+    recentSavedAiOutfits: [],
+    recentOutfitSignatures: [],
   };
 
-  addItemId(options.selectedItemId);
-
-  for (const itemId of options.favoriteItemIds) {
-    addItemId(itemId);
-
-    if (selectedIds.size >= MAX_AI_WARDROBE_ITEMS) {
-      return wardrobe.filter((item) => selectedIds.has(item.id));
-    }
-  }
-
-  for (const entry of options.frequentlyWorn) {
-    addItemId(entry.id);
-
-    if (selectedIds.size >= MAX_AI_WARDROBE_ITEMS) {
-      return wardrobe.filter((item) => selectedIds.has(item.id));
-    }
-  }
-
-  for (const group of CATEGORY_FILL_ORDER) {
-    for (const item of wardrobe) {
-      if (selectedIds.size >= MAX_AI_WARDROBE_ITEMS) {
-        break;
-      }
-
-      if (selectedIds.has(item.id)) {
-        continue;
-      }
-
-      if (getCategoryGroup(item.category) === group) {
-        selectedIds.add(item.id);
-      }
-    }
-  }
-
-  for (const item of wardrobe) {
-    if (selectedIds.size >= MAX_AI_WARDROBE_ITEMS) {
-      break;
-    }
-
-    selectedIds.add(item.id);
-  }
-
-  return wardrobe.filter((item) => selectedIds.has(item.id));
+  return selectOutfitCandidates({
+    wardrobe,
+    weather: null,
+    stylistPreferences: {
+      styleExperiment: 'balanced',
+      considerWeather: false,
+      wardrobeMode: 'owned-only',
+      avoidRepeatedOutfits: false,
+    },
+    userParameters: {
+      fitPreference: null,
+      weatherSensitivity: null,
+    },
+    behavioralContext,
+    fixedItemId: options.selectedItemId,
+    mode: options.selectedItemId ? 'personal-fixed-item' : 'personal',
+  });
 }
 
 export function buildLegacyWardrobeSummary(wardrobe: WardrobeItemPayload[]): string {
@@ -345,3 +320,10 @@ export function buildHomeSelectionRules(): string[] {
 export function estimatePromptTokens(prompt: string): number {
   return Math.ceil(prompt.length / 4);
 }
+
+export {
+  OutfitCandidateSelectionError,
+  selectOutfitCandidates,
+  summarizeCandidateSelection,
+};
+export type { OutfitCandidateMode, OutfitCandidateSelectionInput, PairedMatchingModeHint } from './candidate-selection';

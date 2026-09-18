@@ -25,6 +25,8 @@ export type FetchPairedOutfitsInput = {
   occasion: string;
   matchingMode: PairedMatchingMode;
   location: SuggestOutfitsLocation | null;
+  fixedItemId?: string;
+  fixedItemOwner?: 'self' | 'member';
 };
 
 function parseWeather(value: unknown): OutfitWeather | null {
@@ -113,6 +115,8 @@ export async function fetchPairedOutfits(
       occasion: input.occasion,
       matchingMode: input.matchingMode,
       location: input.location,
+      ...(input.fixedItemId ? { fixedItemId: input.fixedItemId } : {}),
+      ...(input.fixedItemOwner ? { fixedItemOwner: input.fixedItemOwner } : {}),
     }),
   });
 

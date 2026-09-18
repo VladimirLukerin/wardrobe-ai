@@ -8,8 +8,8 @@ import {
   buildHomeSelectionRules,
   capBehavioralContext,
   estimatePromptTokens,
-  selectWardrobeForAi,
 } from './outfit-ai/prompt-optimization';
+import { selectOutfitCandidates } from './outfit-ai/candidate-selection';
 import {
   AiProviderRateLimitError,
   isOpenAiProviderRateLimitError,
@@ -870,10 +870,15 @@ export async function generateOutfitSuggestionsFromBody(
       ? mergeOutfitFeedbackIntoBehavioralContext(parsedBehavioralContext, options.userId, validIds)
       : parsedBehavioralContext,
   );
-  const aiWardrobe = selectWardrobeForAi(wardrobe, {
-    selectedItemId,
-    favoriteItemIds: behavioralContext.favoriteItemIds,
-    frequentlyWorn: behavioralContext.frequentlyWorn,
+  const weather = await resolveWeatherContext(considerWeather, location);
+  const aiWardrobe = selectOutfitCandidates({
+    wardrobe,
+    weather,
+    stylistPreferences,
+    userParameters,
+    behavioralContext,
+    fixedItemId: selectedItemId,
+    mode: selectedItemId ? 'personal-fixed-item' : 'personal',
   });
   const aiValidIds = new Set(aiWardrobe.map((item) => item.id));
 
@@ -907,7 +912,6 @@ export async function generateOutfitSuggestionsFromBody(
   const selectedItem = selectedItemId
     ? wardrobe.find((item) => item.id === selectedItemId)
     : undefined;
-  const weather = await resolveWeatherContext(considerWeather, location);
 
   const promptLines = [
     'You are a stylist assembling outfits ONLY from the provided wardrobe.',

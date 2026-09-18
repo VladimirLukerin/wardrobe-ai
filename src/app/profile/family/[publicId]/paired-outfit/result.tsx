@@ -46,6 +46,11 @@ export default function PairedOutfitResultScreen() {
     return resolveWardrobeItemsFromIds(result.personA.itemIds, wardrobeById);
   }, [result, wardrobeById]);
 
+  const ownerLockedItemId =
+    cache?.fixedItemOwner === 'self' ? cache.fixedItemId : undefined;
+  const memberLockedItemId =
+    cache?.fixedItemOwner === 'member' ? cache.fixedItemId : undefined;
+
   const personBItems = useMemo(() => {
     if (!result || familyWardrobeState.status !== 'ready') {
       return [];
@@ -130,7 +135,7 @@ export default function PairedOutfitResultScreen() {
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Ты</ThemedText>
             {personAItems.length > 0 ? (
-              <HomeOutfitPreview items={personAItems} disabled />
+              <HomeOutfitPreview items={personAItems} disabled lockedItemId={ownerLockedItemId} />
             ) : (
               <ThemedText themeColor="textSecondary" style={styles.emptyItemsText}>
                 Не удалось загрузить ваши вещи.

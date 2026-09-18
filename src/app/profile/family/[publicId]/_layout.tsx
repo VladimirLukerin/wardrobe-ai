@@ -8,6 +8,7 @@ export default function FamilyMemberLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="wardrobe" />
+        <Stack.Screen name="item/[itemId]" />
         <Stack.Screen name="outfits" />
         <Stack.Screen name="paired-outfit" />
       </Stack>

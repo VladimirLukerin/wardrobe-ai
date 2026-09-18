@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { FlatList, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { FamilyWardrobeItemImage } from '@/components/family-wardrobe-item-image';
 import { ThemedText } from '@/components/themed-text';
@@ -13,16 +13,21 @@ const NUM_COLUMNS = 2;
 type ReadOnlyWardrobeGridProps = {
   memberPublicId: string;
   items: FamilyWardrobeItem[];
+  onItemPress?: (item: FamilyWardrobeItem) => void;
 };
 
-export function ReadOnlyWardrobeGrid({ memberPublicId, items }: ReadOnlyWardrobeGridProps) {
+export function ReadOnlyWardrobeGrid({
+  memberPublicId,
+  items,
+  onItemPress,
+}: ReadOnlyWardrobeGridProps) {
   const { width: windowWidth } = useWindowDimensions();
   const contentWidth = Math.min(windowWidth, MaxContentWidth);
   const cardWidth = (contentWidth - Spacing.four * 2 - GRID_GAP) / NUM_COLUMNS;
 
   const renderItem = useCallback(
-    ({ item }: { item: FamilyWardrobeItem }) => (
-      <View style={[styles.cardContainer, { width: cardWidth }]}>
+    ({ item }: { item: FamilyWardrobeItem }) => {
+      const card = (
         <ThemedView style={styles.card}>
           <FamilyWardrobeItemImage
             memberPublicId={memberPublicId}
@@ -32,9 +37,21 @@ export function ReadOnlyWardrobeGrid({ memberPublicId, items }: ReadOnlyWardrobe
           />
           <ThemedText style={styles.cardLabel}>{item.name}</ThemedText>
         </ThemedView>
-      </View>
-    ),
-    [cardWidth, memberPublicId],
+      );
+
+      return (
+        <View style={[styles.cardContainer, { width: cardWidth }]}>
+          {onItemPress ? (
+            <Pressable onPress={() => onItemPress(item)} style={({ pressed }) => pressed && styles.pressed}>
+              {card}
+            </Pressable>
+          ) : (
+            card
+          )}
+        </View>
+      );
+    },
+    [cardWidth, memberPublicId, onItemPress],
   );
 
   return (
@@ -80,5 +97,8 @@ const styles = StyleSheet.create({
     color: Colors.light.text,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
+  },
+  pressed: {
+    opacity: 0.85,
   },
 });

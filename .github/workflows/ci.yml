@@ -73,3 +73,6 @@ jobs:
 
       - name: Run outfit AI prompt test
         run: npm run test:outfit-ai-prompt
+
+      - name: Run outfit candidate selection test
+        run: npm run test:outfit-candidate-selection

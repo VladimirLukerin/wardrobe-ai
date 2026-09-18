@@ -24,20 +24,30 @@ import { getActiveLocation } from '@/utils/get-active-location';
 import { isRetryableNetworkError } from '@/utils/network-error';
 import { setPairedOutfitResultCache } from '@/utils/paired-outfit-result-cache';
 import { getAuthToken } from '@/storage/auth-token-storage';
+import {
+  buildPairedOutfitResultParams,
+  parseFixedItemOwner,
+} from '@/utils/paired-outfit-route';
 
 export default function PairedOutfitMatchingScreen() {
   const {
     publicId: publicIdParam,
     occasionId: occasionIdParam,
     customOccasion: customOccasionParam,
+    fixedItemId: fixedItemIdParam,
+    fixedItemOwner: fixedItemOwnerParam,
   } = useLocalSearchParams<{
     publicId: string;
     occasionId: string;
     customOccasion?: string;
+    fixedItemId?: string;
+    fixedItemOwner?: string;
   }>();
   const publicId = typeof publicIdParam === 'string' ? publicIdParam : '';
   const occasionId = typeof occasionIdParam === 'string' ? occasionIdParam : '';
   const customOccasion = typeof customOccasionParam === 'string' ? customOccasionParam : '';
+  const fixedItemId = typeof fixedItemIdParam === 'string' ? fixedItemIdParam : undefined;
+  const fixedItemOwner = parseFixedItemOwner(fixedItemOwnerParam);
   const { members } = useFamily();
   const { locationMode, manualLocation, autoLocation } = useBodyParameters();
   const [matchingMode, setMatchingMode] = useState<PairedMatchingMode>(DEFAULT_PAIRED_MATCHING_MODE);
@@ -90,6 +100,8 @@ export default function PairedOutfitMatchingScreen() {
         occasion,
         matchingMode,
         location: requestLocation,
+        fixedItemId,
+        fixedItemOwner,
       });
 
       setPairedOutfitResultCache({
@@ -97,15 +109,19 @@ export default function PairedOutfitMatchingScreen() {
         occasion,
         matchingMode,
         memberPublicId: publicId,
+        fixedItemId,
+        fixedItemOwner,
       });
 
       router.push({
         pathname: '/profile/family/[publicId]/paired-outfit/result',
-        params: {
-          publicId,
+        params: buildPairedOutfitResultParams({
+          memberPublicId: publicId,
           occasion,
           matchingMode,
-        },
+          fixedItemId,
+          fixedItemOwner,
+        }),
       });
     } catch (error) {
       if (isRetryableNetworkError(error)) {
