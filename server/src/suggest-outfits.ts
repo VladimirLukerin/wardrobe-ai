@@ -884,10 +884,6 @@ export async function generateOutfitSuggestionsFromBody(
         `manual outfits: ${behavioralContext.recentManualOutfits.length}, ` +
         `saved ai outfits: ${behavioralContext.recentSavedAiOutfits.length}`,
     );
-
-    if (wardrobe.length > aiWardrobe.length) {
-      console.log(`[OUTFIT AI] totalWardrobe=${wardrobe.length} shortlist=${aiWardrobe.length}`);
-    }
   }
 
   const selectedItem = selectedItemId

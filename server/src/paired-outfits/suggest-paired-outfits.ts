@@ -3,11 +3,10 @@ import OpenAI from 'openai';
 
 import { enforceAiRateLimit } from '../ai-request-rate-limit';
 import {
-  buildCompactWardrobeSummary,
+  buildPairedOutfitPromptText,
   capBehavioralContext,
-  estimatePromptTokens,
+  logPairedPromptUsage,
   selectOutfitCandidates,
-  summarizeCandidateSelection,
 } from '../outfit-ai/prompt-optimization';
 import {
   AiProviderRateLimitError,
@@ -18,14 +17,9 @@ import {
 import { resolveFamilyMemberWardrobeAccess } from '../db/family-repository';
 import type { CurrentWeather } from '../providers/weather';
 import {
-  buildFitPreferenceLines,
-  buildSharedSelectionRules,
-  buildWeatherSection,
-  buildWeatherSensitivityInstructions,
   hasMinimumWardrobeForOutfit,
   resolveWeatherContext,
   sanitizeItemIdsByCategory,
-  type StylistPreferencesPayload,
   type SuggestOutfitsLocation,
   type WardrobeItemPayload,
 } from '../suggest-outfits';
@@ -161,155 +155,6 @@ function parsePairedOutfitsRequest(body: unknown): ParsedPairedOutfitsRequest | 
   };
 }
 
-
-function buildPairedPriorityOrderSection(): string[] {
-  return [
-    'SIGNAL PRIORITY (highest to lowest):',
-    '1. occasion / event appropriateness;',
-    '2. weather / physical comfort (shared weather, per-person sensitivity);',
-    '3. category compatibility within each outfit;',
-    '4. explicit user parameters (fitPreference, weatherSensitivity);',
-    '5. behavioral signals (usageTier, favorites, saved outfits) — ONLY after suitability;',
-    '6. pair compatibility between the two finished outfits.',
-    '',
-    'Behavioral signals must NOT override occasion, weather, or category logic.',
-    'Never recommend unsuitable items just because they are rarely worn.',
-  ];
-}
-
-type StyleExperiment = StylistPreferencesPayload['styleExperiment'];
-
-function buildPairedStyleExperimentInstructions(styleExperiment: StyleExperiment): string[] {
-  switch (styleExperiment) {
-    case 'familiar':
-      return [
-        'BEHAVIOR MODE: familiar (привычное).',
-        'Apply ONLY after the item passes occasion, weather, and category checks.',
-        'Prefer usageTier frequent/regular, favorites, and items from saved outfits.',
-        'Prefer familiar combinations, but do not return the exact same outfit every time.',
-      ];
-    case 'bold':
-      return [
-        'BEHAVIOR MODE: bold (смелее).',
-        'Apply ONLY after the item passes occasion, weather, and category checks.',
-        'Increase priority for usageTier rare/never and long-unworn items when suitable.',
-        'Keep at least one familiar anchor item when it improves outfit coherence.',
-        'Rarely worn does NOT automatically mean bold — suitability comes first.',
-      ];
-    case 'balanced':
-    default:
-      return [
-        'BEHAVIOR MODE: balanced (баланс).',
-        'Apply ONLY after the item passes occasion, weather, and category checks.',
-        'Mix a familiar base with 1 or more less-used suitable items.',
-        'Example: favorite pants + jacket not worn for a long time.',
-      ];
-  }
-}
-
-function buildMatchingModeInstructions(matchingMode: MatchingMode): string[] {
-  switch (matchingMode) {
-    case 'same_style':
-      return [
-        'PAIR MATCHING MODE: same_style.',
-        'Stronger alignment in overall style (for example both smart casual).',
-        'Outfits may differ in specific items but should read as the same style family.',
-      ];
-    case 'colors':
-      return [
-        'PAIR MATCHING MODE: colors.',
-        'Primary focus on color harmony between the two outfits.',
-        'Colors do not need to be identical — complementary, neutral, and accent matching are allowed.',
-      ];
-    case 'photo':
-      return [
-        'PAIR MATCHING MODE: photo.',
-        'Optimize how the two outfits look standing next to each other in photos.',
-        'Avoid conflicting large prints and two competing strong accents.',
-        'Create visual separation between the two people while keeping harmony.',
-      ];
-    case 'natural':
-    default:
-      return [
-        'PAIR MATCHING MODE: natural.',
-        'Compatible formality level with soft color/style connection.',
-        'Outfits should coordinate but must NOT look identical or copy the same silhouette.',
-      ];
-  }
-}
-
-function formatCompactOutfits(
-  outfits: Array<{ itemIds: string[]; title?: string }>,
-): string {
-  if (outfits.length === 0) {
-    return '- none';
-  }
-
-  return outfits
-    .map((outfit) => {
-      const titlePart = outfit.title ? ` title="${outfit.title}"` : '';
-
-      return `- itemIds: [${outfit.itemIds.join(', ')}]${titlePart}`;
-    })
-    .join('\n');
-}
-
-function buildPersonSection(
-  label: string,
-  person: PersonPairedOutfitContext,
-  shortlist: WardrobeItemPayload[],
-  fixedItemId?: string,
-): string[] {
-  const { stylistPreferences, userParameters, behavioralContext } = person;
-
-  const lines = [
-    label,
-    `displayName: ${person.displayName ?? 'unknown'}`,
-    `styleExperiment: ${stylistPreferences.styleExperiment}`,
-    `wardrobeMode: ${stylistPreferences.wardrobeMode}`,
-    '',
-    ...buildPairedStyleExperimentInstructions(stylistPreferences.styleExperiment),
-  ];
-
-  const fitLines = buildFitPreferenceLines(userParameters.fitPreference);
-
-  if (fitLines.length > 0) {
-    lines.push('', ...fitLines);
-  }
-
-  if (userParameters.weatherSensitivity) {
-    lines.push('', ...buildWeatherSensitivityInstructions(userParameters.weatherSensitivity));
-  }
-
-  if (fixedItemId) {
-    const fixedItem = shortlist.find((item) => item.id === fixedItemId);
-
-    lines.push(
-      '',
-      'FIXED ITEM (mandatory):',
-      `- fixedItemId "${fixedItemId}" MUST appear in this person's itemIds.`,
-      `- Never replace or omit it; build the safest reasonable outfit around it.`,
-      fixedItem ? `- fixed item: ${fixedItem.name} (${fixedItem.category}, ${fixedItem.color})` : '',
-    );
-  }
-
-  lines.push(
-    '',
-    'behavior summary:',
-    `favoriteItemIds: [${behavioralContext.favoriteItemIds.join(', ') || 'none'}]`,
-    '',
-    'recentManualOutfits (strong preference):',
-    formatCompactOutfits(behavioralContext.recentManualOutfits),
-    '',
-    'recentSavedAiOutfits (secondary preference):',
-    formatCompactOutfits(behavioralContext.recentSavedAiOutfits),
-    '',
-    'shortlisted wardrobe:',
-    buildCompactWardrobeSummary(shortlist),
-  );
-
-  return lines;
-}
 
 function validateFixedItemAccess(
   parsedBody: ParsedPairedOutfitsRequest,
@@ -481,74 +326,36 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
 
     const openai = new OpenAI({ apiKey, maxRetries: 0 });
 
-    const promptLines = [
-      'You are a stylist creating TWO coordinated outfits for two people going to the same event.',
-      'Use ONLY items from each person wardrobe. Never invent items.',
-      'Return exactly ONE outfit per person in a single response.',
-      '',
-      ...buildPairedPriorityOrderSection(),
-      '',
-      'A. HARD RULES',
-      '- personA.itemIds must come ONLY from PERSON A wardrobe.',
-      '- personB.itemIds must come ONLY from PERSON B wardrobe.',
-      '- Each outfit: max 1 bottom, max 1 shoes, max 1 outerwear, max 2 tops.',
-      '- Do not include category conflicts within either outfit.',
-      '- wardrobeMode owned-only for both: never add shopping suggestions as itemIds.',
-      '- pairExplanation must be in Russian.',
-      '',
-      'B. OCCASION',
-      `- event / occasion: ${parsedBody.occasion}`,
-      '',
-      ...buildMatchingModeInstructions(parsedBody.matchingMode),
-    ];
+    const promptText = buildPairedOutfitPromptText({
+      occasion: parsedBody.occasion,
+      matchingMode: parsedBody.matchingMode,
+      weather,
+      considerWeather,
+      personA: {
+        label: 'A',
+        stylistPreferences: personA.stylistPreferences,
+        userParameters: personA.userParameters,
+        behavioralContext: capBehavioralContext(personA.behavioralContext),
+        wardrobe: ownerShortlist,
+        fixedItemId: ownerFixedItemId,
+      },
+      personB: {
+        label: 'B',
+        stylistPreferences: personB.stylistPreferences,
+        userParameters: personB.userParameters,
+        behavioralContext: capBehavioralContext(personB.behavioralContext),
+        wardrobe: memberShortlist,
+        fixedItemId: memberFixedItemId,
+      },
+    });
 
-    if (weather) {
-      promptLines.push('', ...buildWeatherSection(weather));
-      promptLines.push(
-        '',
-        'Shared weather applies to both people because they go together.',
-        'Apply each person weatherSensitivity separately on top of this shared weather.',
-      );
-    } else if (considerWeather) {
-      promptLines.push(
-        '',
-        'C. CURRENT WEATHER',
-        '- Weather requested but unavailable — choose reasonable layers from each wardrobe.',
-      );
-    } else {
-      promptLines.push('', 'C. CURRENT WEATHER', '- Weather consideration disabled by initiator.');
-    }
-
-    promptLines.push(
-      '',
-      'D. PERSON A (initiator — current user)',
-      ...buildPersonSection('PERSON A profile:', personA, ownerShortlist, ownerFixedItemId),
-      '',
-      'E. PERSON B (family member)',
-      ...buildPersonSection('PERSON B profile:', personB, memberShortlist, memberFixedItemId),
-      '',
-      'F. TASK',
-      'Pick ONE complete outfit for PERSON A and ONE complete outfit for PERSON B.',
-      'Outfits must suit the occasion and weather, respect each person behavior mode separately, and match according to the pair matching mode.',
-      'Outfits do NOT need to look identical.',
-      '',
-      ...buildSharedSelectionRules().slice(0, 6),
-      '',
-      'pairExplanation: 2-3 Russian sentences explaining why both outfits work together for the occasion.',
-    );
-
-    const promptText = promptLines.join('\n');
-
-    if (process.env.NODE_ENV !== 'production') {
-      const ownerSummary = summarizeCandidateSelection(personA.wardrobe.length, ownerShortlist);
-      const memberSummary = summarizeCandidateSelection(personB.wardrobe.length, memberShortlist);
-
-      console.log(
-        `[PAIRED AI] owner total=${ownerSummary.total} selected=${ownerSummary.selected} ` +
-          `member total=${memberSummary.total} selected=${memberSummary.selected} ` +
-          `promptChars=${promptText.length} estimatedTokens=${estimatePromptTokens(promptText)}`,
-      );
-    }
+    logPairedPromptUsage({
+      ownerTotal: personA.wardrobe.length,
+      ownerShortlist: ownerShortlist.length,
+      memberTotal: personB.wardrobe.length,
+      memberShortlist: memberShortlist.length,
+      promptText,
+    });
 
     let response;
 
@@ -610,6 +417,19 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
       }
 
       throw providerError;
+    }
+
+    if (process.env.NODE_ENV !== 'production' && response.usage) {
+      logPairedPromptUsage({
+        ownerTotal: personA.wardrobe.length,
+        ownerShortlist: ownerShortlist.length,
+        memberTotal: personB.wardrobe.length,
+        memberShortlist: memberShortlist.length,
+        promptText,
+        actualInputTokens: response.usage.input_tokens,
+        actualOutputTokens: response.usage.output_tokens,
+        actualTotalTokens: response.usage.total_tokens,
+      });
     }
 
     const outputText = response.output_text;

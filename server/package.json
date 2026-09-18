@@ -20,6 +20,7 @@
     "test:email-lookup": "tsx scripts/test-email-lookup.ts",
     "test:otp-request-budgets": "tsx scripts/test-otp-request-budgets.ts",
     "test:outfit-ai-prompt": "tsx scripts/test-outfit-ai-prompt.ts",
+    "test:paired-outfit-prompt": "tsx scripts/test-paired-outfit-prompt.ts",
     "test:outfit-candidate-selection": "tsx scripts/test-outfit-candidate-selection.ts",
     "test:guest-weather-advisor": "tsx scripts/test-guest-weather-advisor.ts",
     "test:auth-entry-flow": "tsx scripts/test-auth-entry-flow.ts",

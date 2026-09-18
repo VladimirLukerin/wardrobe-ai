@@ -81,6 +81,24 @@ export type PersonalOutfitPromptInput = {
   maxOutfits: number;
 };
 
+export type PairedOutfitPromptPersonInput = {
+  label: 'A' | 'B';
+  stylistPreferences: StylistPreferencesPayload;
+  userParameters: UserParametersPayload;
+  behavioralContext: BehavioralContextPayload;
+  wardrobe: WardrobeItemPayload[];
+  fixedItemId?: string;
+};
+
+export type PairedOutfitPromptInput = {
+  occasion: string;
+  matchingMode: PairedMatchingModeHint;
+  weather: CurrentWeather | null;
+  considerWeather: boolean;
+  personA: PairedOutfitPromptPersonInput;
+  personB: PairedOutfitPromptPersonInput;
+};
+
 function normalizeCategory(category: string): string {
   return category.trim().toLowerCase();
 }
@@ -420,6 +438,104 @@ function buildCompactTaskSection(input: PersonalOutfitPromptInput): string[] {
   ];
 }
 
+export function buildCompactMatchingModeLines(matchingMode: PairedMatchingModeHint): string[] {
+  switch (matchingMode) {
+    case 'same_style':
+      return ['PAIR_MODE=same_style', 'same style family; items may differ'];
+    case 'colors':
+      return ['PAIR_MODE=colors', 'prioritize color harmony; identical colors not required'];
+    case 'photo':
+      return ['PAIR_MODE=photo', 'photo harmony; avoid competing large prints/strong accents'];
+    case 'natural':
+    default:
+      return ['PAIR_MODE=natural', 'soft coordination; compatible formality; not identical'];
+  }
+}
+
+function buildCompactPairedRulesSection(): string[] {
+  return [
+    'PRIORITY: occasion > weather > category > prefs > behavior > pair harmony',
+    'RULES:',
+    '- A.ids from A only; B.ids from B only',
+    '- max per person: bottom=1 shoes=1 outer=1 tops=2',
+    '- fixed mandatory when present',
+    '- wardrobeMode=owned-only',
+    '- weather/occasion before behavior',
+    '- return one outfit each',
+    '- pairExplanation: 1-2 RU sentences',
+  ];
+}
+
+function buildPairedPersonPreferenceLine(person: PairedOutfitPromptPersonInput): string {
+  const parts = [`style=${person.stylistPreferences.styleExperiment}`];
+  const fit = encodeFitPreference(person.userParameters.fitPreference);
+
+  if (fit) {
+    parts.push(`fit=${fit}`);
+  }
+
+  if (person.userParameters.weatherSensitivity) {
+    parts.push(`weatherSens=${encodeWeatherSensitivity(person.userParameters.weatherSensitivity)}`);
+  }
+
+  return parts.join(' ');
+}
+
+function buildPairedPersonBehaviorLines(person: PairedOutfitPromptPersonInput): string[] {
+  const behavior = buildCompactBehaviorSection(
+    person.behavioralContext,
+    person.stylistPreferences.avoidRepeatedOutfits,
+  );
+
+  if (behavior.length === 0) {
+    return [];
+  }
+
+  return ['behavior:', ...behavior.slice(1)];
+}
+
+function buildPairedPersonSection(person: PairedOutfitPromptPersonInput): string[] {
+  const lines = [`${person.label}:`, buildPairedPersonPreferenceLine(person)];
+
+  if (person.fixedItemId) {
+    lines.push(`fixed=${person.fixedItemId} mandatory`);
+  }
+
+  lines.push(...buildPairedPersonBehaviorLines(person));
+  lines.push('items:', buildCompactWardrobeSummary(person.wardrobe));
+
+  return lines;
+}
+
+export function buildPairedOutfitPromptText(input: PairedOutfitPromptInput): string {
+  const lines = [
+    'Stylist. Create ONE outfit for A and ONE for B using only listed wardrobe IDs.',
+    '',
+    ...buildCompactPairedRulesSection(),
+    '',
+    `OCCASION=${input.occasion}`,
+    'Both outfits must fit occasion.',
+    '',
+    ...buildCompactMatchingModeLines(input.matchingMode),
+  ];
+
+  if (input.weather) {
+    lines.push('', ...buildCompactWeatherSection(input.weather));
+    lines.push('Apply shared weather with each person weatherSens.');
+  } else {
+    lines.push('', ...buildCompactWeatherUnavailableSection(input.considerWeather));
+  }
+
+  lines.push('', ...buildPairedPersonSection(input.personA), '', ...buildPairedPersonSection(input.personB));
+  lines.push(
+    '',
+    'TASK: Return personA.itemIds, personB.itemIds, pairExplanation.',
+    'Coordinate per PAIR_MODE; outfits need not match identically.',
+  );
+
+  return lines.join('\n');
+}
+
 export function buildPersonalOutfitPromptText(input: PersonalOutfitPromptInput): string {
   const lines = [
     'Stylist. Use ONLY wardrobe IDs below.',
@@ -478,22 +594,52 @@ export function logOutfitPromptUsage(params: {
     return;
   }
 
+  if (params.actualInputTokens === undefined) {
+    return;
+  }
+
   const estimated = estimatePromptTokens(params.promptText);
+  const overheadRatio = (params.actualInputTokens / Math.max(estimated, 1)).toFixed(2);
 
   console.log(
-    `[OUTFIT AI] promptChars=${params.promptText.length} estimatedTokens=${estimated}`,
+    `[OUTFIT AI] usage input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0} total=${params.actualTotalTokens ?? 0} estimated=${estimated} actualInput=${params.actualInputTokens} overheadRatio=${overheadRatio}`,
   );
+  console.log(
+    `[OUTFIT AI COST] input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0}`,
+  );
+}
 
-  if (params.actualInputTokens !== undefined) {
-    const overheadRatio = (params.actualInputTokens / Math.max(estimated, 1)).toFixed(2);
-
-    console.log(
-      `[OUTFIT AI] usage input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0} total=${params.actualTotalTokens ?? 0} estimated=${estimated} actualInput=${params.actualInputTokens} overheadRatio=${overheadRatio}`,
-    );
-    console.log(
-      `[OUTFIT AI COST] input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0}`,
-    );
+export function logPairedPromptUsage(params: {
+  ownerTotal: number;
+  ownerShortlist: number;
+  memberTotal: number;
+  memberShortlist: number;
+  promptText: string;
+  actualInputTokens?: number;
+  actualOutputTokens?: number;
+  actualTotalTokens?: number;
+}): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
   }
+
+  const estimated = estimatePromptTokens(params.promptText);
+
+  if (params.actualInputTokens === undefined) {
+    console.log(
+      `[PAIRED AI] owner total=${params.ownerTotal} shortlist=${params.ownerShortlist} member total=${params.memberTotal} shortlist=${params.memberShortlist} promptChars=${params.promptText.length} estimatedTokens=${estimated}`,
+    );
+    return;
+  }
+
+  const overheadRatio = (params.actualInputTokens / Math.max(estimated, 1)).toFixed(2);
+
+  console.log(
+    `[PAIRED AI] usage input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0} total=${params.actualTotalTokens ?? 0} estimated=${estimated} actualInput=${params.actualInputTokens} overheadRatio=${overheadRatio}`,
+  );
+  console.log(
+    `[PAIRED AI COST] input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0}`,
+  );
 }
 
 export {
