@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -13,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
+import { FamilyMemberPickerSheet } from '@/components/family-member-picker-sheet';
 import { OutfitReplacementSheet } from '@/components/outfit-replacement-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -21,8 +23,12 @@ import type { WearEvent } from '@/constants/wear-event';
 import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
 import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useOutfits } from '@/contexts/outfits-context';
+import { useAccount } from '@/contexts/account-context';
+import { useFamily } from '@/contexts/family-context';
 import { useWearHistory } from '@/contexts/wear-history-context';
 import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
+import { canUseFamilyFeatures } from '@/utils/account-capabilities';
+import { buildPairedOutfitEntryParams } from '@/utils/paired-outfit-route';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { formatWearEventDate } from '@/utils/wear-date';
 
@@ -31,6 +37,7 @@ function SavedOutfitCard({
   wardrobeById,
   isWornToday,
   duplicateHintVisible,
+  onOpenDetail,
   onOpenMenu,
   onWearToday,
 }: {
@@ -38,6 +45,7 @@ function SavedOutfitCard({
   wardrobeById: Map<string, WardrobeItem>;
   isWornToday: boolean;
   duplicateHintVisible: boolean;
+  onOpenDetail: () => void;
   onOpenMenu: () => void;
   onWearToday: () => void;
 }) {
@@ -53,9 +61,13 @@ function SavedOutfitCard({
   return (
     <View style={styles.outfitCard}>
       <View style={styles.outfitCardHeader}>
-        <ThemedText style={styles.outfitTitle} numberOfLines={2}>
-          {outfit.title}
-        </ThemedText>
+        <Pressable
+          onPress={onOpenDetail}
+          style={({ pressed }) => [styles.outfitTitlePressable, pressed && styles.buttonPressed]}>
+          <ThemedText style={styles.outfitTitle} numberOfLines={2}>
+            {outfit.title}
+          </ThemedText>
+        </Pressable>
         <Pressable
           onPress={onOpenMenu}
           style={({ pressed }) => [styles.menuButton, pressed && styles.buttonPressed]}
@@ -64,7 +76,9 @@ function SavedOutfitCard({
         </Pressable>
       </View>
 
-      <HomeOutfitPreview items={outfitItems} onReplace={setReplacementTarget} compact />
+      <Pressable onPress={onOpenDetail} style={({ pressed }) => pressed && styles.buttonPressed}>
+        <HomeOutfitPreview items={outfitItems} onReplace={setReplacementTarget} compact />
+      </Pressable>
       <OutfitReplacementSheet targetId={replacementTarget} itemIds={outfit.itemIds} wardrobe={items} updateExisting
         onClose={() => setReplacementTarget(null)} onSelect={(target, replacement) => {
           replaceSavedItem(outfit.id, target, replacement);
@@ -150,6 +164,8 @@ const DUPLICATE_HINT_DURATION_MS = 2500;
 export default function CreateOutfitScreen() {
   const insets = useSafeAreaInsets();
   const { items, isHydrated: isWardrobeHydrated } = useWardrobe();
+  const { user } = useAccount();
+  const { members } = useFamily();
   const { savedOutfits, isHydrated: isOutfitsHydrated, removeOutfit } = useOutfits();
   const {
     wearEvents,
@@ -159,6 +175,7 @@ export default function CreateOutfitScreen() {
   } = useWearHistory();
   const [menuOutfitId, setMenuOutfitId] = useState<string | null>(null);
   const [duplicateHintOutfitId, setDuplicateHintOutfitId] = useState<string | null>(null);
+  const [isFamilyPickerVisible, setIsFamilyPickerVisible] = useState(false);
 
   const wardrobeById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const savedOutfitsById = useMemo(
@@ -209,6 +226,30 @@ export default function CreateOutfitScreen() {
     }
   };
 
+  const handleCreatePairedOutfit = () => {
+    if (!canUseFamilyFeatures(user)) {
+      Alert.alert(
+        'Нужен сохранённый аккаунт',
+        'Подключите email или телефон, чтобы создавать совместные образы.',
+      );
+      return;
+    }
+
+    if (members.length === 0) {
+      Alert.alert('Добавьте члена семьи', 'Сначала добавьте близкого в профиле.');
+      return;
+    }
+
+    setIsFamilyPickerVisible(true);
+  };
+
+  const handleFamilyMemberSelected = (memberPublicId: string) => {
+    router.push({
+      pathname: '/profile/family/[publicId]/paired-outfit',
+      params: buildPairedOutfitEntryParams({ memberPublicId }),
+    });
+  };
+
   if (!isWardrobeHydrated || !isOutfitsHydrated || !isWearHistoryHydrated) {
     return (
       <ThemedView style={styles.container}>
@@ -230,6 +271,12 @@ export default function CreateOutfitScreen() {
           onPress={() => router.push('/create-outfit/build')}
           style={({ pressed }) => [styles.createButton, pressed && styles.buttonPressed]}>
           <ThemedText style={styles.createButtonText}>+ Создать образ</ThemedText>
+        </Pressable>
+
+        <Pressable
+          onPress={handleCreatePairedOutfit}
+          style={({ pressed }) => [styles.pairedButton, pressed && styles.buttonPressed]}>
+          <ThemedText style={styles.pairedButtonText}>Вместе с членом семьи</ThemedText>
         </Pressable>
 
         {visibleOutfits.length === 0 ? (
@@ -280,6 +327,12 @@ export default function CreateOutfitScreen() {
                 wardrobeById={wardrobeById}
                 isWornToday={isOutfitWornToday(outfit.id)}
                 duplicateHintVisible={duplicateHintOutfitId === outfit.id}
+                onOpenDetail={() =>
+                  router.push({
+                    pathname: '/create-outfit/[id]',
+                    params: { id: outfit.id },
+                  })
+                }
                 onOpenMenu={() => setMenuOutfitId(outfit.id)}
                 onWearToday={() => handleWearToday(outfit)}
               />
@@ -303,6 +356,12 @@ export default function CreateOutfitScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      <FamilyMemberPickerSheet
+        visible={isFamilyPickerVisible}
+        onClose={() => setIsFamilyPickerVisible(false)}
+        onSelect={handleFamilyMemberSelected}
+      />
     </ThemedView>
   );
 }
@@ -340,6 +399,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: Colors.light.background,
+  },
+  pairedButton: {
+    alignSelf: 'flex-start',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.light.backgroundSelected,
+    paddingVertical: Spacing.two + 2,
+    paddingHorizontal: Spacing.three + 2,
+    borderRadius: 14,
+    marginBottom: Spacing.four,
+  },
+  pairedButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.text,
   },
   scrollView: {
     flex: 1,
@@ -392,8 +465,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: Spacing.two,
   },
-  outfitTitle: {
+  outfitTitlePressable: {
     flex: 1,
+  },
+  outfitTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: Colors.light.text,

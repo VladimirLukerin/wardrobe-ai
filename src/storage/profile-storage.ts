@@ -28,7 +28,7 @@ import {
   type StyleExperiment,
   type WardrobeMode,
 } from '@/constants/stylist-preferences';
-import { generateLocalUserId, isValidLocalUserId } from '@/utils/generate-local-user-id';
+import { isValidPublicId } from '@/utils/public-id';
 
 const PROFILE_BODY_PARAMETERS_KEY = '@wardrobe-ai/profile/body-parameters';
 const PROFILE_STYLIST_PREFERENCES_KEY = '@wardrobe-ai/profile/stylist-preferences';
@@ -149,6 +149,18 @@ function parseStylistPreferences(raw: unknown): StylistPreferences | null {
       typeof data.avoidRepeatedOutfits === 'boolean'
         ? data.avoidRepeatedOutfits
         : DEFAULT_STYLIST_PREFERENCES.avoidRepeatedOutfits,
+    dailyStylistEnabled:
+      typeof data.dailyStylistEnabled === 'boolean'
+        ? data.dailyStylistEnabled
+        : DEFAULT_STYLIST_PREFERENCES.dailyStylistEnabled,
+    dailyStylistTime:
+      typeof data.dailyStylistTime === 'string' && /^\d{2}:\d{2}$/.test(data.dailyStylistTime)
+        ? data.dailyStylistTime
+        : DEFAULT_STYLIST_PREFERENCES.dailyStylistTime,
+    timezone:
+      typeof data.timezone === 'string' && data.timezone.trim().length > 0
+        ? data.timezone.trim()
+        : DEFAULT_STYLIST_PREFERENCES.timezone,
   };
 }
 
@@ -189,10 +201,22 @@ function parseAccountProfile(raw: unknown): AccountProfile | null {
       ? data.displayName.trim()
       : DEFAULT_DISPLAY_NAME;
 
-  if (typeof data.localUserId === 'string' && isValidLocalUserId(data.localUserId)) {
+  const publicId =
+    typeof data.publicId === 'string' && isValidPublicId(data.publicId)
+      ? data.publicId
+      : undefined;
+  const serverUserId =
+    typeof data.serverUserId === 'string' && data.serverUserId.trim().length > 0
+      ? data.serverUserId.trim()
+      : undefined;
+  const localUserId = typeof data.localUserId === 'string' ? data.localUserId : '';
+
+  if (publicId || localUserId || displayName) {
     return {
-      localUserId: data.localUserId,
+      localUserId: publicId ?? localUserId,
       displayName,
+      publicId,
+      serverUserId,
     };
   }
 
@@ -214,14 +238,10 @@ export async function loadProfileAccount(): Promise<AccountProfile> {
     // Fall through to create a new local account profile.
   }
 
-  const account: AccountProfile = {
-    localUserId: generateLocalUserId(),
-    displayName: DEFAULT_ACCOUNT_PROFILE.displayName,
+  return {
+    ...DEFAULT_ACCOUNT_PROFILE,
+    displayName: DEFAULT_DISPLAY_NAME,
   };
-
-  await saveProfileAccount(account);
-
-  return account;
 }
 
 export async function saveProfileAccount(account: AccountProfile): Promise<void> {

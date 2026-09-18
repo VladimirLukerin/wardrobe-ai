@@ -46,3 +46,7 @@ node_modules/
 .expo/
 .env
 server/.env
+server/data/*.sqlite
+server/data/*.sqlite-*
+server/data/wardrobe-images/*
+!server/data/wardrobe-images/.gitkeep

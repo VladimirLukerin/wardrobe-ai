@@ -54,13 +54,14 @@ function parseWardrobeItem(raw: unknown): WardrobeItem | null {
   }
 
   const imageFields = normalizeWardrobeItemImageFields(data);
+  const displayImageUri = imageFields.processedImageUri ?? imageFields.originalImageUri;
 
-  if (!imageFields.originalImageUri) {
-    return null;
+  if (displayImageUri && !imageFields.originalImageUri && imageFields.processedImageUri) {
+    imageFields.originalImageUri = imageFields.processedImageUri;
   }
 
   if (!isImageProcessingStatus(data.imageProcessingStatus)) {
-    imageFields.imageProcessingStatus = 'idle';
+    imageFields.imageProcessingStatus = displayImageUri ? 'completed' : 'idle';
   }
 
   const name = typeof data.name === 'string' && data.name.trim().length > 0 ? data.name.trim() : 'Новая вещь';

@@ -22,8 +22,24 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Spacing } from '@/constants/theme';
+import { DISPLAY_NAME_MAX_LENGTH } from '@/constants/account-profile';
+import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
+import { useOutfitsSync, type OutfitsSyncStatus } from '@/contexts/outfits-sync-context';
+import { usePreferencesSync, type PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
+import { useWearHistorySync, type WearHistorySyncStatus } from '@/contexts/wear-history-sync-context';
+import { useWardrobeSync, type WardrobeSyncStatus } from '@/contexts/wardrobe-sync-context';
+import { AccountApiError } from '@/services/account';
+import { NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE, RETRY_LABEL } from '@/utils/network-error';
+import EmailLinkSheet from '@/components/email-link-sheet';
+import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
+import AccountSaveSheet from '@/components/account-save-sheet';
+import ChangePasswordSheet from '@/components/change-password-sheet';
+import PhoneLinkSheet from '@/components/phone-link-sheet';
+import SetPasswordSheet from '@/components/set-password-sheet';
 import { copyToClipboard } from '@/utils/copy-to-clipboard';
+import { isAccountProtected } from '@/utils/account-is-protected';
+import { formatPhoneMaskedForDisplay } from '@/utils/format-phone-for-display';
 
 type AccountSheetProps = {
   visible: boolean;
@@ -32,6 +48,47 @@ type AccountSheetProps = {
 
 function SectionTitle({ children }: { children: string }) {
   return <ThemedText style={styles.sectionTitle}>{children}</ThemedText>;
+}
+
+function resolveCombinedSyncStatus(
+  preferencesStatus: PreferencesSyncStatus,
+  wardrobeStatus: WardrobeSyncStatus,
+  outfitsStatus: OutfitsSyncStatus,
+  wearHistoryStatus: WearHistorySyncStatus,
+  hasAccountError: boolean,
+): 'synced' | 'pending' | 'offline' | null {
+  if (hasAccountError) {
+    return 'offline';
+  }
+
+  if (
+    preferencesStatus === 'pending' ||
+    wardrobeStatus === 'pending' ||
+    outfitsStatus === 'pending' ||
+    wearHistoryStatus === 'pending'
+  ) {
+    return 'pending';
+  }
+
+  if (
+    preferencesStatus === 'offline' ||
+    wardrobeStatus === 'offline' ||
+    outfitsStatus === 'offline' ||
+    wearHistoryStatus === 'offline'
+  ) {
+    return 'offline';
+  }
+
+  if (
+    preferencesStatus === 'synced' &&
+    wardrobeStatus === 'synced' &&
+    outfitsStatus === 'synced' &&
+    wearHistoryStatus === 'synced'
+  ) {
+    return 'synced';
+  }
+
+  return null;
 }
 
 type ActionRowProps = {
@@ -64,11 +121,32 @@ function ActionRow({ label, destructive = false, isLast = false, onPress }: Acti
 
 export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   const insets = useSafeAreaInsets();
-  const { localUserId, displayName, setDisplayName, isHydrated } = useAccountProfile();
+  const { publicId, isServerAccount, error: accountError, user, updateDisplayName } = useAccount();
+  const { displayName, isHydrated } = useAccountProfile();
+  const { status: preferencesSyncStatus } = usePreferencesSync();
+  const { status: wardrobeSyncStatus } = useWardrobeSync();
+  const { status: outfitsSyncStatus } = useOutfitsSync();
+  const { status: wearHistorySyncStatus } = useWearHistorySync();
+  const combinedSyncStatus = resolveCombinedSyncStatus(
+    preferencesSyncStatus,
+    wardrobeSyncStatus,
+    outfitsSyncStatus,
+    wearHistorySyncStatus,
+    Boolean(accountError),
+  );
 
   const [isEditingName, setIsEditingName] = useState(false);
+  const [isSavingName, setIsSavingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(displayName);
   const [isCopying, setIsCopying] = useState(false);
+  const [isEmailLinkVisible, setIsEmailLinkVisible] = useState(false);
+  const [isPhoneLinkVisible, setIsPhoneLinkVisible] = useState(false);
+  const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
+  const [isLoginChoiceVisible, setIsLoginChoiceVisible] = useState(false);
+  const [isSetPasswordVisible, setIsSetPasswordVisible] = useState(false);
+  const [isChangePasswordVisible, setIsChangePasswordVisible] = useState(false);
+
+  const accountIsProtected = isAccountProtected(user);
 
   const translateY = useSharedValue(0);
   const bottomInset = Math.max(insets.bottom, Spacing.three);
@@ -103,6 +181,7 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
     if (!visible) {
       translateY.value = 0;
       setIsEditingName(false);
+      setIsSavingName(false);
       setIsCopying(false);
       return;
     }
@@ -113,13 +192,13 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
   }, [visible, isHydrated, displayName, translateY]);
 
   const handleCopyId = async () => {
-    if (!localUserId || isCopying) {
+    if (!publicId || isCopying) {
       return;
     }
 
     setIsCopying(true);
 
-    const copied = await copyToClipboard(localUserId);
+    const copied = await copyToClipboard(publicId);
 
     setIsCopying(false);
 
@@ -128,7 +207,7 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
       return;
     }
 
-    Alert.alert('Не удалось скопировать', `Ваш ID: ${localUserId}`);
+    Alert.alert('Не удалось скопировать', `Ваш ID: ${publicId}`);
   };
 
   const handleStartEditingName = () => {
@@ -136,19 +215,55 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
     setIsEditingName(true);
   };
 
-  const handleSaveName = () => {
+  const handleSaveName = async () => {
     const trimmedName = nameDraft.trim();
 
-    if (!trimmedName) {
+    if (!trimmedName || isSavingName) {
       return;
     }
 
-    setDisplayName(trimmedName);
-    setIsEditingName(false);
+    if (trimmedName === displayName) {
+      setIsEditingName(false);
+      return;
+    }
+
+    setIsSavingName(true);
+
+    try {
+      await updateDisplayName(trimmedName);
+      setIsEditingName(false);
+    } catch (error) {
+      if (!(error instanceof AccountApiError)) {
+        console.error('Unexpected display name update error:', error);
+      }
+
+      const message =
+        error instanceof AccountApiError ? error.message : 'Не удалось сохранить имя. Попробуйте ещё раз.';
+
+      Alert.alert(
+        AccountApiError.isNetwork(error) ? NETWORK_ERROR_TITLE : 'Не удалось сохранить имя',
+        AccountApiError.isNetwork(error) ? NETWORK_ERROR_HINT : message,
+        [{ text: 'Отмена', style: 'cancel' }, { text: RETRY_LABEL, onPress: () => void handleSaveName() }],
+      );
+    } finally {
+      setIsSavingName(false);
+    }
   };
 
-  const handleConnectAccount = () => {
-    Alert.alert('Подключить аккаунт', 'Авторизация будет доступна позже.');
+  const handleConnectEmail = () => {
+    setIsEmailLinkVisible(true);
+  };
+
+  const handleConnectPhone = () => {
+    setIsPhoneLinkVisible(true);
+  };
+
+  const handleSaveAccount = () => {
+    setIsSaveAccountVisible(true);
+  };
+
+  const handleLoginExisting = () => {
+    setIsLoginChoiceVisible(true);
   };
 
   const handleDeleteAccount = () => {
@@ -191,18 +306,32 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled">
               <View style={styles.formContent}>
+                {!accountIsProtected ? (
+                  <View style={styles.unprotectedBlock}>
+                    <ThemedText style={styles.unprotectedTitle}>Аккаунт не защищён</ThemedText>
+                    <ThemedText themeColor="textSecondary" style={styles.unprotectedText}>
+                      Подключите email или телефон, чтобы восстановить гардероб на другом устройстве.
+                    </ThemedText>
+                    <Pressable
+                      onPress={handleSaveAccount}
+                      style={({ pressed }) => [styles.unprotectedButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.unprotectedButtonText}>Сохранить аккаунт</ThemedText>
+                    </Pressable>
+                  </View>
+                ) : null}
+
                 <View style={styles.section}>
                   <SectionTitle>ID ПОЛЬЗОВАТЕЛЯ</SectionTitle>
                   <View style={styles.idRow}>
-                    <ThemedText style={styles.idValue}>{localUserId || '—'}</ThemedText>
+                    <ThemedText style={styles.idValue}>{publicId || '—'}</ThemedText>
                     <Pressable
                       onPress={() => {
                         void handleCopyId();
                       }}
-                      disabled={!localUserId || isCopying}
+                      disabled={!publicId || isCopying}
                       style={({ pressed }) => [
                         styles.copyButton,
-                        (!localUserId || isCopying) && styles.copyButtonDisabled,
+                        (!publicId || isCopying) && styles.copyButtonDisabled,
                         pressed && styles.pressed,
                       ]}>
                       <SymbolView
@@ -231,13 +360,25 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
                         placeholderTextColor={Colors.light.textSecondary}
                         autoFocus
                         returnKeyType="done"
-                        onSubmitEditing={handleSaveName}
-                        maxLength={40}
+                        editable={!isSavingName}
+                        onSubmitEditing={() => {
+                          void handleSaveName();
+                        }}
+                        maxLength={DISPLAY_NAME_MAX_LENGTH}
                       />
                       <Pressable
-                        onPress={handleSaveName}
-                        style={({ pressed }) => [styles.nameSaveButton, pressed && styles.pressed]}>
-                        <ThemedText style={styles.nameSaveButtonText}>Готово</ThemedText>
+                        onPress={() => {
+                          void handleSaveName();
+                        }}
+                        disabled={isSavingName}
+                        style={({ pressed }) => [
+                          styles.nameSaveButton,
+                          isSavingName && styles.nameSaveButtonDisabled,
+                          pressed && !isSavingName && styles.pressed,
+                        ]}>
+                        <ThemedText style={styles.nameSaveButtonText}>
+                          {isSavingName ? 'Сохранение…' : 'Готово'}
+                        </ThemedText>
                       </Pressable>
                     </View>
                   ) : (
@@ -254,17 +395,121 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
                 </View>
 
                 <View style={styles.section}>
-                  <SectionTitle>СПОСОБ ВХОДА</SectionTitle>
-                  <ThemedText style={styles.staticValue}>Не подключён</ThemedText>
-                  <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
-                    Вход через Apple, Google или email будет добавлен позже.
+                  <SectionTitle>EMAIL</SectionTitle>
+                  {user?.emailVerified && user.email ? (
+                    <View style={styles.emailRow}>
+                      <ThemedText style={styles.staticValue}>{user.email}</ThemedText>
+                      <ThemedText themeColor="textSecondary" style={styles.verifiedLabel}>
+                        ✓ Подтверждён
+                      </ThemedText>
+                    </View>
+                  ) : (
+                    <View style={styles.emailRow}>
+                      <ThemedText themeColor="textSecondary" style={styles.staticValue}>
+                        Не подключён
+                      </ThemedText>
+                      <Pressable
+                        onPress={handleConnectEmail}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                        <ThemedText style={styles.editButtonText}>Подключить</ThemedText>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.section}>
+                  <SectionTitle>ПАРОЛЬ</SectionTitle>
+                  {user?.emailVerified ? (
+                    user.hasPassword ? (
+                      <View style={styles.emailRow}>
+                        <ThemedText style={styles.staticValue}>Установлен</ThemedText>
+                        <Pressable
+                          onPress={() => setIsChangePasswordVisible(true)}
+                          hitSlop={8}
+                          style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                          <ThemedText style={styles.editButtonText}>Изменить пароль</ThemedText>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={styles.emailRow}>
+                        <ThemedText themeColor="textSecondary" style={styles.staticValue}>
+                          Не установлен
+                        </ThemedText>
+                        <Pressable
+                          onPress={() => setIsSetPasswordVisible(true)}
+                          hitSlop={8}
+                          style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                          <ThemedText style={styles.editButtonText}>Создать пароль</ThemedText>
+                        </Pressable>
+                      </View>
+                    )
+                  ) : (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Чтобы использовать пароль, сначала подключите email.
+                    </ThemedText>
+                  )}
+                </View>
+
+                <View style={styles.section}>
+                  <SectionTitle>ТЕЛЕФОН</SectionTitle>
+                  {user?.phoneVerified && user.phone ? (
+                    <View style={styles.emailRow}>
+                      <ThemedText style={styles.staticValue}>
+                        {formatPhoneMaskedForDisplay(user.phone)}
+                      </ThemedText>
+                      <ThemedText themeColor="textSecondary" style={styles.verifiedLabel}>
+                        ✓ Подтверждён
+                      </ThemedText>
+                    </View>
+                  ) : (
+                    <View style={styles.emailRow}>
+                      <ThemedText themeColor="textSecondary" style={styles.staticValue}>
+                        Не подключён
+                      </ThemedText>
+                      <Pressable
+                        onPress={handleConnectPhone}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}>
+                        <ThemedText style={styles.editButtonText}>Подключить</ThemedText>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.section}>
+                  <SectionTitle>СТАТУС АККАУНТА</SectionTitle>
+                  <ThemedText style={styles.staticValue}>
+                    {isServerAccount ? 'Аккаунт создан' : 'Ожидает подключения'}
                   </ThemedText>
+                  {accountError ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      {accountError}
+                    </ThemedText>
+                  ) : null}
+                  {combinedSyncStatus === 'synced' ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Синхронизировано
+                    </ThemedText>
+                  ) : null}
+                  {combinedSyncStatus === 'pending' ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Изменения ожидают синхронизации
+                    </ThemedText>
+                  ) : null}
+                  {combinedSyncStatus === 'offline' ? (
+                    <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
+                      Нет соединения с сервером
+                    </ThemedText>
+                  ) : null}
                 </View>
 
                 <View style={styles.section}>
                   <SectionTitle>УПРАВЛЕНИЕ АККАУНТОМ</SectionTitle>
                   <View style={styles.actionGroup}>
-                    <ActionRow label="Подключить аккаунт" onPress={handleConnectAccount} />
+                    {!accountIsProtected ? (
+                      <ActionRow label="Войти в существующий аккаунт" onPress={handleLoginExisting} />
+                    ) : null}
                     <ActionRow
                       label="Удалить аккаунт"
                       destructive
@@ -278,6 +523,29 @@ export default function AccountSheet({ visible, onClose }: AccountSheetProps) {
           </KeyboardAvoidingView>
         </Animated.View>
       </GestureHandlerRootView>
+      <EmailLinkSheet
+        visible={isEmailLinkVisible}
+        onClose={() => setIsEmailLinkVisible(false)}
+        onLinked={(linkedUser) => {
+          if (linkedUser.emailVerified && !linkedUser.hasPassword) {
+            setIsSetPasswordVisible(true);
+          }
+        }}
+      />
+      <PhoneLinkSheet visible={isPhoneLinkVisible} onClose={() => setIsPhoneLinkVisible(false)} />
+      <AccountSaveSheet visible={isSaveAccountVisible} onClose={() => setIsSaveAccountVisible(false)} />
+      <AccountLoginChoiceSheet
+        visible={isLoginChoiceVisible}
+        onClose={() => setIsLoginChoiceVisible(false)}
+      />
+      <SetPasswordSheet
+        visible={isSetPasswordVisible}
+        onClose={() => setIsSetPasswordVisible(false)}
+      />
+      <ChangePasswordSheet
+        visible={isChangePasswordVisible}
+        onClose={() => setIsChangePasswordVisible(false)}
+      />
     </Modal>
   );
 }
@@ -345,6 +613,35 @@ const styles = StyleSheet.create({
   },
   formContent: {
     gap: Spacing.five,
+  },
+  unprotectedBlock: {
+    borderRadius: 16,
+    backgroundColor: Colors.light.backgroundElement,
+    padding: Spacing.four,
+    gap: Spacing.two,
+  },
+  unprotectedTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  unprotectedText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  unprotectedButton: {
+    marginTop: Spacing.one,
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.light.text,
+    paddingHorizontal: Spacing.three,
+  },
+  unprotectedButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.background,
   },
   section: {
     gap: Spacing.two,
@@ -428,6 +725,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.one,
   },
+  nameSaveButtonDisabled: {
+    opacity: 0.5,
+  },
   nameSaveButtonText: {
     fontSize: 15,
     fontWeight: '600',
@@ -438,6 +738,16 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 22,
     color: Colors.light.text,
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  verifiedLabel: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   actionGroup: {
     borderRadius: 14,

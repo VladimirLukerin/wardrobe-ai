@@ -5,6 +5,7 @@ export default function GarderobLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="add-item" />
+      <Stack.Screen name="statistics" />
       <Stack.Screen name="[id]" />
     </Stack>
   );

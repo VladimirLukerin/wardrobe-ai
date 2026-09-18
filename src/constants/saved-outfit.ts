@@ -6,6 +6,7 @@ export type SavedOutfit = {
   itemIds: string[];
   description: string;
   createdAt: string;
+  updatedAt?: string;
   source?: SavedOutfitSource;
 };
 

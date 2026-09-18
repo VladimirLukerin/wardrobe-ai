@@ -21,12 +21,17 @@ import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
 import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
 import { useOutfits } from '@/contexts/outfits-context';
+import { useWearHistory } from '@/contexts/wear-history-context';
 import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
+import { buildStylistContext } from '@/utils/build-stylist-context';
 import {
+  OutfitSuggestionError,
   suggestOutfits,
   type OutfitSuggestion,
+  type OutfitSuggestionErrorCode,
   type OutfitWeather,
 } from '@/services/outfit-suggestions';
+import { NetworkErrorState } from '@/components/network-error-state';
 import { getActiveLocation } from '@/utils/get-active-location';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { formatOutfitWeatherLine } from '@/utils/weather-code';
@@ -94,10 +99,22 @@ export default function OutfitSuggestionsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { items, isHydrated } = useWardrobe();
-  const { styleExperiment, considerWeather, isHydrated: isStylistHydrated } =
-    useStylistPreferences();
+  const { savedOutfits } = useOutfits();
+  const { wearEvents, getItemWearCount, getItemLastWornAt } = useWearHistory();
+  const stylistPreferences = useStylistPreferences();
+  const {
+    styleExperiment,
+    considerWeather,
+    wardrobeMode,
+    avoidRepeatedOutfits,
+    dailyStylistEnabled,
+    dailyStylistTime,
+    timezone,
+    isHydrated: isStylistHydrated,
+  } = stylistPreferences;
   const {
     weatherSensitivity,
+    fitPreference,
     locationMode,
     manualLocation,
     autoLocation,
@@ -105,6 +122,7 @@ export default function OutfitSuggestionsScreen() {
   } = useBodyParameters();
 
   const [loadState, setLoadState] = useState<LoadState>('idle');
+  const [errorKind, setErrorKind] = useState<OutfitSuggestionErrorCode | null>(null);
   const [outfits, setOutfits] = useState<OutfitSuggestion[]>([]);
   const [weather, setWeather] = useState<OutfitWeather | null>(null);
   const requestRef = useRef(0);
@@ -142,17 +160,31 @@ export default function OutfitSuggestionsScreen() {
 
     const requestId = ++requestRef.current;
     setLoadState('loading');
+    setErrorKind(null);
     setOutfits([]);
     setWeather(null);
 
     try {
+      const stylistContext = buildStylistContext({
+        wardrobe: items,
+        savedOutfits,
+        wearEvents,
+        wearHistory: { getItemWearCount, getItemLastWornAt },
+        stylistPreferences: {
+          styleExperiment,
+          considerWeather,
+          wardrobeMode,
+          avoidRepeatedOutfits,
+          dailyStylistEnabled,
+          dailyStylistTime,
+          timezone,
+        },
+        userParameters: { fitPreference, weatherSensitivity },
+        location: requestLocation,
+      });
       const result = await suggestOutfits({
         selectedItemId: id,
-        wardrobe: items,
-        styleExperiment,
-        considerWeather,
-        location: requestLocation,
-        weatherSensitivity,
+        stylistContext,
       });
 
       if (requestId !== requestRef.current) {
@@ -160,6 +192,7 @@ export default function OutfitSuggestionsScreen() {
       }
 
       if (result.outfits.length === 0) {
+        setErrorKind('server');
         setLoadState('error');
         return;
       }
@@ -167,21 +200,35 @@ export default function OutfitSuggestionsScreen() {
       setOutfits(result.outfits);
       setWeather(result.weather);
       setLoadState('success');
-    } catch {
+    } catch (error) {
       if (requestId !== requestRef.current) {
         return;
+      }
+
+      if (error instanceof OutfitSuggestionError) {
+        setErrorKind(error.code);
+      } else {
+        console.error('Unexpected outfit suggestion error:', error);
+        setErrorKind('server');
       }
 
       setLoadState('error');
     }
   }, [
+    avoidRepeatedOutfits,
     considerWeather,
+    fitPreference,
+    getItemLastWornAt,
+    getItemWearCount,
     hasEnoughItems,
     id,
     items,
     requestLocation,
+    savedOutfits,
     selectedItem,
     styleExperiment,
+    wardrobeMode,
+    wearEvents,
     weatherSensitivity,
   ]);
 
@@ -294,7 +341,18 @@ export default function OutfitSuggestionsScreen() {
             </View>
           )}
 
-          {loadState === 'error' && (
+          {loadState === 'error' && errorKind === 'network' && (
+            <View style={styles.centeredContent}>
+              <NetworkErrorState
+                onRetry={() => {
+                  void loadOutfits();
+                }}
+                style={styles.networkErrorCard}
+              />
+            </View>
+          )}
+
+          {loadState === 'error' && errorKind !== 'network' && (
             <View style={styles.centeredContent}>
               <ThemedText style={styles.stateTitle}>Не удалось подобрать образы</ThemedText>
               <Pressable
@@ -436,6 +494,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.light.text,
     textAlign: 'center',
+  },
+  networkErrorCard: {
+    alignSelf: 'stretch',
   },
   stateSubtitle: {
     fontSize: 15,

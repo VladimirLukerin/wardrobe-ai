@@ -5,6 +5,7 @@ import { ImageSourcePropType, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { PhotoCaptureOnboardingSheet } from '@/components/photo-capture-onboarding-sheet';
 import { Colors, Spacing } from '@/constants/theme';
 import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
 
@@ -92,10 +93,23 @@ function TabBarButton({ tab }: { tab: TabConfig }) {
 
 export function AppTabBar() {
   const insets = useSafeAreaInsets();
-  const { takePhoto } = useAddWardrobeItem();
+  const {
+    takePhoto,
+    isPhotoOnboardingVisible,
+    handlePhotoOnboardingContinue,
+    handlePhotoOnboardingSkipForever,
+    handlePhotoOnboardingClose,
+  } = useAddWardrobeItem();
 
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, Spacing.two) }]}>
+    <>
+      <PhotoCaptureOnboardingSheet
+        visible={isPhotoOnboardingVisible}
+        onContinue={handlePhotoOnboardingContinue}
+        onSkipForever={handlePhotoOnboardingSkipForever}
+        onClose={handlePhotoOnboardingClose}
+      />
+      <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, Spacing.two) }]}>
       <View style={styles.bar}>
         <View style={styles.sideGroup}>
           {LEFT_TABS.map((tab) => (
@@ -122,6 +136,7 @@ export function AppTabBar() {
         </View>
       </View>
     </View>
+    </>
   );
 }
 

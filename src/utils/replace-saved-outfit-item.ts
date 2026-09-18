@@ -13,6 +13,12 @@ export function replaceSavedOutfitItem(
   // Preserve identity and creation date. Wear events hold their own item snapshots.
   // Rebuild the description from the new composition.
   return outfits.map((entry) => entry.id === outfitId
-    ? { ...entry, itemIds, description: describeOutfitItems(wardrobe.filter((item) => itemIds.includes(item.id))), source: 'manual' }
+    ? {
+        ...entry,
+        itemIds,
+        description: describeOutfitItems(wardrobe.filter((item) => itemIds.includes(item.id))),
+        source: 'manual',
+        updatedAt: new Date().toISOString(),
+      }
     : entry);
 }
