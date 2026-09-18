@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +15,10 @@ import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
 import { AccountApiError } from '@/services/account';
 import { fetchSavedPairedOutfits, type SavedPairedOutfit } from '@/services/paired-outfits-storage';
 import { getAuthToken } from '@/storage/auth-token-storage';
+import {
+  getSavedPairedOutfitsSnapshotCache,
+  setSavedPairedOutfitsSnapshotCache,
+} from '@/storage/saved-paired-outfits-snapshot-cache';
 import { isRetryableNetworkError } from '@/utils/network-error';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { formatFeedCreatedAt } from '@/utils/wear-date';
@@ -106,6 +110,7 @@ export default function SavedPairedOutfitsScreen() {
       }
 
       const result = await fetchSavedPairedOutfits(token);
+      setSavedPairedOutfitsSnapshotCache(result);
       setOutfits(result);
     } catch (loadError) {
       if (isRetryableNetworkError(loadError)) {
@@ -127,6 +132,16 @@ export default function SavedPairedOutfitsScreen() {
   useEffect(() => {
     void loadOutfits();
   }, [loadOutfits]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const cached = getSavedPairedOutfitsSnapshotCache();
+
+      if (cached) {
+        setOutfits(cached);
+      }
+    }, []),
+  );
 
   return (
     <ThemedView style={styles.container}>

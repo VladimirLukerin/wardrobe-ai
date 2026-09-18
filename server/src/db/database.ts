@@ -101,6 +101,7 @@ function runMigrations(db: Database.Database): void {
   migrateFamilyTables(db);
   migrateSavedPairedOutfitsTable(db);
   migrateDailyOutfitsTable(db);
+  migrateOutfitFeedbackTable(db);
 }
 
 function migrateSavedPairedOutfitsTable(db: Database.Database): void {
@@ -126,6 +127,29 @@ function migrateSavedPairedOutfitsTable(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_saved_paired_outfits_owner_user_id
       ON saved_paired_outfits(owner_user_id);
+  `);
+}
+
+function migrateOutfitFeedbackTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS outfit_feedback (
+      feedback_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      recommendation_key TEXT NOT NULL,
+      item_ids_json TEXT NOT NULL,
+      rating TEXT NOT NULL CHECK (rating IN ('like', 'dislike')),
+      reason TEXT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, recommendation_key),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_outfit_feedback_user_id
+      ON outfit_feedback(user_id);
+
+    CREATE INDEX IF NOT EXISTS idx_outfit_feedback_user_updated
+      ON outfit_feedback(user_id, updated_at DESC);
   `);
 }
 

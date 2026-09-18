@@ -77,6 +77,9 @@ export async function restoreDevTestDataFromServer(
     console.log(
       `[SEED VERIFY] wardrobe=${wardrobeItems.length} outfits=${savedOutfits.length} wear=${wearEvents.length}`,
     );
+    console.log(
+      `[STATS AUDIT] DB wear=${wearEvents.length} outfits=${savedOutfits.length} (local after restore)`,
+    );
     console.log('[DEV SERVER RESTORE] complete');
   }
 }

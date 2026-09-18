@@ -84,6 +84,66 @@ export function shouldSkipWardrobeServerSync(
   return true;
 }
 
+export function shouldSkipOutfitsServerSync(
+  metadata: OutfitsSyncMetadata,
+  localOutfitCount: number,
+  isRestoringAccount: boolean,
+): boolean {
+  if (isRestoringAccount) {
+    return false;
+  }
+
+  if (localOutfitCount === 0) {
+    return false;
+  }
+
+  const serverOutfitCount = Object.keys(metadata.serverUpdatedAtById).length;
+
+  if (serverOutfitCount > localOutfitCount) {
+    return false;
+  }
+
+  if (!isSyncFresh(metadata.lastServerSyncAt)) {
+    return false;
+  }
+
+  if (hasOutfitsPendingChanges(metadata)) {
+    return false;
+  }
+
+  return true;
+}
+
+export function shouldSkipWearHistoryServerSync(
+  metadata: WearHistorySyncMetadata,
+  localEventCount: number,
+  isRestoringAccount: boolean,
+): boolean {
+  if (isRestoringAccount) {
+    return false;
+  }
+
+  if (localEventCount === 0) {
+    return false;
+  }
+
+  const serverEventCount = Object.keys(metadata.serverUpdatedAtById).length;
+
+  if (serverEventCount > localEventCount) {
+    return false;
+  }
+
+  if (!isSyncFresh(metadata.lastServerSyncAt)) {
+    return false;
+  }
+
+  if (hasWearHistoryPendingChanges(metadata)) {
+    return false;
+  }
+
+  return true;
+}
+
 export function getPreferencesLastSyncedAt(metadata: PreferencesSyncMetadata): string | null {
   if (metadata.lastServerSyncAt) {
     return metadata.lastServerSyncAt;

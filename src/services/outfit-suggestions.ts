@@ -10,6 +10,7 @@ import {
 } from '@/utils/build-stylist-context';
 import type { StylistPreferences } from '@/constants/stylist-preferences';
 import type { WardrobeSuggestionItemPayload } from '@/utils/build-wardrobe-suggestion-payload';
+import { getAuthToken } from '@/storage/auth-token-storage';
 import { isNetworkFailure, warnNetworkFailure } from '@/utils/network-error';
 
 export type OutfitSuggestion = {
@@ -149,6 +150,8 @@ export async function suggestOutfits({
 }: SuggestOutfitsInput): Promise<SuggestOutfitsResult> {
   logStylistContextDiagnostics(stylistContext);
 
+  const token = await getAuthToken();
+
   let response: Response;
 
   try {
@@ -156,6 +159,7 @@ export async function suggestOutfits({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
         ...(selectedItemId ? { selectedItemId } : {}),

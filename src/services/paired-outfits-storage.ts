@@ -1,11 +1,12 @@
 import {
   DEV_DAILY_OUTFIT_GENERATE_ENDPOINT,
   PAIRED_OUTFITS_ENDPOINT,
+  dailyOutfitRegenerateEndpoint,
   dailyOutfitTodayEndpoint,
   savedPairedOutfitEndpoint,
 } from '@/config/api';
 import type { PairedMatchingMode } from '@/constants/paired-outfit';
-import type { OutfitWeather } from '@/services/outfit-suggestions';
+import type { OutfitWeather, SuggestOutfitsLocation } from '@/services/outfit-suggestions';
 import { AccountApiError } from '@/services/account';
 import {
   ClientNetworkError,
@@ -50,7 +51,10 @@ export type DailyOutfit = {
   weather: OutfitWeather | null;
   inputSignature: string;
   generatedAt: string;
+  isStale: boolean;
 };
+
+const dailyRegenerationInFlight = new Map<string, Promise<DailyOutfit>>();
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   throwIfServerUnavailable('API', response);
@@ -187,6 +191,10 @@ export async function deleteSavedPairedOutfit(token: string, outfitId: string): 
     },
   });
 
+  if (response.status === 404) {
+    return;
+  }
+
   await parseJsonResponse<{ ok: true }>(response);
 }
 
@@ -235,6 +243,7 @@ function parseDailyOutfit(value: unknown): DailyOutfit | null {
     weather,
     inputSignature: typeof outfit.inputSignature === 'string' ? outfit.inputSignature : '',
     generatedAt: typeof outfit.generatedAt === 'string' ? outfit.generatedAt : '',
+    isStale: outfit.isStale === true,
   };
 }
 
@@ -256,6 +265,54 @@ export async function fetchTodayDailyOutfit(
 
   const payload = await parseJsonResponse<{ outfit: unknown }>(response);
   return parseDailyOutfit(payload.outfit);
+}
+
+export async function regenerateDailyOutfit(
+  token: string,
+  localDate: string,
+  location: SuggestOutfitsLocation | null,
+  options?: { dedupLogLabel?: string },
+): Promise<DailyOutfit> {
+  const inFlightKey = localDate;
+  const existing = dailyRegenerationInFlight.get(inFlightKey);
+
+  if (existing) {
+    if (__DEV__) {
+      console.log(options?.dedupLogLabel ?? '[DAILY HOME] regeneration dedup');
+    }
+
+    return existing;
+  }
+
+  const regenerationPromise = (async () => {
+    const response = await performFetch(dailyOutfitRegenerateEndpoint(), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        localDate,
+        ...(location ? { location } : {}),
+      }),
+    });
+
+    const payload = await parseJsonResponse<{ outfit: unknown }>(response);
+    const outfit = parseDailyOutfit(payload.outfit);
+
+    if (!outfit) {
+      throw new AccountApiError(500, 'Некорректный ответ сервера.');
+    }
+
+    return outfit;
+  })().finally(() => {
+    dailyRegenerationInFlight.delete(inFlightKey);
+  });
+
+  dailyRegenerationInFlight.set(inFlightKey, regenerationPromise);
+
+  return regenerationPromise;
 }
 
 export async function generateDevDailyOutfit(

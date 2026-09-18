@@ -78,7 +78,7 @@ export function WearHistoryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (__DEV__ && isHydrated) {
-      console.log(`[WEAR CONTEXT] events=${wearEvents.length}`);
+      console.log(`[STATS AUDIT] context wear=${wearEvents.length}`);
     }
   }, [isHydrated, wearEvents]);
 

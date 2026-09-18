@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
@@ -13,8 +13,13 @@ import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/cons
 import { useWardrobe } from '@/contexts/wardrobe-context';
 import { useFamilyMemberWardrobe } from '@/hooks/use-family-member-wardrobe';
 import { AccountApiError } from '@/services/account';
-import { fetchSavedPairedOutfit, type SavedPairedOutfit } from '@/services/paired-outfits-storage';
+import {
+  deleteSavedPairedOutfit,
+  fetchSavedPairedOutfit,
+  type SavedPairedOutfit,
+} from '@/services/paired-outfits-storage';
 import { getAuthToken } from '@/storage/auth-token-storage';
+import { removeSavedPairedOutfitFromSnapshotCache } from '@/storage/saved-paired-outfits-snapshot-cache';
 import { isRetryableNetworkError } from '@/utils/network-error';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 
@@ -24,7 +29,9 @@ export default function SavedPairedOutfitDetailScreen() {
   const { items } = useWardrobe();
   const [outfit, setOutfit] = useState<SavedPairedOutfit | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [networkError, setNetworkError] = useState(false);
+  const [deleteNetworkError, setDeleteNetworkError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const memberPublicId = outfit?.member.publicId ?? '';
   const { state: familyWardrobeState } = useFamilyMemberWardrobe(memberPublicId);
@@ -97,6 +104,65 @@ export default function SavedPairedOutfitDetailScreen() {
   useEffect(() => {
     void loadOutfit();
   }, [loadOutfit]);
+
+  const finishDelete = useCallback(() => {
+    removeSavedPairedOutfitFromSnapshotCache(outfitId);
+    router.back();
+  }, [outfitId]);
+
+  const performDelete = useCallback(async () => {
+    if (isDeleting || !outfitId) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteNetworkError(false);
+    setError(null);
+
+    try {
+      const token = await getAuthToken();
+
+      if (!token) {
+        setError('Не удалось получить токен авторизации.');
+        return;
+      }
+
+      await deleteSavedPairedOutfit(token, outfitId);
+      finishDelete();
+    } catch (deleteError) {
+      if (isRetryableNetworkError(deleteError)) {
+        setDeleteNetworkError(true);
+        return;
+      }
+
+      if (deleteError instanceof AccountApiError && deleteError.status === 404) {
+        finishDelete();
+        return;
+      }
+
+      if (deleteError instanceof AccountApiError) {
+        setError(deleteError.message);
+        return;
+      }
+
+      setError('Не удалось удалить совместный образ.');
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [finishDelete, isDeleting, outfitId]);
+
+  const handleDeletePress = () => {
+    Alert.alert('Удалить совместный образ?', 'Это действие нельзя отменить.', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: () => {
+          void performDelete();
+        },
+      },
+    ]);
+  };
 
   if (isLoading) {
     return (
@@ -172,6 +238,30 @@ export default function SavedPairedOutfitDetailScreen() {
                 {outfit.explanation}
               </ThemedText>
             </View>
+          ) : null}
+
+          <Pressable
+            onPress={handleDeletePress}
+            disabled={isDeleting}
+            style={({ pressed }) => [
+              styles.deleteButton,
+              pressed && !isDeleting && styles.pressed,
+              isDeleting && styles.deleteButtonDisabled,
+            ]}>
+            {isDeleting ? (
+              <ActivityIndicator color="#DC2626" />
+            ) : (
+              <ThemedText style={styles.deleteButtonText}>Удалить совместный образ</ThemedText>
+            )}
+          </Pressable>
+
+          {deleteNetworkError ? (
+            <NetworkErrorCard compact onRetry={() => void performDelete()} />
+          ) : null}
+          {error ? (
+            <ThemedText themeColor="textSecondary" style={styles.errorText}>
+              {error}
+            </ThemedText>
           ) : null}
         </ScrollView>
       </SafeAreaView>
@@ -259,6 +349,26 @@ const styles = StyleSheet.create({
   backButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  deleteButton: {
+    marginTop: Spacing.two,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.two,
+  },
+  deleteButtonDisabled: {
+    opacity: 0.7,
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#DC2626',
+  },
+  errorText: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   pressed: {
     opacity: 0.7,

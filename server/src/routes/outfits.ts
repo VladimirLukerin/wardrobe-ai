@@ -16,7 +16,13 @@ outfitsRouter.get('/outfits', requireAuth, (req: Request, res: Response) => {
     return;
   }
 
-  res.json(getSavedOutfitsSnapshot(req.authUser.id));
+  const snapshot = getSavedOutfitsSnapshot(req.authUser.id);
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[STATS AUDIT] DB outfits=${snapshot.outfits.length}`);
+  }
+
+  res.json(snapshot);
 });
 
 outfitsRouter.post('/outfits/sync', requireAuth, (req: Request, res: Response) => {

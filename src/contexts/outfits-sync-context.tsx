@@ -29,7 +29,7 @@ import {
   registerOutfitsSyncQueue,
   unregisterOutfitsSyncQueue,
 } from '@/utils/outfits-sync-queue';
-import { hasOutfitsPendingChanges, isSyncFresh } from '@/utils/sync-ttl';
+import { shouldSkipOutfitsServerSync } from '@/utils/sync-ttl';
 import type { SyncRunOptions } from '@/utils/sync-run-options';
 
 export type OutfitsSyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error';
@@ -126,15 +126,16 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
 
       const metadata = await loadOutfitsSyncMetadata();
 
+      const localOutfitsForPlan = restoreOnly ? [] : savedOutfits;
+
       if (
         !forceReconciliation &&
-        !isRestoringAccount &&
-        isSyncFresh(metadata.lastServerSyncAt) &&
-        !hasOutfitsPendingChanges(metadata)
+        !restoreOnly &&
+        shouldSkipOutfitsServerSync(metadata, localOutfitsForPlan.length, isRestoringAccount)
       ) {
         if (__DEV__) {
           console.log(
-            `[OUTFITS SYNC] cache hit local=${savedOutfits.length} serverMeta=${Object.keys(metadata.serverUpdatedAtById).length}`,
+            `[OUTFITS SYNC] cache hit local=${localOutfitsForPlan.length} serverMeta=${Object.keys(metadata.serverUpdatedAtById).length}`,
           );
         }
         console.log('[OUTFITS SYNC] cache hit');
@@ -146,7 +147,10 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
 
       try {
         const serverSnapshot = await fetchOutfitsSnapshot(token);
-        const localOutfitsForPlan = restoreOnly ? [] : savedOutfits;
+
+        if (__DEV__) {
+          console.log(`[STATS AUDIT] API outfits=${serverSnapshot.outfits.length}`);
+        }
 
         const plan = buildOutfitsSyncPlan({
           localOutfits: localOutfitsForPlan,
@@ -240,6 +244,10 @@ export function OutfitsSyncProvider({ children }: { children: ReactNode }) {
 
         if (!isCurrentSession()) {
           return;
+        }
+
+        if (__DEV__) {
+          console.log(`[STATS AUDIT] sync applied outfits=${plan.outfitsToApply.length}`);
         }
 
         setStatus('synced');

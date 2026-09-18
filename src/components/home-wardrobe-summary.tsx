@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -34,6 +34,14 @@ export function HomeWardrobeSummary() {
       }),
     [items, wearEvents, savedOutfits],
   );
+
+  useEffect(() => {
+    if (__DEV__ && items.length > 0) {
+      console.log(
+        `[STATS AUDIT] UI wornItems=${statistics.wornUniqueCount} savedOutfits=${statistics.savedOutfitCount}`,
+      );
+    }
+  }, [items.length, statistics.savedOutfitCount, statistics.wornUniqueCount]);
 
   if (statistics.totalItems === 0) {
     return (

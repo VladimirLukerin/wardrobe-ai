@@ -1,15 +1,15 @@
 import {
-  buildDailyInputSignature,
   upsertDailyOutfit,
   type DailyOutfitResponse,
 } from '../db/daily-outfits-repository';
+import { getPreferencesResponse } from '../db/user-preferences-repository';
 import { buildPersonPairedOutfitContext } from '../paired-outfits/build-person-context';
 import type { SuggestOutfitsLocation } from '../suggest-outfits';
 import {
   generateOutfitSuggestionsFromBody,
   hasMinimumWardrobeForOutfit,
-  type WardrobeItemPayload,
 } from '../suggest-outfits';
+import { buildDailyOutfitInputSignature } from './build-daily-outfit-input-signature';
 
 export class DailyOutfitGenerationError extends Error {
   readonly status: number;
@@ -21,38 +21,61 @@ export class DailyOutfitGenerationError extends Error {
   }
 }
 
-function buildServerDailyInputSignature({
-  localDate,
-  wardrobe,
-  stylistPreferences,
-  userParameters,
-  location,
-}: {
-  localDate: string;
-  wardrobe: WardrobeItemPayload[];
-  stylistPreferences: ReturnType<typeof buildPersonPairedOutfitContext>['stylistPreferences'];
-  userParameters: ReturnType<typeof buildPersonPairedOutfitContext>['userParameters'];
-  location: SuggestOutfitsLocation | null;
-}): string {
-  return buildDailyInputSignature({
-    localDate,
-    wardrobeIds: wardrobe.map((item) => item.id).sort(),
-    wardrobeUpdatedAt: wardrobe.map((item) => item.lastWornAt ?? '').join('|'),
-    stylistPreferences,
-    userParameters,
-    location,
-  });
-}
+const regenerationInFlight = new Map<string, Promise<DailyOutfitResponse>>();
 
 export async function generateAndStoreDailyOutfit({
   userId,
   localDate,
   location,
+  force = false,
 }: {
   userId: string;
   localDate: string;
   location: SuggestOutfitsLocation | null;
+  force?: boolean;
 }): Promise<DailyOutfitResponse> {
+  const inFlightKey = `${userId}:${localDate}`;
+  const existing = regenerationInFlight.get(inFlightKey);
+
+  if (existing) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[DAILY REGEN] dedup');
+    }
+
+    return existing;
+  }
+
+  const generationPromise = generateAndStoreDailyOutfitInternal({
+    userId,
+    localDate,
+    location,
+    force,
+  }).finally(() => {
+    regenerationInFlight.delete(inFlightKey);
+  });
+
+  regenerationInFlight.set(inFlightKey, generationPromise);
+
+  return generationPromise;
+}
+
+async function generateAndStoreDailyOutfitInternal({
+  userId,
+  localDate,
+  location,
+  force,
+}: {
+  userId: string;
+  localDate: string;
+  location: SuggestOutfitsLocation | null;
+  force: boolean;
+}): Promise<DailyOutfitResponse> {
+  const preferences = getPreferencesResponse(userId);
+
+  if (!force && !preferences.stylistPreferences?.dailyStylistEnabled) {
+    throw new DailyOutfitGenerationError(403, 'Daily stylist is disabled.');
+  }
+
   const person = buildPersonPairedOutfitContext(userId);
 
   if (!hasMinimumWardrobeForOutfit(person.wardrobe)) {
@@ -74,12 +97,10 @@ export async function generateAndStoreDailyOutfit({
     throw new DailyOutfitGenerationError(502, 'Не удалось сгенерировать daily outfit.');
   }
 
-  const inputSignature = buildServerDailyInputSignature({
+  const inputSignature = buildDailyOutfitInputSignature({
+    userId,
     localDate,
-    wardrobe: person.wardrobe,
-    stylistPreferences: person.stylistPreferences,
-    userParameters: person.userParameters,
-    location,
+    locationOverride: location,
   });
 
   if (process.env.NODE_ENV !== 'production') {

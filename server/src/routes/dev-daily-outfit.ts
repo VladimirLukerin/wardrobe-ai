@@ -91,6 +91,7 @@ devDailyOutfitRouter.post('/daily-outfit/generate', requireAuth, async (req: Req
       userId: targetUserId,
       localDate,
       location,
+      force: true,
     });
 
     res.json({ outfit });

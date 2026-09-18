@@ -6,7 +6,7 @@ import multer from 'multer';
 
 import { getDatabase } from './db/database';
 import { currentWeatherHandler } from './current-weather';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, optionalAuth } from './middleware/auth';
 import { handleProcessClothingImage } from './photo-processing/process-clothing-image';
 import { authRouter, meHandler, patchMeHandler } from './routes/auth';
 import { dailyOutfitsRouter } from './routes/daily-outfits';
@@ -17,6 +17,7 @@ import { familyRouter } from './routes/family';
 import { pairedOutfitsRouter } from './routes/paired-outfits';
 import { phoneLoginRouter } from './routes/phone-login';
 import { phoneLinkRouter } from './routes/phone-link';
+import { outfitFeedbackRouter } from './routes/outfit-feedback';
 import { outfitsRouter } from './routes/outfits';
 import { wearHistoryRouter } from './routes/wear-history';
 import { preferencesRouter } from './routes/preferences';
@@ -70,12 +71,13 @@ app.use('/me', wearHistoryRouter);
 app.use('/me', familyRouter);
 app.use('/me', pairedOutfitsRouter);
 app.use('/me', dailyOutfitsRouter);
+app.use('/me', outfitFeedbackRouter);
 app.use('/me', wardrobeRouter);
 app.use('/me/wardrobe', wardrobeImagesRouter);
 app.get('/me', requireAuth, meHandler);
 app.patch('/me', requireAuth, patchMeHandler);
 
-app.post('/suggest-outfits', suggestOutfitsHandler);
+app.post('/suggest-outfits', optionalAuth, suggestOutfitsHandler);
 app.post('/current-weather', currentWeatherHandler);
 
 app.post('/process-clothing-image', requireAuth, upload.single('image'), (req, res) => {

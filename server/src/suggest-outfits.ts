@@ -1,4 +1,6 @@
 import type { Request, Response } from 'express';
+import type { OutfitFeedbackReason } from './db/outfit-feedback-reasons';
+import { mergeOutfitFeedbackIntoBehavioralContext } from './outfit-feedback/build-outfit-feedback-context';
 import OpenAI from 'openai';
 
 import { getCurrentWeather, type CurrentWeather } from './providers/weather';
@@ -50,12 +52,22 @@ export type CompactOutfitRef = {
   title?: string;
 };
 
+export type OutfitFeedbackContextPayload = {
+  recentlyLikedItemIds: string[];
+  recentlyDislikedItemIds: string[];
+  likedCombinations: CompactOutfitRef[];
+  dislikedCombinations: CompactOutfitRef[];
+  stronglyDislikedItemIds: string[];
+  reasonCounts: Partial<Record<OutfitFeedbackReason, number>>;
+};
+
 export type BehavioralContextPayload = {
   favoriteItemIds: string[];
   frequentlyWorn: Array<{ id: string; wearCount: number; lastWornAt: string | null }>;
   recentManualOutfits: CompactOutfitRef[];
   recentSavedAiOutfits: CompactOutfitRef[];
   recentOutfitSignatures: string[];
+  outfitFeedback?: OutfitFeedbackContextPayload;
 };
 
 export type StylistPreferencesPayload = {
@@ -159,6 +171,41 @@ function parseCompactOutfitRef(value: unknown): CompactOutfitRef | null {
   };
 }
 
+function parseOutfitFeedbackContext(value: unknown): OutfitFeedbackContextPayload | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const parseItemIds = (raw: unknown): string[] =>
+    Array.isArray(raw) ? raw.filter((itemId): itemId is string => typeof itemId === 'string') : [];
+
+  const parseCombinations = (raw: unknown): CompactOutfitRef[] =>
+    Array.isArray(raw)
+      ? raw
+          .map((entry) => parseCompactOutfitRef(entry))
+          .filter((entry): entry is CompactOutfitRef => entry !== null)
+      : [];
+
+  const reasonCounts: Partial<Record<OutfitFeedbackReason, number>> = {};
+
+  if (isRecord(value.reasonCounts)) {
+    for (const [key, count] of Object.entries(value.reasonCounts)) {
+      if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+        reasonCounts[key as OutfitFeedbackReason] = Math.floor(count);
+      }
+    }
+  }
+
+  return {
+    recentlyLikedItemIds: parseItemIds(value.recentlyLikedItemIds),
+    recentlyDislikedItemIds: parseItemIds(value.recentlyDislikedItemIds),
+    likedCombinations: parseCombinations(value.likedCombinations),
+    dislikedCombinations: parseCombinations(value.dislikedCombinations),
+    stronglyDislikedItemIds: parseItemIds(value.stronglyDislikedItemIds),
+    reasonCounts,
+  };
+}
+
 function parseBehavioralContext(value: unknown, wardrobe: WardrobeItemPayload[]): BehavioralContextPayload {
   const fallbackFavorites = wardrobe.filter((item) => item.isFavorite).map((item) => item.id);
 
@@ -222,6 +269,7 @@ function parseBehavioralContext(value: unknown, wardrobe: WardrobeItemPayload[])
     recentManualOutfits,
     recentSavedAiOutfits,
     recentOutfitSignatures,
+    outfitFeedback: parseOutfitFeedbackContext(value.outfitFeedback),
   };
 }
 
@@ -837,6 +885,42 @@ function buildUserBehaviorSection(
     'Variety: do not always pick top favorites or highest wearCount; balance familiar vs fresh combinations.',
   );
 
+  const feedback = behavioralContext.outfitFeedback;
+
+  if (feedback) {
+    const reasonSummary = Object.entries(feedback.reasonCounts)
+      .filter(([, count]) => count > 0)
+      .map(([reason, count]) => `${reason}: ${count}`)
+      .join(', ');
+
+    lines.push(
+      '',
+      'G. RECENT OUTFIT FEEDBACK (soft preference hints, not hard bans)',
+      '',
+      'Interpretation rules:',
+      '- These are recent thumbs-up/down on AI recommendations only.',
+      '- LIKE: gently favor similar combinations/styles; do NOT repeat the exact same outfit.',
+      '- DISLIKE combination_disliked: avoid similar combinations; individual items stay allowed.',
+      '- DISLIKE item_disliked: strongly reduce priority of listed items; keep them in wardrobe.',
+      '- DISLIKE too_familiar: next outfit may lean slightly toward rare/regular variety.',
+      '- DISLIKE too_unusual: next outfit may lean slightly toward familiar/regular combinations.',
+      '- DISLIKE weather_mismatch: weak weather signal only; real weather rules still win.',
+      '- One dislike does not ban items forever; balance with other signals.',
+      '',
+      `recentlyLikedItemIds: [${feedback.recentlyLikedItemIds.join(', ') || 'none'}]`,
+      `recentlyDislikedItemIds: [${feedback.recentlyDislikedItemIds.join(', ') || 'none'}]`,
+      `stronglyDislikedItemIds: [${feedback.stronglyDislikedItemIds.join(', ') || 'none'}]`,
+      '',
+      'likedCombinations:',
+      formatCompactOutfits(feedback.likedCombinations),
+      '',
+      'dislikedCombinations:',
+      formatCompactOutfits(feedback.dislikedCombinations),
+      '',
+      `reasonCounts: ${reasonSummary || 'none'}`,
+    );
+  }
+
   return lines;
 }
 
@@ -856,17 +940,21 @@ function buildWardrobeSummary(wardrobe: WardrobeItemPayload[]): string {
 
 export async function generateOutfitSuggestionsFromBody(
   parsedBody: SuggestOutfitsRequestBody,
+  options?: { userId?: string },
 ): Promise<{ outfits: OutfitSuggestion[]; weather: CurrentWeather | null }> {
   const {
     selectedItemId,
     wardrobe,
     stylistPreferences,
     userParameters,
-    behavioralContext,
+    behavioralContext: parsedBehavioralContext,
     location,
   } = parsedBody;
   const { considerWeather, avoidRepeatedOutfits } = stylistPreferences;
   const validIds = new Set(wardrobe.map((item) => item.id));
+  const behavioralContext = options?.userId
+    ? mergeOutfitFeedbackIntoBehavioralContext(parsedBehavioralContext, options.userId, validIds)
+    : parsedBehavioralContext;
 
   if (selectedItemId && !validIds.has(selectedItemId)) {
     throw new Error('selectedItemId отсутствует в wardrobe.');
@@ -1006,7 +1094,9 @@ export async function suggestOutfitsHandler(req: Request, res: Response): Promis
       return;
     }
 
-    const result = await generateOutfitSuggestionsFromBody(parsedBody);
+    const result = await generateOutfitSuggestionsFromBody(parsedBody, {
+      userId: req.authUser?.id,
+    });
 
     res.json(result);
   } catch (error) {

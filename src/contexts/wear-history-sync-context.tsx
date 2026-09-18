@@ -28,7 +28,7 @@ import {
   registerWearHistorySyncQueue,
   unregisterWearHistorySyncQueue,
 } from '@/utils/wear-history-sync-queue';
-import { hasWearHistoryPendingChanges, isSyncFresh } from '@/utils/sync-ttl';
+import { shouldSkipWearHistoryServerSync } from '@/utils/sync-ttl';
 import type { SyncRunOptions } from '@/utils/sync-run-options';
 
 export type WearHistorySyncStatus = 'idle' | 'syncing' | 'synced' | 'pending' | 'offline' | 'error';
@@ -125,15 +125,16 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
 
       const metadata = await loadWearHistorySyncMetadata();
 
+      const localEventsForPlan = restoreOnly ? [] : wearEvents;
+
       if (
         !forceReconciliation &&
-        !isRestoringAccount &&
-        isSyncFresh(metadata.lastServerSyncAt) &&
-        !hasWearHistoryPendingChanges(metadata)
+        !restoreOnly &&
+        shouldSkipWearHistoryServerSync(metadata, localEventsForPlan.length, isRestoringAccount)
       ) {
         if (__DEV__) {
           console.log(
-            `[WEAR SYNC] cache hit local=${wearEvents.length} serverMeta=${Object.keys(metadata.serverUpdatedAtById).length}`,
+            `[WEAR SYNC] cache hit local=${localEventsForPlan.length} serverMeta=${Object.keys(metadata.serverUpdatedAtById).length}`,
           );
         }
         console.log('[WEAR SYNC] cache hit');
@@ -145,7 +146,10 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
 
       try {
         const serverSnapshot = await fetchWearHistorySnapshot(token);
-        const localEventsForPlan = restoreOnly ? [] : wearEvents;
+
+        if (__DEV__) {
+          console.log(`[STATS AUDIT] API wear=${serverSnapshot.events.length}`);
+        }
 
         const plan = buildWearHistorySyncPlan({
           localEvents: localEventsForPlan,
@@ -230,6 +234,10 @@ export function WearHistorySyncProvider({ children }: { children: ReactNode }) {
 
         if (!isCurrentSession()) {
           return;
+        }
+
+        if (__DEV__) {
+          console.log(`[STATS AUDIT] sync applied wear=${plan.eventsToApply.length}`);
         }
 
         setStatus('synced');

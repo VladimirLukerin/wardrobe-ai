@@ -21,6 +21,23 @@ function extractBearerToken(authorizationHeader: string | undefined): string | n
   return token.length > 0 ? token : null;
 }
 
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const token = extractBearerToken(req.headers.authorization);
+
+  if (!token) {
+    next();
+    return;
+  }
+
+  const user = findUserBySessionToken(token);
+
+  if (user) {
+    req.authUser = toUserResponse(user);
+  }
+
+  next();
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const token = extractBearerToken(req.headers.authorization);
 

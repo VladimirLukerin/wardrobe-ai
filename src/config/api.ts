@@ -60,7 +60,19 @@ export function dailyOutfitTodayEndpoint(localDate: string): string {
   return url.toString();
 }
 
+export function dailyOutfitRegenerateEndpoint(): string {
+  return `${API_BASE_URL}/me/daily-outfits/today/regenerate`;
+}
+
 export const DEV_DAILY_OUTFIT_GENERATE_ENDPOINT = `${API_BASE_URL}/dev/daily-outfit/generate`;
+
+export function outfitFeedbackEndpoint(recommendationKey?: string): string {
+  if (recommendationKey) {
+    return `${API_BASE_URL}/me/outfit-feedback/${encodeURIComponent(recommendationKey)}`;
+  }
+
+  return `${API_BASE_URL}/me/outfit-feedback`;
+}
 
 function familyMemberWardrobeImageEndpoint(
   memberPublicId: string,

@@ -10,6 +10,7 @@ import type {
   WardrobeItemPayload,
 } from '../suggest-outfits';
 import { buildServerBehavioralContext } from './build-behavioral-context';
+import { mergeOutfitFeedbackIntoBehavioralContext } from '../outfit-feedback/build-outfit-feedback-context';
 import {
   buildItemBehaviorSignals,
   buildSavedOutfitUseCounts,
@@ -107,12 +108,16 @@ export function buildPersonPairedOutfitContext(userId: string): PersonPairedOutf
     weatherSensitivity: preferences.bodyParameters?.weatherSensitivity ?? null,
   };
 
-  const behavioralContext = buildServerBehavioralContext({
-    wardrobe,
-    savedOutfits,
-    wearEvents,
-    avoidRepeatedOutfits: stylistPreferences.avoidRepeatedOutfits,
-  });
+  const behavioralContext = mergeOutfitFeedbackIntoBehavioralContext(
+    buildServerBehavioralContext({
+      wardrobe,
+      savedOutfits,
+      wearEvents,
+      avoidRepeatedOutfits: stylistPreferences.avoidRepeatedOutfits,
+    }),
+    userId,
+    new Set(wardrobe.map((item) => item.id)),
+  );
 
   return {
     userId,

@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 
+import { getSavedOutfitsSnapshot } from '../db/saved-outfits-repository';
 import { getWearHistorySnapshot, syncWearEvents } from '../db/wear-events-repository';
 import {
   validateWearEventDeleteItem,
@@ -16,7 +17,16 @@ wearHistoryRouter.get('/wear-history', requireAuth, (req: Request, res: Response
     return;
   }
 
-  res.json(getWearHistorySnapshot(req.authUser.id));
+  const snapshot = getWearHistorySnapshot(req.authUser.id);
+
+  if (process.env.NODE_ENV !== 'production') {
+    const outfitsSnapshot = getSavedOutfitsSnapshot(req.authUser.id);
+    console.log(
+      `[STATS AUDIT] DB wear=${snapshot.events.length} outfits=${outfitsSnapshot.outfits.length}`,
+    );
+  }
+
+  res.json(snapshot);
 });
 
 wearHistoryRouter.post('/wear-history/sync', requireAuth, (req: Request, res: Response) => {

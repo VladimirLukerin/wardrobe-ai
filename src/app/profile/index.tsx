@@ -1,6 +1,6 @@
 import { SymbolView } from 'expo-symbols';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -18,9 +18,11 @@ import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/cons
 import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
 import { useFamily } from '@/contexts/family-context';
+import { useHomeDailyData } from '@/contexts/home-daily-content-context';
 import { useOutfits } from '@/contexts/outfits-context';
 import { useOutfitsSync } from '@/contexts/outfits-sync-context';
 import { usePreferencesSync } from '@/contexts/preferences-sync-context';
+import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
 import { useStylePreferences } from '@/contexts/style-preferences-context';
 import { useWearHistory } from '@/contexts/wear-history-context';
 import { useWearHistorySync } from '@/contexts/wear-history-sync-context';
@@ -28,9 +30,15 @@ import { useWardrobe } from '@/contexts/wardrobe-context';
 import { useWardrobeSync } from '@/contexts/wardrobe-sync-context';
 import { AccountApiError } from '@/services/account';
 import { assessLocalAccountState } from '@/services/account-switch';
+import {
+  DevGenerateDailyOutfitError,
+  generateDevDailyOutfitForToday,
+} from '@/services/dev-generate-daily-outfit';
 import { refreshDevTestData } from '@/services/dev-refresh-test-data';
 import { restoreDevTestDataFromServer } from '@/services/dev-server-restore';
 import { isAccountProtected } from '@/utils/account-is-protected';
+import { isRetryableNetworkError, NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE } from '@/utils/network-error';
+import { getLocalCalendarDateKeyForTimezone } from '@/utils/wear-date';
 
 const PROFILE = {
   completion: 70,
@@ -59,17 +67,22 @@ export default function ProfileScreen() {
   const [isLoginChoiceVisible, setIsLoginChoiceVisible] = useState(false);
   const [isDevRefreshInProgress, setIsDevRefreshInProgress] = useState(false);
   const [isDevServerRestoreInProgress, setIsDevServerRestoreInProgress] = useState(false);
-  const { user, logoutFromProfile, devResetTestAccount } = useAccount();
+  const [isDevDailyGenerateInProgress, setIsDevDailyGenerateInProgress] = useState(false);
+  const { user, logoutFromProfile, devResetTestAccount, isServerAccount } = useAccount();
   const { displayName } = useAccountProfile();
   const { status: preferencesSyncStatus } = usePreferencesSync();
   const { status: wardrobeSyncStatus, runWardrobeSync } = useWardrobeSync();
   const { status: outfitsSyncStatus, runOutfitsSync } = useOutfitsSync();
   const { status: wearHistorySyncStatus, runWearHistorySync } = useWearHistorySync();
-  const { resetForDevServerRestore: resetWardrobeForDevServerRestore } = useWardrobe();
+  const { resetForDevServerRestore: resetWardrobeForDevServerRestore, items: wardrobeItems } =
+    useWardrobe();
   const { resetForDevServerRestore: resetOutfitsForDevServerRestore } = useOutfits();
   const { resetForDevServerRestore: resetWearHistoryForDevServerRestore } = useWearHistory();
   const { styles: preferredStyles, colors: preferredColors, hasStylePreferences } =
     useStylePreferences();
+  const { timezone } = useStylistPreferences();
+  const { refreshDailyContent } = useHomeDailyData();
+  const localDate = useMemo(() => getLocalCalendarDateKeyForTimezone(timezone), [timezone]);
   const {
     members,
     incomingInvites,
@@ -187,6 +200,44 @@ export default function ProfileScreen() {
         },
       ],
     );
+  };
+
+  const handleDevGenerateDailyPress = () => {
+    void (async () => {
+      if (isDevDailyGenerateInProgress) {
+        return;
+      }
+
+      setIsDevDailyGenerateInProgress(true);
+
+      try {
+        await generateDevDailyOutfitForToday({
+          isServerAccount,
+          localDate,
+          wardrobeItemCount: wardrobeItems.length,
+        });
+        console.log('[DEV DAILY] refresh home');
+        refreshDailyContent();
+        Alert.alert('Образ на сегодня создан');
+      } catch (error) {
+        if (isRetryableNetworkError(error)) {
+          Alert.alert(NETWORK_ERROR_TITLE, NETWORK_ERROR_HINT);
+          return;
+        }
+
+        if (error instanceof AccountApiError || error instanceof DevGenerateDailyOutfitError) {
+          Alert.alert('Не удалось создать образ', error.message);
+          return;
+        }
+
+        Alert.alert(
+          'Не удалось создать образ',
+          error instanceof Error ? error.message : 'Попробуйте ещё раз.',
+        );
+      } finally {
+        setIsDevDailyGenerateInProgress(false);
+      }
+    })();
   };
 
   const handleDevServerRestorePress = () => {
@@ -539,6 +590,22 @@ export default function ProfileScreen() {
             ) : null}
             {__DEV__ ? (
               <>
+                <Pressable
+                  onPress={handleDevGenerateDailyPress}
+                  disabled={isDevDailyGenerateInProgress}
+                  style={({ pressed }) => [
+                    styles.devServerRestoreButton,
+                    pressed && styles.pressed,
+                    isDevDailyGenerateInProgress && styles.devRefreshButtonDisabled,
+                  ]}>
+                  {isDevDailyGenerateInProgress ? (
+                    <ActivityIndicator color={Colors.light.textSecondary} />
+                  ) : (
+                    <ThemedText style={styles.devServerRestoreText}>
+                      Сгенерировать образ на сегодня
+                    </ThemedText>
+                  )}
+                </Pressable>
                 <Pressable
                   onPress={handleDevServerRestorePress}
                   disabled={isDevServerRestoreInProgress}

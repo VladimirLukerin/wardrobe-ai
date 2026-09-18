@@ -1,6 +1,7 @@
 import { describeOutfitItems } from '@/utils/outfit-description';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FitPreference, WeatherSensitivity } from '@/constants/body-parameters';
+import type { OutfitFeedback, OutfitFeedbackReason } from '@/constants/outfit-feedback';
 import type { SavedOutfit } from '@/constants/saved-outfit';
 import type { StylistPreferences } from '@/constants/stylist-preferences';
 import type { WearEvent } from '@/constants/wear-event';
@@ -23,7 +24,19 @@ import {
   type OutfitWeather,
   type SuggestOutfitsLocation,
 } from '@/services/outfit-suggestions';
-import { NETWORK_ERROR_TITLE } from '@/utils/network-error';
+import {
+  fetchTodayDailyOutfit,
+  regenerateDailyOutfit,
+  type DailyOutfit,
+} from '@/services/paired-outfits-storage';
+import { AccountApiError } from '@/services/account';
+import { fetchOutfitFeedback, saveOutfitFeedback } from '@/services/outfit-feedback';
+import { getAuthToken } from '@/storage/auth-token-storage';
+import {
+  buildDailyRecommendationKey,
+  buildHomeSuggestRecommendationKey,
+} from '@/utils/build-recommendation-key';
+import { isRetryableNetworkError, NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import type { WardrobeItem } from '@/contexts/wardrobe-context';
 import { buildStylistContext } from '@/utils/build-stylist-context';
 import { buildHomeInputSignature } from '@/utils/home-input-signature';
@@ -33,6 +46,8 @@ import type { WearHistoryLookup } from '@/utils/build-wardrobe-suggestion-payloa
 
 type Params = {
   isHydrated: boolean;
+  isServerAccount: boolean;
+  localDate: string;
   items: WardrobeItem[];
   savedOutfits: SavedOutfit[];
   wearEvents: WearEvent[];
@@ -49,8 +64,93 @@ export type HomeContentErrorKind = 'network' | 'server';
 
 const CACHE_SIGNATURE_PREFIX = 'v3';
 
+function devDailyHomeLog(message: string): void {
+  if (__DEV__) {
+    console.log(message);
+  }
+}
+
+function buildDailyCacheSignature(localDate: string): string {
+  return `daily:${localDate}`;
+}
+
+function sanitizeDailyOutfitItemIds(itemIds: string[], wardrobe: WardrobeItem[]): string[] | null {
+  const validIds = [...new Set(itemIds.filter((id) => wardrobe.some((item) => item.id === id)))];
+  return validIds.length >= 2 ? validIds : null;
+}
+
+function dailyOutfitToSuggestion(
+  daily: DailyOutfit,
+  itemIds: string[],
+  wardrobe: WardrobeItem[],
+): OutfitSuggestion {
+  const sanitized = itemIds.length !== daily.itemIds.length;
+
+  return {
+    id: daily.id,
+    title: 'Твой вариант на сегодня',
+    itemIds,
+    description: sanitized
+      ? describeOutfitItems(wardrobe.filter((item) => itemIds.includes(item.id)))
+      : daily.description,
+  };
+}
+
+type ApplyServerDailyParams = {
+  daily: DailyOutfit;
+  sanitizedItemIds: string[];
+  wardrobe: WardrobeItem[];
+  localDate: string;
+  legacyWeatherData: OutfitWeather | null;
+  persist: (entry: CachedHomeOutfitEntry) => void;
+  runWeatherTask: () => void;
+  setHomeOutfit: (outfit: OutfitSuggestion | null) => void;
+  setWeather: (weather: OutfitWeather | null) => void;
+  setLoadState: (state: LoadState) => void;
+  setWeatherLoading: (loading: boolean) => void;
+  considerWeather: boolean;
+  hasRequestLocation: boolean;
+  currentOutfit: { current: OutfitSuggestion | null };
+  currentEntry: { current: CachedHomeOutfitEntry | null };
+  setRecommendationKey: (key: string | null) => void;
+};
+
+function applyServerDailyOutfit(params: ApplyServerDailyParams): OutfitSuggestion {
+  const outfit = dailyOutfitToSuggestion(params.daily, params.sanitizedItemIds, params.wardrobe);
+  const recommendationKey = buildDailyRecommendationKey(params.localDate, params.daily.inputSignature);
+  const entry = {
+    outfit,
+    inputSignature: buildDailyCacheSignature(params.localDate),
+    recommendationKey,
+    fetchedAt: Date.now(),
+  };
+
+  params.currentOutfit.current = outfit;
+  params.currentEntry.current = entry;
+  params.setHomeOutfit(outfit);
+  params.setRecommendationKey(recommendationKey);
+  params.setWeather(params.daily.weather ?? params.legacyWeatherData);
+  params.setLoadState('success');
+  params.setWeatherLoading(params.considerWeather && params.hasRequestLocation);
+  params.persist(entry);
+  params.runWeatherTask();
+
+  return outfit;
+}
+
 export function useHomeDailyContent(params: Params) {
-  const { isHydrated, items, savedOutfits, wearEvents, stylistPreferences, userParameters, requestLocation, wearHistory } = params;
+  const {
+    isHydrated,
+    isServerAccount,
+    localDate,
+    items,
+    savedOutfits,
+    wearEvents,
+    stylistPreferences,
+    userParameters,
+    requestLocation,
+    wearHistory,
+  } = params;
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [homeOutfit, setHomeOutfit] = useState<OutfitSuggestion | null>(null);
   const [weather, setWeather] = useState<OutfitWeather | null>(null);
@@ -59,6 +159,14 @@ export function useHomeDailyContent(params: Params) {
   const [regenerateError, setError] = useState<string | null>(null);
   const [outfitErrorKind, setOutfitErrorKind] = useState<HomeContentErrorKind | null>(null);
   const [weatherError, setWeatherError] = useState<CurrentWeatherErrorCode | null>(null);
+  const [recommendationKey, setRecommendationKey] = useState<string | null>(null);
+  const [outfitFeedback, setOutfitFeedback] = useState<OutfitFeedback | null>(null);
+  const [isFeedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackLoadError, setFeedbackLoadError] = useState(false);
+  const [isFeedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackSubmitError, setFeedbackSubmitError] = useState(false);
+  const pendingFeedbackRating = useRef<'like' | 'dislike' | null>(null);
+  const pendingFeedbackReason = useRef<OutfitFeedbackReason | null | undefined>(undefined);
   const generation = useRef(0);
   const busy = useRef(false);
   const currentOutfit = useRef<OutfitSuggestion | null>(null);
@@ -105,6 +213,7 @@ export function useHomeDailyContent(params: Params) {
         currentOutfit.current = cachedOutfit.outfit;
         currentEntry.current = cachedOutfit;
         setHomeOutfit(cachedOutfit.outfit);
+        setRecommendationKey(cachedOutfit.recommendationKey ?? null);
         setLoadState('success');
       }
 
@@ -164,6 +273,7 @@ export function useHomeDailyContent(params: Params) {
         wearEvents: p.wearEvents,
       });
       const cachedSignature = `${CACHE_SIGNATURE_PREFIX}:${key}`;
+      const dailyCacheSignature = buildDailyCacheSignature(p.localDate);
       const cachedUsable =
         cached &&
         isHomeOutfitCacheFresh(cached.fetchedAt) &&
@@ -172,15 +282,332 @@ export function useHomeDailyContent(params: Params) {
           cached.inputSignature === `v2:${key}`) &&
         cached.outfit.itemIds.length >= 2 &&
         cached.outfit.itemIds.every((id) => p.items.some((item) => item.id === id));
+      const dailyCacheUsable =
+        p.isServerAccount &&
+        cached &&
+        isHomeOutfitCacheFresh(cached.fetchedAt) &&
+        cached.inputSignature === dailyCacheSignature &&
+        cached.outfit.itemIds.length >= 2 &&
+        cached.outfit.itemIds.every((id) => p.items.some((item) => item.id === id));
       const weatherCacheReady =
         !p.stylistPreferences.considerWeather ||
         !p.requestLocation ||
         Boolean(freshWeatherEntry);
 
-      if (!manual && cachedUsable && cached && weatherCacheReady) {
+      const runWeatherTask = () => {
+        weatherTask = (async () => {
+          if (!p.stylistPreferences.considerWeather || !p.requestLocation || !locationKey) {
+            setWeatherLoading(false);
+            return;
+          }
+
+          try {
+            setWeatherError(null);
+
+            const cachedWeather = freshWeatherEntry ?? legacyWeather;
+
+            if (
+              cachedWeather?.locationKey === locationKey &&
+              isWeatherCacheFresh(cachedWeather.fetchedAt)
+            ) {
+              if (!active()) return;
+              setWeather(cachedWeather.data);
+              return;
+            }
+
+            if (cachedWeather?.locationKey === locationKey) {
+              setWeather(cachedWeather.data);
+            }
+
+            const fresh = await fetchCurrentWeather(p.requestLocation);
+            if (!active()) return;
+
+            if (fresh) {
+              setWeather(fresh);
+              writes.current = writes.current
+                .catch(() => {})
+                .then(() =>
+                  saveWeatherCache({ data: fresh, locationKey, fetchedAt: Date.now() }),
+                );
+            }
+          } catch (weatherFailure) {
+            if (!active()) return;
+
+            if (weatherFailure instanceof CurrentWeatherError) {
+              setWeatherError(weatherFailure.code);
+            } else {
+              console.error('Unexpected weather error:', weatherFailure);
+              setWeatherError('server');
+            }
+          } finally {
+            if (active()) setWeatherLoading(false);
+          }
+        })();
+      };
+
+      if (
+        manual &&
+        p.isServerAccount &&
+        p.stylistPreferences.dailyStylistEnabled &&
+        p.localDate
+      ) {
+        try {
+          const token = await getAuthToken();
+
+          if (!token) {
+            throw new Error('Auth token missing');
+          }
+
+          devDailyHomeLog('[DAILY HOME] manual regenerate');
+          const daily = await regenerateDailyOutfit(token, p.localDate, p.requestLocation);
+          if (!active()) return;
+
+          const sanitizedItemIds = sanitizeDailyOutfitItemIds(daily.itemIds, p.items);
+
+          if (!sanitizedItemIds) {
+            throw new Error('No usable outfit');
+          }
+
+          applyServerDailyOutfit({
+            daily,
+            sanitizedItemIds,
+            wardrobe: p.items,
+            localDate: p.localDate,
+            legacyWeatherData,
+            persist,
+            runWeatherTask,
+            setHomeOutfit,
+            setWeather,
+            setLoadState,
+            setWeatherLoading,
+            considerWeather: p.stylistPreferences.considerWeather,
+            hasRequestLocation: Boolean(p.requestLocation),
+            currentOutfit,
+            currentEntry,
+            setRecommendationKey,
+          });
+          devDailyHomeLog('[DAILY HOME] daily replaced');
+          return;
+        } catch (manualRegenError) {
+          if (!active()) return;
+
+          const kind: HomeContentErrorKind = isRetryableNetworkError(manualRegenError)
+            ? 'network'
+            : 'server';
+
+          if (
+            !(manualRegenError instanceof AccountApiError) &&
+            !(manualRegenError instanceof Error && manualRegenError.message === 'No usable outfit') &&
+            !isRetryableNetworkError(manualRegenError)
+          ) {
+            console.error('Unexpected manual daily regeneration error:', manualRegenError);
+          }
+
+          setOutfitErrorKind(kind);
+          setLoadState(previous ? 'success' : 'error');
+          setError(
+            kind === 'network'
+              ? NETWORK_ERROR_TITLE
+              : manualRegenError instanceof AccountApiError ||
+                  manualRegenError instanceof Error
+                ? manualRegenError.message
+                : 'Не удалось обновить образ. Попробуй ещё раз.',
+          );
+          return;
+        }
+      }
+
+      if (!manual && p.isServerAccount && p.localDate) {
+        devDailyHomeLog(`[DAILY HOME] fetch date=${p.localDate}`);
+
+        try {
+          const token = await getAuthToken();
+
+          if (token) {
+            const daily = await fetchTodayDailyOutfit(token, p.localDate);
+            if (!active()) return;
+
+            if (daily) {
+              const sanitizedItemIds = sanitizeDailyOutfitItemIds(daily.itemIds, p.items);
+              const applyParams = {
+                daily,
+                sanitizedItemIds: sanitizedItemIds ?? daily.itemIds,
+                wardrobe: p.items,
+                localDate: p.localDate,
+                legacyWeatherData,
+                persist,
+                runWeatherTask,
+                setHomeOutfit,
+                setWeather,
+                setLoadState,
+                setWeatherLoading,
+                considerWeather: p.stylistPreferences.considerWeather,
+                hasRequestLocation: Boolean(p.requestLocation),
+                currentOutfit,
+                currentEntry,
+                setRecommendationKey,
+              };
+
+              if (sanitizedItemIds && !daily.isStale) {
+                devDailyHomeLog('[DAILY HOME] server hit');
+                applyServerDailyOutfit({ ...applyParams, sanitizedItemIds });
+                devDailyHomeLog('[DAILY HOME] suggest skipped');
+                return;
+              }
+
+              if (sanitizedItemIds && daily.isStale && !p.stylistPreferences.dailyStylistEnabled) {
+                devDailyHomeLog('[DAILY HOME] server hit');
+                applyServerDailyOutfit({ ...applyParams, sanitizedItemIds });
+                devDailyHomeLog('[DAILY HOME] suggest skipped');
+                return;
+              }
+
+              if (sanitizedItemIds && daily.isStale && p.stylistPreferences.dailyStylistEnabled) {
+                devDailyHomeLog('[DAILY HOME] server hit');
+                applyServerDailyOutfit({ ...applyParams, sanitizedItemIds });
+                devDailyHomeLog('[DAILY HOME] stale interim');
+
+                try {
+                  devDailyHomeLog('[DAILY HOME] stale regenerate');
+                  const regenerated = await regenerateDailyOutfit(
+                    token,
+                    p.localDate,
+                    p.requestLocation,
+                  );
+                  if (!active()) return;
+
+                  const regeneratedItemIds = sanitizeDailyOutfitItemIds(
+                    regenerated.itemIds,
+                    p.items,
+                  );
+
+                  if (regeneratedItemIds) {
+                    applyServerDailyOutfit({
+                      ...applyParams,
+                      daily: regenerated,
+                      sanitizedItemIds: regeneratedItemIds,
+                    });
+                    devDailyHomeLog('[DAILY HOME] daily replaced');
+                    devDailyHomeLog('[DAILY HOME] suggest skipped');
+                    return;
+                  }
+                } catch (staleRegenError) {
+                  if (!isRetryableNetworkError(staleRegenError)) {
+                    console.error('Unexpected stale daily regeneration error:', staleRegenError);
+                  }
+                }
+
+                devDailyHomeLog('[DAILY HOME] suggest skipped');
+                return;
+              }
+
+              if (!sanitizedItemIds && p.stylistPreferences.dailyStylistEnabled) {
+                devDailyHomeLog('[DAILY HOME] invalid itemIds fallback');
+
+                try {
+                  devDailyHomeLog('[DAILY HOME] stale regenerate');
+                  const regenerated = await regenerateDailyOutfit(
+                    token,
+                    p.localDate,
+                    p.requestLocation,
+                  );
+                  if (!active()) return;
+
+                  const regeneratedItemIds = sanitizeDailyOutfitItemIds(
+                    regenerated.itemIds,
+                    p.items,
+                  );
+
+                  if (regeneratedItemIds) {
+                    applyServerDailyOutfit({
+                      ...applyParams,
+                      daily: regenerated,
+                      sanitizedItemIds: regeneratedItemIds,
+                    });
+                    devDailyHomeLog('[DAILY HOME] daily replaced');
+                    devDailyHomeLog('[DAILY HOME] suggest skipped');
+                    return;
+                  }
+                } catch (invalidRegenError) {
+                  if (!isRetryableNetworkError(invalidRegenError)) {
+                    console.error('Unexpected invalid daily regeneration error:', invalidRegenError);
+                  }
+                }
+
+                devDailyHomeLog('[DAILY HOME] suggest fallback');
+              } else if (!sanitizedItemIds) {
+                devDailyHomeLog('[DAILY HOME] invalid itemIds fallback');
+              }
+            } else {
+              devDailyHomeLog('[DAILY HOME] server miss');
+
+              if (p.stylistPreferences.dailyStylistEnabled) {
+                devDailyHomeLog('[DAILY HOME] create missing daily');
+
+                try {
+                  const created = await regenerateDailyOutfit(
+                    token,
+                    p.localDate,
+                    p.requestLocation,
+                    { dedupLogLabel: '[DAILY HOME] create dedup' },
+                  );
+                  if (!active()) return;
+
+                  const createdItemIds = sanitizeDailyOutfitItemIds(created.itemIds, p.items);
+
+                  if (createdItemIds) {
+                    applyServerDailyOutfit({
+                      daily: created,
+                      sanitizedItemIds: createdItemIds,
+                      wardrobe: p.items,
+                      localDate: p.localDate,
+                      legacyWeatherData,
+                      persist,
+                      runWeatherTask,
+                      setHomeOutfit,
+                      setWeather,
+                      setLoadState,
+                      setWeatherLoading,
+                      considerWeather: p.stylistPreferences.considerWeather,
+                      hasRequestLocation: Boolean(p.requestLocation),
+                      currentOutfit,
+                      currentEntry,
+                      setRecommendationKey,
+                    });
+                    devDailyHomeLog('[DAILY HOME] missing daily created');
+                    devDailyHomeLog('[DAILY HOME] suggest skipped');
+                    return;
+                  }
+                } catch (createMissingError) {
+                  if (isRetryableNetworkError(createMissingError)) {
+                    devDailyHomeLog('[DAILY HOME] network fallback');
+                  } else {
+                    console.error('Unexpected missing daily creation error:', createMissingError);
+                  }
+                }
+              }
+            }
+          }
+        } catch (dailyFetchError) {
+          if (isRetryableNetworkError(dailyFetchError)) {
+            devDailyHomeLog('[DAILY HOME] network fallback');
+          } else {
+            console.error('Unexpected daily outfit fetch error:', dailyFetchError);
+          }
+        }
+      }
+
+      if (!manual && (cachedUsable || dailyCacheUsable) && cached && weatherCacheReady) {
+        const resolvedEntry = dailyCacheUsable
+          ? cached
+          : { ...cached, inputSignature: cachedSignature };
         currentOutfit.current = cached.outfit;
-        currentEntry.current = { ...cached, inputSignature: cachedSignature };
+        currentEntry.current = resolvedEntry;
         setHomeOutfit(cached.outfit);
+        setRecommendationKey(
+          resolvedEntry.recommendationKey ??
+            (dailyCacheUsable ? null : buildHomeSuggestRecommendationKey(cachedSignature)),
+        );
         setWeather(legacyWeatherData);
         setLoadState('success');
         setWeatherLoading(false);
@@ -193,75 +620,39 @@ export function useHomeDailyContent(params: Params) {
         currentOutfit.current = null;
         currentEntry.current = null;
         setHomeOutfit(null);
+        setRecommendationKey(null);
         setWeather(null);
       }
       setLoadState(previous ? 'success' : 'loading');
 
-      weatherTask = (async () => {
-        if (!p.stylistPreferences.considerWeather || !p.requestLocation || !locationKey) {
-          setWeatherLoading(false);
-          return;
-        }
+      runWeatherTask();
 
-        try {
-          setWeatherError(null);
-
-          const cachedWeather = freshWeatherEntry ?? legacyWeather;
-
-          if (
-            cachedWeather?.locationKey === locationKey &&
-            isWeatherCacheFresh(cachedWeather.fetchedAt)
-          ) {
-            if (!active()) return;
-            setWeather(cachedWeather.data);
-            return;
-          }
-
-          if (cachedWeather?.locationKey === locationKey) {
-            setWeather(cachedWeather.data);
-          }
-
-          const fresh = await fetchCurrentWeather(p.requestLocation);
-          if (!active()) return;
-
-          if (fresh) {
-            setWeather(fresh);
-            writes.current = writes.current
-              .catch(() => {})
-              .then(() =>
-                saveWeatherCache({ data: fresh, locationKey, fetchedAt: Date.now() }),
-              );
-          }
-        } catch (weatherFailure) {
-          // A weather failure must not prevent the outfit or startup animation from finishing.
-          if (!active()) return;
-
-          if (weatherFailure instanceof CurrentWeatherError) {
-            setWeatherError(weatherFailure.code);
-          } else {
-            console.error('Unexpected weather error:', weatherFailure);
-            setWeatherError('server');
-          }
-        } finally {
-          if (active()) setWeatherLoading(false);
-        }
-      })();
-
-      const fallback = previous ?? (cachedUsable && cached ? cached.outfit : null);
+      const cacheFallbackUsable = (cachedUsable || dailyCacheUsable) && cached;
+      const fallback = previous ?? (cacheFallbackUsable ? cached!.outfit : null);
 
       if (fallback) {
         currentOutfit.current = fallback;
-        if (!previous && cached) currentEntry.current = { ...cached, inputSignature: cachedSignature };
+        if (!previous && cached) {
+          const resolvedEntry = dailyCacheUsable
+            ? cached
+            : { ...cached, inputSignature: cachedSignature };
+          currentEntry.current = resolvedEntry;
+          setRecommendationKey(
+            resolvedEntry.recommendationKey ??
+              (dailyCacheUsable ? null : buildHomeSuggestRecommendationKey(cachedSignature)),
+          );
+        }
         setHomeOutfit(fallback);
         setLoadState('success');
       }
 
-      if (!manual && cachedUsable && cached) {
+      if (!manual && cacheFallbackUsable && cached) {
         void weatherTask;
         return;
       }
 
       try {
+        devDailyHomeLog('[DAILY HOME] suggest fallback');
         const stylistContext = buildStylistContext({
           wardrobe: p.items,
           savedOutfits: p.savedOutfits,
@@ -280,10 +671,17 @@ export function useHomeDailyContent(params: Params) {
             candidate.itemIds.every((id) => p.items.some((item) => item.id === id)),
         );
         if (!outfit) throw new Error('No usable outfit');
-        const entry = { outfit, inputSignature: cachedSignature, fetchedAt: Date.now() };
+        const recommendationKeyForSuggest = buildHomeSuggestRecommendationKey(cachedSignature);
+        const entry = {
+          outfit,
+          inputSignature: cachedSignature,
+          recommendationKey: recommendationKeyForSuggest,
+          fetchedAt: Date.now(),
+        };
         currentOutfit.current = outfit;
         currentEntry.current = entry;
         setHomeOutfit(outfit);
+        setRecommendationKey(recommendationKeyForSuggest);
         setLoadState('success');
         persist(entry);
       } catch (suggestFailure) {
@@ -323,13 +721,110 @@ export function useHomeDailyContent(params: Params) {
     }
   }, [persist]);
 
+  const loadOutfitFeedback = useCallback(async () => {
+    if (!isServerAccount || !recommendationKey) {
+      setOutfitFeedback(null);
+      setFeedbackLoadError(false);
+      setFeedbackLoading(false);
+      return;
+    }
+
+    setFeedbackLoading(true);
+    setFeedbackLoadError(false);
+
+    try {
+      const token = await getAuthToken();
+
+      if (!token) {
+        setOutfitFeedback(null);
+        return;
+      }
+
+      const feedback = await fetchOutfitFeedback(token, recommendationKey);
+      setOutfitFeedback(feedback);
+    } catch (error) {
+      if (isRetryableNetworkError(error)) {
+        setFeedbackLoadError(true);
+      } else {
+        console.error('Unexpected outfit feedback load error:', error);
+        setOutfitFeedback(null);
+      }
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }, [isServerAccount, recommendationKey]);
+
+  useEffect(() => {
+    void loadOutfitFeedback();
+  }, [loadOutfitFeedback]);
+
+  const submitOutfitFeedback = useCallback(
+    async (rating: 'like' | 'dislike', reason?: OutfitFeedbackReason | null) => {
+      if (!isServerAccount || !recommendationKey || !currentOutfit.current) {
+        return;
+      }
+
+      setFeedbackSubmitting(true);
+      setFeedbackSubmitError(false);
+      pendingFeedbackRating.current = rating;
+      pendingFeedbackReason.current = reason;
+
+      const optimisticFeedback: OutfitFeedback = {
+        recommendationKey,
+        itemIds: currentOutfit.current.itemIds,
+        rating,
+        reason: reason ?? null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setOutfitFeedback(optimisticFeedback);
+
+      try {
+        const token = await getAuthToken();
+
+        if (!token) {
+          throw new Error('Auth token missing');
+        }
+
+        const feedback = await saveOutfitFeedback(token, recommendationKey, {
+          itemIds: currentOutfit.current.itemIds,
+          rating,
+          ...(reason ? { reason } : {}),
+        });
+        setOutfitFeedback(feedback);
+        pendingFeedbackRating.current = null;
+        pendingFeedbackReason.current = undefined;
+      } catch (error) {
+        setOutfitFeedback(null);
+        if (isRetryableNetworkError(error)) {
+          setFeedbackSubmitError(true);
+        } else {
+          console.error('Unexpected outfit feedback submit error:', error);
+        }
+      } finally {
+        setFeedbackSubmitting(false);
+      }
+    },
+    [isServerAccount, recommendationKey],
+  );
+
+  const retryFeedbackSubmit = useCallback(() => {
+    const rating = pendingFeedbackRating.current;
+
+    if (!rating) {
+      return;
+    }
+
+    void submitOutfitFeedback(rating, pendingFeedbackReason.current);
+  }, [submitOutfitFeedback]);
+
   useEffect(() => {
     void sync();
     return () => {
       generation.current += 1;
       busy.current = false;
     };
-  }, [isHydrated, syncKey, sync]);
+  }, [isHydrated, isServerAccount, localDate, syncKey, sync]);
 
   const replaceItem = useCallback(
     (targetId: string, replacementId: string): boolean => {
@@ -358,6 +853,10 @@ export function useHomeDailyContent(params: Params) {
 
   const regenerateOutfit = useCallback(() => {
     void sync(true);
+  }, [sync]);
+
+  const refreshDailyContent = useCallback(() => {
+    void sync(false);
   }, [sync]);
 
   // Retries only the weather request, so the (expensive) outfit suggestion is left untouched.
@@ -408,7 +907,18 @@ export function useHomeDailyContent(params: Params) {
     regenerateError,
     outfitErrorKind,
     regenerateOutfit,
+    refreshDailyContent,
     refreshWeather,
     replaceItem,
+    recommendationKey,
+    outfitFeedback,
+    isFeedbackLoading,
+    feedbackLoadError,
+    isFeedbackSubmitting,
+    feedbackSubmitError,
+    submitOutfitFeedback,
+    retryOutfitFeedbackLoad: loadOutfitFeedback,
+    retryFeedbackSubmit,
+    feedbackEnabled: isServerAccount && recommendationKey !== null,
   };
 }

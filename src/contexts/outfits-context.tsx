@@ -81,7 +81,7 @@ export function OutfitsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (__DEV__ && isHydrated) {
-      console.log(`[OUTFITS CONTEXT] items=${savedOutfits.length}`);
+      console.log(`[STATS AUDIT] context outfits=${savedOutfits.length}`);
     }
   }, [isHydrated, savedOutfits]);
 

@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AccountSaveSheet from '@/components/account-save-sheet';
 import { HomeAccountReminderCard } from '@/components/home-account-reminder-card';
 import { HomeBrandHeader } from '@/components/home-brand-header';
+import { HomeOutfitFeedback } from '@/components/home-outfit-feedback';
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
 import { HomeOutfitFeed } from '@/components/home-outfit-feed';
 import { HomeWardrobeSummary } from '@/components/home-wardrobe-summary';
@@ -22,6 +23,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
 import type { SavedOutfit } from '@/constants/saved-outfit';
+import type { OutfitFeedback, OutfitFeedbackReason } from '@/constants/outfit-feedback';
 import { Colors, OutfitColors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
 import { useAccount } from '@/contexts/account-context';
@@ -97,6 +99,16 @@ function HomeOutfitCard({
   regenerateError,
   onToggleSave,
   onRegenerate,
+  feedbackEnabled,
+  outfitFeedback,
+  isFeedbackLoading,
+  isFeedbackSubmitting,
+  feedbackLoadError,
+  feedbackSubmitError,
+  onLikeFeedback,
+  onDislikeFeedback,
+  onRetryFeedbackLoad,
+  onRetryFeedbackSubmit,
 }: {
   outfit: OutfitSuggestion;
   wardrobeById: Map<string, WardrobeItem>;
@@ -105,6 +117,16 @@ function HomeOutfitCard({
   regenerateError: string | null;
   onToggleSave: () => void;
   onRegenerate: () => void;
+  feedbackEnabled: boolean;
+  outfitFeedback: OutfitFeedback | null;
+  isFeedbackLoading: boolean;
+  isFeedbackSubmitting: boolean;
+  feedbackLoadError: boolean;
+  feedbackSubmitError: boolean;
+  onLikeFeedback: () => void;
+  onDislikeFeedback: (reason: OutfitFeedbackReason | null) => void;
+  onRetryFeedbackLoad: () => void;
+  onRetryFeedbackSubmit: () => void;
 }) {
   const outfitItems = resolveWardrobeItemsFromIds(outfit.itemIds, wardrobeById);
   const outfitSignature = outfit.itemIds.join(',');
@@ -188,6 +210,18 @@ function HomeOutfitCard({
           )}
         </Pressable>
       </View>
+      <HomeOutfitFeedback
+        enabled={feedbackEnabled}
+        feedback={outfitFeedback}
+        isLoading={isFeedbackLoading}
+        isSubmitting={isFeedbackSubmitting}
+        loadError={feedbackLoadError}
+        submitError={feedbackSubmitError}
+        onLike={onLikeFeedback}
+        onDislike={onDislikeFeedback}
+        onRetryLoad={onRetryFeedbackLoad}
+        onRetrySubmit={onRetryFeedbackSubmit}
+      />
     </View>
   );
 }
@@ -269,6 +303,15 @@ export default function HomeScreen() {
     outfitErrorKind,
     regenerateOutfit,
     refreshWeather,
+    feedbackEnabled,
+    outfitFeedback,
+    isFeedbackLoading,
+    isFeedbackSubmitting,
+    feedbackLoadError,
+    feedbackSubmitError,
+    submitOutfitFeedback,
+    retryOutfitFeedbackLoad,
+    retryFeedbackSubmit,
   } = useHomeDailyData();
 
 
@@ -413,6 +456,24 @@ export default function HomeScreen() {
                 regenerateError={regenerateError}
                 onToggleSave={handleToggleSaveHomeOutfit}
                 onRegenerate={regenerateOutfit}
+                feedbackEnabled={feedbackEnabled}
+                outfitFeedback={outfitFeedback}
+                isFeedbackLoading={isFeedbackLoading}
+                isFeedbackSubmitting={isFeedbackSubmitting}
+                feedbackLoadError={feedbackLoadError}
+                feedbackSubmitError={feedbackSubmitError}
+                onLikeFeedback={() => {
+                  void submitOutfitFeedback('like');
+                }}
+                onDislikeFeedback={(reason) => {
+                  void submitOutfitFeedback('dislike', reason);
+                }}
+                onRetryFeedbackLoad={() => {
+                  void retryOutfitFeedbackLoad();
+                }}
+                onRetryFeedbackSubmit={() => {
+                  retryFeedbackSubmit();
+                }}
               />
             )}
           </View>
