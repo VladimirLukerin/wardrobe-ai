@@ -7,11 +7,11 @@ import {
   respondAiRateLimited,
 } from './ai-request-rate-limit';
 import {
-  buildCompactUserBehaviorSection,
-  buildCompactWardrobeSummary,
-  buildHomeSelectionRules,
+  buildCompactWeatherSection,
+  buildPersonalOutfitPromptText,
   capBehavioralContext,
   estimatePromptTokens,
+  logOutfitPromptUsage,
 } from './outfit-ai/prompt-optimization';
 import { selectOutfitCandidates } from './outfit-ai/candidate-selection';
 import {
@@ -23,7 +23,6 @@ import {
 import OpenAI from 'openai';
 
 import { getCurrentWeather, type CurrentWeather } from './providers/weather';
-import { getWeatherCodeLabel } from './weather-code';
 
 const MODEL = 'gpt-4o';
 const MAX_OUTFITS = 3;
@@ -424,23 +423,7 @@ export function buildWeatherSensitivityInstructions(
 }
 
 export function buildWeatherSection(weather: CurrentWeather): string[] {
-  const conditions = getWeatherCodeLabel(weather.weatherCode);
-  const feelsDifferent =
-    Math.abs(weather.apparentTemperatureC - weather.temperatureC) >= 2;
-
-  return [
-    'B. CURRENT WEATHER',
-    `- actual temperature: ${weather.temperatureC}°C`,
-    `- feels like (apparent): ${weather.apparentTemperatureC}°C`,
-    `- precipitation: ${weather.precipitationMm} mm`,
-    `- wind: ${weather.windSpeedKmh} km/h`,
-    `- conditions: ${conditions}`,
-    feelsDifferent
-      ? '- apparent temperature differs noticeably — prioritize feels like for comfort when choosing layers.'
-      : '- actual and apparent temperature are close.',
-    '- Weather is a strong factor, but use ONLY existing wardrobe items.',
-    '- Do not pick weather-inappropriate items just because they are favorites or often worn.',
-  ];
+  return buildCompactWeatherSection(weather);
 }
 
 export async function resolveWeatherContext(
@@ -851,10 +834,6 @@ function buildUserExplicitPreferencesSection(
   return lines;
 }
 
-function buildWardrobeSummary(wardrobe: WardrobeItemPayload[]): string {
-  return buildCompactWardrobeSummary(wardrobe);
-}
-
 export async function generateOutfitSuggestionsFromBody(
   parsedBody: SuggestOutfitsRequestBody,
   options?: { userId?: string },
@@ -867,7 +846,7 @@ export async function generateOutfitSuggestionsFromBody(
     behavioralContext: parsedBehavioralContext,
     location,
   } = parsedBody;
-  const { considerWeather, avoidRepeatedOutfits } = stylistPreferences;
+  const { considerWeather } = stylistPreferences;
   const validIds = new Set(wardrobe.map((item) => item.id));
   const behavioralContext = capBehavioralContext(
     options?.userId
@@ -911,53 +890,27 @@ export async function generateOutfitSuggestionsFromBody(
     }
   }
 
+  const selectedItem = selectedItemId
+    ? wardrobe.find((item) => item.id === selectedItemId)
+    : undefined;
+
   if (options?.userId) {
     consumeAiRateLimit(options.userId, 'suggest');
   }
 
   const openai = new OpenAI({ apiKey, maxRetries: 0 });
-  const wardrobeSummary = buildWardrobeSummary(aiWardrobe);
-  const selectedItem = selectedItemId
-    ? wardrobe.find((item) => item.id === selectedItemId)
-    : undefined;
-
-  const promptLines = [
-    'You are a stylist assembling outfits ONLY from the provided wardrobe.',
-    '',
-    ...buildPriorityOrderSection(),
-    '',
-    ...buildHardRulesSection(isHomeMode, maxOutfits, selectedItemId),
-  ];
-
-  if (weather) {
-    promptLines.push('', ...buildWeatherSection(weather));
-  } else if (considerWeather) {
-    promptLines.push('', 'B. CURRENT WEATHER', '- Weather requested but unavailable — choose reasonable layers from wardrobe.');
-  } else {
-    promptLines.push('', 'B. CURRENT WEATHER', '- Weather consideration disabled by user.');
-  }
-
-  promptLines.push(
-    '',
-    ...buildUserExplicitPreferencesSection(stylistPreferences, userParameters, isHomeMode),
-    '',
-    ...buildCompactUserBehaviorSection(behavioralContext, avoidRepeatedOutfits, isHomeMode),
-    '',
-    'E. AVAILABLE WARDROBE',
-    wardrobeSummary,
-    '',
-    'F. TASK',
-    isHomeMode
-      ? 'Pick exactly ONE complete outfit for today from wardrobe.'
-      : `Pick up to ${maxOutfits} DISTINCT outfits. Each MUST include selectedItemId "${selectedItemId}" (${selectedItem?.name ?? 'selected item'}).`,
-    ...(isHomeMode ? buildHomeSelectionRules() : buildSharedSelectionRules()),
-    '',
-    'description: one short Russian sentence, max 140 chars, no lists, no title repeat.',
-    'Explain real item pairing by color/style/layers. Mention weather only if weather data was provided.',
-    'Do not invent materials, comfort, warmth, or user circumstances.',
-  );
-
-  const promptText = promptLines.join('\n');
+  const promptText = buildPersonalOutfitPromptText({
+    wardrobe: aiWardrobe,
+    weather,
+    considerWeather,
+    stylistPreferences,
+    userParameters,
+    behavioralContext,
+    selectedItemId,
+    selectedItemName: selectedItem?.name,
+    isHomeMode,
+    maxOutfits,
+  });
 
   if (process.env.NODE_ENV !== 'production') {
     console.log(
@@ -1022,9 +975,12 @@ export async function generateOutfitSuggestionsFromBody(
   }
 
   if (process.env.NODE_ENV !== 'production' && response.usage) {
-    console.log(
-      `[OUTFIT AI] usage input=${response.usage.input_tokens} output=${response.usage.output_tokens} total=${response.usage.total_tokens}`,
-    );
+    logOutfitPromptUsage({
+      promptText,
+      actualInputTokens: response.usage.input_tokens,
+      actualOutputTokens: response.usage.output_tokens,
+      actualTotalTokens: response.usage.total_tokens,
+    });
   }
 
   const outputText = response.output_text;

@@ -1,3 +1,5 @@
+import type { CurrentWeather } from '../providers/weather';
+import { getWeatherCodeLabel } from '../weather-code';
 import type {
   BehavioralContextPayload,
   CompactOutfitRef,
@@ -28,8 +30,7 @@ export const BEHAVIORAL_CAPS = {
   stronglyDislikedItemIds: 10,
 } as const;
 
-const WARDROBE_LEGEND =
-  'id|name|category|color|pattern|style|optional: fav=1 wear=N last=YYYY-MM-DD print=...';
+const WARDROBE_LEGEND = 'W:id|cat|color|style|pat[|fav|wear|last|print]';
 
 type CategoryGroup = 'BOTTOM' | 'TOP' | 'OUTERWEAR' | 'SHOES' | 'OTHER';
 
@@ -66,6 +67,19 @@ const SHOES_CATEGORIES = new Set([
 ]);
 
 const CATEGORY_FILL_ORDER: CategoryGroup[] = ['TOP', 'BOTTOM', 'SHOES', 'OUTERWEAR', 'OTHER'];
+
+export type PersonalOutfitPromptInput = {
+  wardrobe: WardrobeItemPayload[];
+  weather: CurrentWeather | null;
+  considerWeather: boolean;
+  stylistPreferences: StylistPreferencesPayload;
+  userParameters: UserParametersPayload;
+  behavioralContext: BehavioralContextPayload;
+  selectedItemId?: string;
+  selectedItemName?: string;
+  isHomeMode: boolean;
+  maxOutfits: number;
+};
 
 function normalizeCategory(category: string): string {
   return category.trim().toLowerCase();
@@ -183,8 +197,18 @@ export function buildLegacyWardrobeSummary(wardrobe: WardrobeItemPayload[]): str
     .join('\n');
 }
 
+function formatPatternToken(pattern: string): string {
+  return pattern === 'Без принта' ? '-' : pattern;
+}
+
 function formatCompactWardrobeItem(item: WardrobeItemPayload): string {
-  const base = [item.id, item.name, item.category, item.color, item.pattern, item.style].join('|');
+  const base = [
+    item.id,
+    item.category,
+    item.color,
+    item.style,
+    formatPatternToken(item.pattern),
+  ].join('|');
   const flags: string[] = [];
 
   if (item.isFavorite) {
@@ -210,115 +234,266 @@ export function buildCompactWardrobeSummary(wardrobe: WardrobeItemPayload[]): st
   return [WARDROBE_LEGEND, ...wardrobe.map(formatCompactWardrobeItem)].join('\n');
 }
 
-function formatCompactOutfitRef(outfit: CompactOutfitRef): string {
-  const titlePart = outfit.title ? `@${outfit.title}` : '';
-
-  return `[${outfit.itemIds.join(',')}]${titlePart}`;
+function formatCompactOutfitRefs(outfits: CompactOutfitRef[]): string {
+  return outfits.map((outfit) => `[${outfit.itemIds.join(',')}]`).join('|');
 }
 
-function formatCompactOutfits(outfits: CompactOutfitRef[]): string {
-  if (outfits.length === 0) {
-    return '- none';
-  }
-
-  return outfits.map((outfit) => `- ${formatCompactOutfitRef(outfit)}`).join('\n');
-}
-
-function formatFrequentlyWornSummary(
-  frequentlyWorn: BehavioralContextPayload['frequentlyWorn'],
+function encodeWeatherSensitivity(
+  weatherSensitivity: UserParametersPayload['weatherSensitivity'],
 ): string {
-  if (frequentlyWorn.length === 0) {
-    return '- none';
+  switch (weatherSensitivity) {
+    case 'Часто мёрзну':
+      return 'cold';
+    case 'Мне часто жарко':
+      return 'hot';
+    case 'Обычно':
+    default:
+      return 'normal';
   }
-
-  return frequentlyWorn
-    .map((entry) => {
-      const parts = [`${entry.id}`, `wear=${entry.wearCount}`];
-
-      if (entry.lastWornAt) {
-        parts.push(`last=${entry.lastWornAt.slice(0, 10)}`);
-      }
-
-      return `- ${parts.join('|')}`;
-    })
-    .join('\n');
 }
 
-export function buildCompactUserBehaviorSection(
-  behavioralContext: BehavioralContextPayload,
-  avoidRepeatedOutfits: boolean,
-  compact: boolean,
-): string[] {
-  const lines = compact
-    ? [
-        'D. USER BEHAVIOR (soft signals; weather/category win)',
-        `favorites: [${behavioralContext.favoriteItemIds.join(', ') || 'none'}]`,
-        'frequentlyWorn:',
-        formatFrequentlyWornSummary(behavioralContext.frequentlyWorn),
-        'recentManualOutfits:',
-        formatCompactOutfits(behavioralContext.recentManualOutfits),
-        'recentSavedAiOutfits:',
-        formatCompactOutfits(behavioralContext.recentSavedAiOutfits),
-      ]
-    : [
-        'D. USER BEHAVIOR',
-        'Soft signals only; weather and category rules win.',
-        `favoriteItemIds: [${behavioralContext.favoriteItemIds.join(', ') || 'none'}]`,
-        'frequentlyWorn:',
-        formatFrequentlyWornSummary(behavioralContext.frequentlyWorn),
-        'recentManualOutfits:',
-        formatCompactOutfits(behavioralContext.recentManualOutfits),
-        'recentSavedAiOutfits:',
-        formatCompactOutfits(behavioralContext.recentSavedAiOutfits),
-      ];
+function encodeFitPreference(fitPreference: UserParametersPayload['fitPreference']): string | null {
+  switch (fitPreference) {
+    case 'По фигуре':
+      return 'fitted';
+    case 'Свободная':
+      return 'relaxed';
+    case 'Обычная':
+      return 'normal';
+    default:
+      return null;
+  }
+}
 
-  if (avoidRepeatedOutfits && behavioralContext.recentOutfitSignatures.length > 0) {
-    lines.push(
-      'avoidRepeatedOutfits:',
-      ...behavioralContext.recentOutfitSignatures.map((signature) => `- ${signature}`),
-    );
+export function buildCompactStyleModeLine(styleExperiment: StylistPreferencesPayload['styleExperiment']): string {
+  switch (styleExperiment) {
+    case 'familiar':
+      return 'STYLE_MODE=familiar prefer frequent/favorite/liked';
+    case 'bold':
+      return 'STYLE_MODE=bold allow rare/unworn/contrast; never override weather/occasion';
+    case 'balanced':
+    default:
+      return 'STYLE_MODE=balanced familiar base + 1 less-used suitable item';
+  }
+}
+
+export function buildCompactWeatherSection(weather: CurrentWeather): string[] {
+  const condition = getWeatherCodeLabel(weather.weatherCode)
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+
+  return [
+    'WEATHER:',
+    `temp=${weather.temperatureC} feels=${weather.apparentTemperatureC} rain=${weather.precipitationMm} wind=${weather.windSpeedKmh} cond=${condition}`,
+    'Use feels-like and rain/wind for sensible layers.',
+  ];
+}
+
+function buildCompactWeatherUnavailableSection(considerWeather: boolean): string[] {
+  if (considerWeather) {
+    return ['WEATHER: unavailable', 'Choose reasonable layers from wardrobe.'];
   }
 
-  const feedback = behavioralContext.outfitFeedback;
+  return ['WEATHER: disabled'];
+}
 
-  if (feedback) {
-    const reasonSummary = Object.entries(feedback.reasonCounts)
-      .filter(([, count]) => count > 0)
-      .map(([reason, count]) => `${reason}:${count}`)
-      .join(', ');
+function buildCompactRulesSection(input: PersonalOutfitPromptInput): string[] {
+  const lines = [
+    'PRIORITY: weather+occasion > category > prefs > behavior > variety',
+    'RULES:',
+    '- itemIds: wardrobe IDs only',
+    '- max: bottom=1 shoes=1 outer=1 tops=2',
+    `- outfits=${input.maxOutfits}${input.maxOutfits === 1 ? '' : ' distinct'}`,
+    '- no duplicate item sets',
+    '- desc: 1 RU sentence <=140 chars; no title repeat',
+  ];
 
-    lines.push(
-      '',
-      compact ? 'G. FEEDBACK (soft hints)' : 'G. RECENT OUTFIT FEEDBACK (soft hints)',
-      `likedIds: [${feedback.recentlyLikedItemIds.join(', ') || 'none'}]`,
-      `dislikedIds: [${feedback.recentlyDislikedItemIds.join(', ') || 'none'}]`,
-      `stronglyDislikedIds: [${feedback.stronglyDislikedItemIds.join(', ') || 'none'}]`,
-      'likedCombinations:',
-      formatCompactOutfits(feedback.likedCombinations),
-      'dislikedCombinations:',
-      formatCompactOutfits(feedback.dislikedCombinations),
-      `reasonCounts: ${reasonSummary || 'none'}`,
-    );
+  if (input.selectedItemId) {
+    lines.push(`- fixedItemId=${input.selectedItemId} mandatory`);
+  }
+
+  if (input.stylistPreferences.wardrobeMode === 'owned-only') {
+    lines.push('- wardrobeMode=owned-only');
+  } else {
+    lines.push('- wardrobeMode=allow-suggestions (mention gaps in desc only)');
   }
 
   return lines;
 }
 
+function buildCompactPreferencesSection(input: PersonalOutfitPromptInput): string[] {
+  const parts = [buildCompactStyleModeLine(input.stylistPreferences.styleExperiment)];
+
+  const fit = encodeFitPreference(input.userParameters.fitPreference);
+
+  if (fit) {
+    parts.push(`fit=${fit}`);
+  }
+
+  if (input.userParameters.weatherSensitivity) {
+    parts.push(`weatherSens=${encodeWeatherSensitivity(input.userParameters.weatherSensitivity)}`);
+  }
+
+  if (input.stylistPreferences.avoidRepeatedOutfits) {
+    parts.push('avoidRepeat=1');
+  }
+
+  return [`PREFS: ${parts.join(' ')}`];
+}
+
+function buildCompactBehaviorSection(
+  behavioralContext: BehavioralContextPayload,
+  avoidRepeatedOutfits: boolean,
+): string[] {
+  const lines: string[] = [];
+
+  if (behavioralContext.recentManualOutfits.length > 0) {
+    lines.push(`manual=${formatCompactOutfitRefs(behavioralContext.recentManualOutfits)}`);
+  }
+
+  if (behavioralContext.recentSavedAiOutfits.length > 0) {
+    lines.push(`saved=${formatCompactOutfitRefs(behavioralContext.recentSavedAiOutfits)}`);
+  }
+
+  if (avoidRepeatedOutfits && behavioralContext.recentOutfitSignatures.length > 0) {
+    lines.push(`avoid=${behavioralContext.recentOutfitSignatures.join('|')}`);
+  }
+
+  const feedback = behavioralContext.outfitFeedback;
+
+  if (feedback) {
+    if (feedback.recentlyLikedItemIds.length > 0) {
+      lines.push(`liked=${feedback.recentlyLikedItemIds.join(',')}`);
+    }
+
+    if (feedback.recentlyDislikedItemIds.length > 0) {
+      lines.push(`disliked=${feedback.recentlyDislikedItemIds.join(',')}`);
+    }
+
+    if (feedback.stronglyDislikedItemIds.length > 0) {
+      lines.push(`strongDislike=${feedback.stronglyDislikedItemIds.join(',')}`);
+    }
+
+    if (feedback.likedCombinations.length > 0) {
+      lines.push(`likedCombo=${formatCompactOutfitRefs(feedback.likedCombinations)}`);
+    }
+
+    if (feedback.dislikedCombinations.length > 0) {
+      lines.push(`dislikedCombo=${formatCompactOutfitRefs(feedback.dislikedCombinations)}`);
+    }
+
+    const reasonSummary = Object.entries(feedback.reasonCounts)
+      .filter(([, count]) => count > 0)
+      .map(([reason, count]) => `${reason}:${count}`)
+      .join(',');
+
+    if (reasonSummary) {
+      lines.push(`reasons=${reasonSummary}`);
+    }
+  }
+
+  if (lines.length === 0) {
+    return [];
+  }
+
+  return ['BEHAVIOR:', ...lines];
+}
+
+function buildCompactTaskSection(input: PersonalOutfitPromptInput): string[] {
+  if (input.isHomeMode) {
+    return [
+      'TASK: Pick 1 complete outfit for today.',
+      'Prefer top+bottom+shoes when available.',
+    ];
+  }
+
+  if (input.selectedItemId) {
+    return [
+      `TASK: Pick up to ${input.maxOutfits} distinct outfits including fixedItemId=${input.selectedItemId}.`,
+      'Vary non-fixed main pieces across outfits when alternatives exist.',
+    ];
+  }
+
+  return [
+    `TASK: Pick up to ${input.maxOutfits} distinct outfits.`,
+    'Vary main pieces across outfits when alternatives exist.',
+  ];
+}
+
+export function buildPersonalOutfitPromptText(input: PersonalOutfitPromptInput): string {
+  const lines = [
+    'Stylist. Use ONLY wardrobe IDs below.',
+    '',
+    ...buildCompactRulesSection(input),
+  ];
+
+  if (input.weather) {
+    lines.push('', ...buildCompactWeatherSection(input.weather));
+  } else {
+    lines.push('', ...buildCompactWeatherUnavailableSection(input.considerWeather));
+  }
+
+  lines.push('', ...buildCompactPreferencesSection(input));
+
+  const behaviorLines = buildCompactBehaviorSection(
+    input.behavioralContext,
+    input.stylistPreferences.avoidRepeatedOutfits,
+  );
+
+  if (behaviorLines.length > 0) {
+    lines.push('', ...behaviorLines);
+  }
+
+  lines.push('', 'WARDROBE', buildCompactWardrobeSummary(input.wardrobe), '', ...buildCompactTaskSection(input));
+
+  return lines.join('\n');
+}
+
+export function buildCompactUserBehaviorSection(
+  behavioralContext: BehavioralContextPayload,
+  avoidRepeatedOutfits: boolean,
+): string[] {
+  return buildCompactBehaviorSection(behavioralContext, avoidRepeatedOutfits);
+}
+
 export function buildCompactStyleExperimentInstructions(styleExperiment: string): string[] {
-  return [`styleExperiment: ${styleExperiment} (follow mode tone in title/description).`];
+  return [buildCompactStyleModeLine(styleExperiment as StylistPreferencesPayload['styleExperiment'])];
 }
 
 export function buildHomeSelectionRules(): string[] {
-  return [
-    'Selection rules:',
-    '- Use ONLY wardrobe ids; max 1 bottom, 1 shoes, 1 outerwear, up to 2 tops.',
-    '- Prefer complete outfit: top + bottom + shoes when available.',
-    '- Match weather and user preferences when data is present.',
-  ];
+  return ['Prefer top+bottom+shoes when available.'];
 }
 
 export function estimatePromptTokens(prompt: string): number {
   return Math.ceil(prompt.length / 4);
+}
+
+export function logOutfitPromptUsage(params: {
+  promptText: string;
+  actualInputTokens?: number;
+  actualOutputTokens?: number;
+  actualTotalTokens?: number;
+}): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  const estimated = estimatePromptTokens(params.promptText);
+
+  console.log(
+    `[OUTFIT AI] promptChars=${params.promptText.length} estimatedTokens=${estimated}`,
+  );
+
+  if (params.actualInputTokens !== undefined) {
+    const overheadRatio = (params.actualInputTokens / Math.max(estimated, 1)).toFixed(2);
+
+    console.log(
+      `[OUTFIT AI] usage input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0} total=${params.actualTotalTokens ?? 0} estimated=${estimated} actualInput=${params.actualInputTokens} overheadRatio=${overheadRatio}`,
+    );
+    console.log(
+      `[OUTFIT AI COST] input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0}`,
+    );
+  }
 }
 
 export {

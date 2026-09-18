@@ -155,7 +155,7 @@ outfitFeedbackRouter.get('/outfit-feedback', requireAuth, (req: Request, res: Re
   const feedback = getOutfitFeedbackForKey(req.authUser.id, recommendationKey);
 
   if (!feedback) {
-    res.status(404).json({ error: 'Feedback not found.' });
+    res.json({ feedback: null });
     return;
   }
 

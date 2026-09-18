@@ -2,12 +2,16 @@ import { RateLimitError } from 'openai';
 
 import {
   BEHAVIORAL_CAPS,
+  buildCompactStyleModeLine,
   buildCompactWardrobeSummary,
+  buildCompactWeatherSection,
   buildLegacyWardrobeSummary,
+  buildPersonalOutfitPromptText,
   capBehavioralContext,
   estimatePromptTokens,
   MAX_AI_WARDROBE_ITEMS,
   selectWardrobeForAi,
+  type PersonalOutfitPromptInput,
 } from '../src/outfit-ai/prompt-optimization';
 import {
   AI_PROVIDER_RATE_LIMIT_CODE,
@@ -54,6 +58,138 @@ function createFixtureWardrobe(count: number): WardrobeItemPayload[] {
   );
 }
 
+function createRepresentativeNineItemPromptInput(): PersonalOutfitPromptInput {
+  const wardrobe = Array.from({ length: 9 }, (_, index) =>
+    createFixtureItem({
+      id: `item-${index}`,
+      name: `Item ${index}`,
+      category: ['футболка', 'джинсы', 'кроссовки', 'куртка', 'сумка', 'рубашка', 'ботинки', 'худи', 'юбка'][index] ?? 'футболка',
+      color: index % 2 === 0 ? 'чёрный' : 'белый',
+      wearCount: index < 4 ? index + 1 : 0,
+      lastWornAt: index < 4 ? '2026-09-10T00:00:00.000Z' : null,
+    }),
+  );
+
+  const behavioralContext: BehavioralContextPayload = {
+    favoriteItemIds: [],
+    frequentlyWorn: wardrobe.slice(0, 4).map((item) => ({
+      id: item.id,
+      wearCount: item.wearCount,
+      lastWornAt: item.lastWornAt,
+    })),
+    recentManualOutfits: [],
+    recentSavedAiOutfits: [
+      { itemIds: ['item-0', 'item-1', 'item-2'] },
+      { itemIds: ['item-3', 'item-4', 'item-5'] },
+      { itemIds: ['item-1', 'item-6', 'item-7'] },
+    ],
+    recentOutfitSignatures: [],
+  };
+
+  return {
+    wardrobe,
+    weather: {
+      temperatureC: 12,
+      apparentTemperatureC: 9,
+      precipitationMm: 0.4,
+      weatherCode: 3,
+      windSpeedKmh: 22,
+    },
+    considerWeather: true,
+    stylistPreferences: {
+      styleExperiment: 'balanced',
+      considerWeather: true,
+      wardrobeMode: 'owned-only',
+      avoidRepeatedOutfits: true,
+    },
+    userParameters: {
+      fitPreference: 'Обычная',
+      weatherSensitivity: 'Обычно',
+    },
+    behavioralContext,
+    isHomeMode: true,
+    maxOutfits: 1,
+  };
+}
+
+function buildLegacyVerbosePersonalPrompt(input: PersonalOutfitPromptInput): string {
+  const lines = [
+    'You are a stylist assembling outfits ONLY from the provided wardrobe.',
+    '',
+    'SIGNAL PRIORITY (highest to lowest):',
+    '1. weather appropriateness / physical comfort;',
+    '2. category compatibility (no conflicting items);',
+    '3. explicit user preferences (styleExperiment, fitPreference, weatherSensitivity, wardrobeMode);',
+    '4. behavioral signals (favorites, wear history, saved outfits);',
+    '5. variety / avoiding unnecessary repetition.',
+    '',
+    'Behavioral signals are preferences, NOT hard constraints.',
+    '',
+    'A. HARD RULES',
+    '- Use ONLY existing item ids from wardrobe. Never invent items.',
+    '- Category conflicts are forbidden (max 1 bottom, max 1 shoes, max 1 outerwear, max 2 tops).',
+    '- Pick one coherent outfit from existing items.',
+    '- Return exactly 1 outfit.',
+    '- Do not return identical item sets in different order.',
+  ];
+
+  if (input.weather) {
+    lines.push(
+      '',
+      'B. CURRENT WEATHER',
+      `- actual temperature: ${input.weather.temperatureC}°C`,
+      `- feels like (apparent): ${input.weather.apparentTemperatureC}°C`,
+      `- precipitation: ${input.weather.precipitationMm} mm`,
+      `- wind: ${input.weather.windSpeedKmh} km/h`,
+      '- conditions: cloudy',
+      '- apparent temperature differs noticeably — prioritize feels like for comfort when choosing layers.',
+      '- Weather is a strong factor, but use ONLY existing wardrobe items.',
+      '- Do not pick weather-inappropriate items just because they are favorites or often worn.',
+    );
+  }
+
+  lines.push(
+    '',
+    'C. USER PREFERENCES',
+    `styleExperiment: ${input.stylistPreferences.styleExperiment}`,
+    `considerWeather: ${input.stylistPreferences.considerWeather}`,
+    `wardrobeMode: ${input.stylistPreferences.wardrobeMode}`,
+    `avoidRepeatedOutfits: ${input.stylistPreferences.avoidRepeatedOutfits}`,
+    '',
+    'wardrobeMode owned-only: use ONLY items from wardrobe.',
+    '',
+    'fitPreference: neutral — no extra fit bias beyond wardrobe metadata.',
+    '',
+    'Чувствительность к погоде: обычная.',
+    'Не добавляй дополнительную температурную коррекцию сверх фактической погоды.',
+    '',
+    'D. USER BEHAVIOR (soft signals; weather/category win)',
+    `favorites: [${input.behavioralContext.favoriteItemIds.join(', ') || 'none'}]`,
+    'frequentlyWorn:',
+    ...input.behavioralContext.frequentlyWorn.map((entry) => `- ${entry.id}|wear=${entry.wearCount}|last=${entry.lastWornAt?.slice(0, 10) ?? ''}`),
+    'recentManualOutfits:',
+    '- none',
+    'recentSavedAiOutfits:',
+    ...input.behavioralContext.recentSavedAiOutfits.map((outfit) => `- [${outfit.itemIds.join(',')}]`),
+    '',
+    'E. AVAILABLE WARDROBE',
+    buildLegacyWardrobeSummary(input.wardrobe),
+    '',
+    'F. TASK',
+    'Pick exactly ONE complete outfit for today from wardrobe.',
+    'Selection rules:',
+    '- Use ONLY wardrobe ids; max 1 bottom, 1 shoes, 1 outerwear, up to 2 tops.',
+    '- Prefer complete outfit: top + bottom + shoes when available.',
+    '- Match weather and user preferences when data is present.',
+    '',
+    'description: one short Russian sentence, max 140 chars, no lists, no title repeat.',
+    'Explain real item pairing by color/style/layers. Mention weather only if weather data was provided.',
+    'Do not invent materials, comfort, warmth, or user circumstances.',
+  );
+
+  return lines.join('\n');
+}
+
 function testCompactWardrobeSummaryIsShorter(): void {
   const wardrobe = createFixtureWardrobe(12);
   const legacy = buildLegacyWardrobeSummary(wardrobe);
@@ -93,8 +229,122 @@ function testNullAndDefaultFieldsOmitted(): void {
   assert(!itemLine.includes('wear=0'), 'Zero wear count should be omitted');
   assert(!itemLine.includes('last='), 'Null last worn should be omitted');
   assert(!itemLine.includes('print='), 'Empty print should be omitted');
+  assert(!itemLine.includes('Plain tee'), 'Name should be omitted from compact wardrobe line');
 
   console.log('OK null/default wardrobe fields omitted');
+}
+
+function testCompactWeatherIsShorter(): void {
+  const weather = {
+    temperatureC: 12,
+    apparentTemperatureC: 9,
+    precipitationMm: 0.4,
+    weatherCode: 3,
+    windSpeedKmh: 22,
+  };
+  const compact = buildCompactWeatherSection(weather).join('\n');
+  const verbose = [
+    'B. CURRENT WEATHER',
+    `- actual temperature: ${weather.temperatureC}°C`,
+    `- feels like (apparent): ${weather.apparentTemperatureC}°C`,
+    `- precipitation: ${weather.precipitationMm} mm`,
+    `- wind: ${weather.windSpeedKmh} km/h`,
+    '- conditions: cloudy',
+    '- apparent temperature differs noticeably — prioritize feels like for comfort when choosing layers.',
+    '- Weather is a strong factor, but use ONLY existing wardrobe items.',
+    '- Do not pick weather-inappropriate items just because they are favorites or often worn.',
+  ].join('\n');
+
+  assert(compact.length < verbose.length, 'Compact weather should be shorter than verbose weather');
+  console.log(`OK compact weather (${verbose.length} -> ${compact.length} chars)`);
+}
+
+function testCompactStyleInstructions(): void {
+  assert(buildCompactStyleModeLine('familiar').includes('STYLE_MODE=familiar'), 'Expected familiar mode');
+  assert(buildCompactStyleModeLine('bold').includes('STYLE_MODE=bold'), 'Expected bold mode');
+  assert(buildCompactStyleModeLine('balanced').includes('STYLE_MODE=balanced'), 'Expected balanced mode');
+  console.log('OK compact style instructions');
+}
+
+function testEmptyBehaviorSectionsOmitted(): void {
+  const prompt = buildPersonalOutfitPromptText({
+    ...createRepresentativeNineItemPromptInput(),
+    behavioralContext: {
+      favoriteItemIds: [],
+      frequentlyWorn: [],
+      recentManualOutfits: [],
+      recentSavedAiOutfits: [],
+      recentOutfitSignatures: [],
+    },
+  });
+
+  assert(!prompt.includes('favorites:'), 'Empty favorites list should be omitted');
+  assert(!prompt.includes('frequentlyWorn'), 'Empty frequently worn section should be omitted');
+  assert(!prompt.includes('manual='), 'Empty manual outfits should be omitted');
+  assert(!prompt.includes('BEHAVIOR:'), 'Fully empty behavior should omit section');
+  console.log('OK empty behavioral sections omitted');
+}
+
+function testNoDuplicateFavoriteRepresentation(): void {
+  const wardrobe = [
+    createFixtureItem({ id: 'fav-item', category: 'футболка', isFavorite: true, wearCount: 3 }),
+  ];
+  const prompt = buildPersonalOutfitPromptText({
+    wardrobe,
+    weather: null,
+    considerWeather: false,
+    stylistPreferences: {
+      styleExperiment: 'familiar',
+      considerWeather: false,
+      wardrobeMode: 'owned-only',
+      avoidRepeatedOutfits: false,
+    },
+    userParameters: { fitPreference: null, weatherSensitivity: null },
+    behavioralContext: {
+      favoriteItemIds: ['fav-item'],
+      frequentlyWorn: [{ id: 'fav-item', wearCount: 3, lastWornAt: null }],
+      recentManualOutfits: [],
+      recentSavedAiOutfits: [],
+      recentOutfitSignatures: [],
+    },
+    isHomeMode: true,
+    maxOutfits: 1,
+  });
+
+  assert(prompt.includes('fav=1'), 'Favorite flag should remain on wardrobe item');
+  assert(!prompt.includes('favorites='), 'Separate favorites list should be omitted');
+  assert(!prompt.includes('frequent='), 'Separate frequently worn list should be omitted');
+  console.log('OK duplicate favorites representation removed');
+}
+
+function testFixedItemRemainsExplicit(): void {
+  const prompt = buildPersonalOutfitPromptText({
+    ...createRepresentativeNineItemPromptInput(),
+    selectedItemId: 'item-2',
+    selectedItemName: 'Sneakers',
+    isHomeMode: false,
+    maxOutfits: 3,
+  });
+
+  assert(prompt.includes('fixedItemId=item-2 mandatory'), 'Fixed item must remain explicit');
+  assert(prompt.includes('bottom=1'), 'Category limits must remain');
+  console.log('OK fixed item remains explicit');
+}
+
+function testRepresentativeNineItemPromptReduced(): void {
+  const input = createRepresentativeNineItemPromptInput();
+  const legacy = buildLegacyVerbosePersonalPrompt(input);
+  const compact = buildPersonalOutfitPromptText(input);
+  const reduction = 1 - compact.length / legacy.length;
+
+  assert(
+    reduction >= 0.3,
+    `Expected >=30% promptChars reduction, got ${Math.round(reduction * 100)}% (${legacy.length} -> ${compact.length})`,
+  );
+
+  console.log(
+    `OK representative 9-item prompt (${legacy.length} -> ${compact.length} chars, ${estimatePromptTokens(legacy)} -> ${estimatePromptTokens(compact)} est. tokens, ${Math.round(reduction * 100)}% reduction)`,
+  );
 }
 
 function testWardrobeSelectionRespectsMaxAndSelectedItem(): void {
@@ -187,6 +437,12 @@ function testProviderRateLimitContract(): void {
 function main(): void {
   testCompactWardrobeSummaryIsShorter();
   testNullAndDefaultFieldsOmitted();
+  testCompactWeatherIsShorter();
+  testCompactStyleInstructions();
+  testEmptyBehaviorSectionsOmitted();
+  testNoDuplicateFavoriteRepresentation();
+  testFixedItemRemainsExplicit();
+  testRepresentativeNineItemPromptReduced();
   testWardrobeSelectionRespectsMaxAndSelectedItem();
   testBehavioralContextCaps();
   testProviderRateLimitParser();
