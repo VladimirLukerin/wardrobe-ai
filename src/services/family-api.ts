@@ -5,6 +5,7 @@ import {
   familyInviteRejectEndpoint,
   familyMemberEndpoint,
   familyMemberOutfitsEndpoint,
+  familyMemberWearHistoryEndpoint,
   familyMemberWardrobeEndpoint,
 } from '@/config/api';
 import type { FamilyInvite, FamilyMember, OutgoingFamilyInvite } from '@/constants/family';
@@ -64,6 +65,18 @@ export type FamilyMemberOutfit = {
 export type FamilyOutfitsSnapshot = {
   member: FamilyMember;
   outfits: FamilyMemberOutfit[];
+};
+
+export type FamilyWearHistoryEvent = {
+  id: string;
+  outfitId: string;
+  itemIds: string[];
+  wornAt: string;
+};
+
+export type FamilyWearHistorySnapshot = {
+  member: FamilyMember;
+  events: FamilyWearHistoryEvent[];
 };
 
 export type FamilyWardrobeImageDownloadResult = {
@@ -191,6 +204,21 @@ export async function fetchFamilyMemberOutfits(
   });
 
   return parseJsonResponse<FamilyOutfitsSnapshot>(response);
+}
+
+export async function fetchFamilyMemberWearHistory(
+  token: string,
+  memberPublicId: string,
+): Promise<FamilyWearHistorySnapshot> {
+  const response = await apiFetch(familyMemberWearHistoryEndpoint(memberPublicId), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  return parseJsonResponse<FamilyWearHistorySnapshot>(response);
 }
 
 export async function downloadFamilyMemberWardrobeImage(

@@ -55,3 +55,6 @@ jobs:
 
       - name: Run AI rate limit test
         run: npm run test:ai-rate-limit
+
+      - name: Run worn outfit feed test
+        run: npm run test:worn-outfit-feed

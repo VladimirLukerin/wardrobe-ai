@@ -1,75 +1,86 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { OutfitFeedCard } from '@/components/outfit-feed-card';
 import { ThemedText } from '@/components/themed-text';
+import { WornOutfitFeedCard } from '@/components/worn-outfit-feed-card';
 import { Colors, Spacing } from '@/constants/theme';
-import { useOutfits } from '@/contexts/outfits-context';
-import { useWardrobe } from '@/contexts/wardrobe-context';
-import { buildLocalOutfitFeed } from '@/utils/build-local-outfit-feed';
-import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
+import { useHomeWornOutfitFeed } from '@/hooks/use-home-worn-outfit-feed';
+import type { WornOutfitFeedDisplayEntry } from '@/services/home-worn-outfit-feed';
+
+function getFeedCardPressHandler(entry: WornOutfitFeedDisplayEntry): (() => void) | undefined {
+  if (!entry.canNavigate) {
+    return undefined;
+  }
+
+  if (entry.source === 'self') {
+    return () => {
+      router.push({
+        pathname: '/create-outfit/[id]',
+        params: { id: entry.outfitId },
+      });
+    };
+  }
+
+  if (entry.source === 'family' && entry.memberPublicId) {
+    return () => {
+      router.push({
+        pathname: '/profile/family/[publicId]/outfits/[outfitId]',
+        params: {
+          publicId: entry.memberPublicId,
+          outfitId: entry.outfitId,
+        },
+      });
+    };
+  }
+
+  return undefined;
+}
 
 export function HomeOutfitFeed() {
-  const { savedOutfits } = useOutfits();
-  const { items } = useWardrobe();
-
-  const wardrobeById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
-
-  const feedEntries = useMemo(() => {
-    return buildLocalOutfitFeed(savedOutfits)
-      .map((entry) => ({
-        ...entry,
-        items: resolveWardrobeItemsFromIds(entry.itemIds, wardrobeById),
-      }))
-      .filter((entry) => entry.items.length > 0);
-  }, [savedOutfits, wardrobeById]);
+  const { entries, status } = useHomeWornOutfitFeed();
 
   return (
     <View style={styles.section}>
       <View style={styles.header}>
         <ThemedText style={styles.sectionTitle}>Что надевают сейчас</ThemedText>
         <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-          Пока показываем ваши недавние образы
+          Недавние образы вашей семьи
         </ThemedText>
       </View>
 
-      {feedEntries.length === 0 ? (
+      {status === 'loading' && entries.length === 0 ? (
+        <View style={styles.loadingBlock}>
+          <ThemedText themeColor="textSecondary" style={styles.loadingText}>
+            Загружаем недавние образы...
+          </ThemedText>
+        </View>
+      ) : null}
+
+      {status === 'empty' ? (
         <View style={styles.emptyBlock}>
           <ThemedText themeColor="textSecondary" style={styles.emptyText}>
-            Здесь будут появляться ваши недавние образы
+            Пока никто не отметил образ как надетый
           </ThemedText>
           <ThemedText themeColor="textSecondary" style={styles.emptyHint}>
-            Создайте или сохраните первый образ
+            Отметьте образ кнопкой «Надеть сегодня»
           </ThemedText>
-          <Pressable
-            onPress={() => router.push('/create-outfit')}
-            style={({ pressed }) => [styles.emptyLink, pressed && styles.buttonPressed]}>
-            <ThemedText style={styles.emptyLinkText}>Перейти к образам</ThemedText>
-          </Pressable>
         </View>
-      ) : (
+      ) : null}
+
+      {entries.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.feedRow}>
-          {feedEntries.map((entry) => (
-            <OutfitFeedCard
+          {entries.map((entry) => (
+            <WornOutfitFeedCard
               key={entry.id}
-              title={entry.title}
-              items={entry.items}
-              sourceLabel={entry.sourceLabel}
-              createdAt={entry.createdAt}
-              onPress={() =>
-                router.push({
-                  pathname: '/create-outfit/[id]',
-                  params: { id: entry.id },
-                })
-              }
+              entry={entry}
+              onPress={getFeedCardPressHandler(entry)}
             />
           ))}
         </ScrollView>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -94,6 +105,18 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingRight: Spacing.two,
   },
+  loadingBlock: {
+    backgroundColor: Colors.light.backgroundElement,
+    borderRadius: 16,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
   emptyBlock: {
     backgroundColor: Colors.light.backgroundElement,
     borderRadius: 16,
@@ -111,17 +134,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'center',
-  },
-  emptyLink: {
-    marginTop: Spacing.one,
-    paddingVertical: Spacing.one,
-  },
-  emptyLinkText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.light.text,
-  },
-  buttonPressed: {
-    opacity: 0.85,
   },
 });

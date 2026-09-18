@@ -13,7 +13,9 @@ import {
 } from '../db/family-repository';
 import { getActiveWardrobeItemsForUser } from '../db/wardrobe-items-repository';
 import { getActiveSavedOutfitsForUser } from '../db/saved-outfits-repository';
+import { getRecentWearEventsForUser } from '../db/wear-events-repository';
 import { requireAuth } from '../middleware/auth';
+import { buildFamilyWearHistoryResponse } from '../worn-outfit-feed/family-wear-history-response';
 import { suggestPairedOutfitsHandler } from '../paired-outfits/suggest-paired-outfits';
 import { sendWardrobeImageDownload } from './wardrobe-image-download';
 
@@ -200,6 +202,41 @@ familyRouter.get('/family/:memberPublicId/outfits', requireAuth, (req: Request, 
     outfits,
   });
 });
+
+familyRouter.get(
+  '/family/:memberPublicId/wear-history',
+  requireAuth,
+  (req: Request, res: Response) => {
+    if (!req.authUser) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const memberPublicId = getRouteParam(req.params.memberPublicId);
+
+    if (!memberPublicId) {
+      res.status(400).json({ error: 'Некорректный ID пользователя.' });
+      return;
+    }
+
+    const access = resolveFamilyMemberWardrobeAccess(req.authUser.id, memberPublicId);
+
+    if ('status' in access) {
+      res.status(access.status).json({ error: access.message });
+      return;
+    }
+
+    const events = getRecentWearEventsForUser(access.targetUserId);
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        `[FAMILY WEAR HISTORY] member=${shortMemberPublicId(access.member.publicId)} events=${events.length}`,
+      );
+    }
+
+    res.json(buildFamilyWearHistoryResponse(access.member, events));
+  },
+);
 
 async function handleFamilyWardrobeImageDownload(
   req: Request,

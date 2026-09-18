@@ -79,6 +79,20 @@ export function getWearHistorySnapshot(userId: string): WearHistorySnapshotRespo
   };
 }
 
+export function getRecentWearEventsForUser(userId: string, limit = 30): WearEventResponse[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare(
+      `SELECT * FROM wear_events
+       WHERE user_id = ? AND deleted_at IS NULL
+       ORDER BY worn_at DESC
+       LIMIT ?`,
+    )
+    .all(userId, limit) as DbWearEvent[];
+
+  return rows.map(toEventResponse);
+}
+
 export function getWearEventById(userId: string, eventId: string): WearEventResponse | null {
   const row = findWearEventRow(userId, eventId);
 

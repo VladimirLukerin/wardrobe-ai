@@ -43,6 +43,10 @@ export function familyMemberOutfitsEndpoint(memberPublicId: string): string {
   return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}/outfits`;
 }
 
+export function familyMemberWearHistoryEndpoint(memberPublicId: string): string {
+  return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}/wear-history`;
+}
+
 export function familyMemberPairedOutfitsEndpoint(memberPublicId: string): string {
   return `${API_BASE_URL}/me/family/${encodeURIComponent(memberPublicId)}/paired-outfits`;
 }
