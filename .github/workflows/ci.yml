@@ -58,3 +58,6 @@ jobs:
 
       - name: Run worn outfit feed test
         run: npm run test:worn-outfit-feed
+
+      - name: Run account capabilities test
+        run: npm run test:account-capabilities

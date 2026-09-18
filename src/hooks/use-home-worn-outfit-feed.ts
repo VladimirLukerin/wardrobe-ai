@@ -13,6 +13,7 @@ import {
   shouldRefreshHomeWornOutfitFeed,
   type WornOutfitFeedDisplayEntry,
 } from '@/services/home-worn-outfit-feed';
+import { canUseFamilyFeatures } from '@/utils/account-capabilities';
 
 export type HomeWornOutfitFeedStatus = 'loading' | 'ready' | 'empty';
 
@@ -27,8 +28,10 @@ function isBackgroundState(state: AppStateStatus | null): boolean {
 }
 
 export function useHomeWornOutfitFeed(): UseHomeWornOutfitFeedResult {
-  const { isServerAccount } = useAccount();
+  const { isServerAccount, user } = useAccount();
   const { members } = useFamily();
+  const familyFeaturesEnabled = isServerAccount && canUseFamilyFeatures(user);
+  const feedFamilyMembers = familyFeaturesEnabled ? members : [];
   const { wearEvents, isHydrated: isWearHistoryHydrated } = useWearHistory();
   const { savedOutfits, isHydrated: isOutfitsHydrated } = useOutfits();
   const { items, isHydrated: isWardrobeHydrated } = useWardrobe();
@@ -65,7 +68,7 @@ export function useHomeWornOutfitFeed(): UseHomeWornOutfitFeedResult {
           wearEvents,
           savedOutfits,
           wardrobeItems: items,
-          familyMembers: isServerAccount ? members : [],
+          familyMembers: feedFamilyMembers,
           token,
           forceRefresh,
         });
@@ -96,23 +99,23 @@ export function useHomeWornOutfitFeed(): UseHomeWornOutfitFeedResult {
 
       await refreshInFlightRef.current;
     },
-    [isHydrated, isServerAccount, items, members, savedOutfits, wearEvents],
+    [feedFamilyMembers, isHydrated, isServerAccount, items, savedOutfits, wearEvents],
   );
 
   const refreshIfStale = useCallback(() => {
     if (
-      !shouldRefreshHomeWornOutfitFeed(members, lastRefreshAtRef.current) &&
+      !shouldRefreshHomeWornOutfitFeed(feedFamilyMembers, lastRefreshAtRef.current) &&
       hasEntriesRef.current
     ) {
       return;
     }
 
     void refresh(false);
-  }, [members, refresh]);
+  }, [feedFamilyMembers, refresh]);
 
   useEffect(() => {
     void refresh(false);
-  }, [refresh, wearEvents, savedOutfits, items, members, isServerAccount, isHydrated]);
+  }, [refresh, wearEvents, savedOutfits, items, feedFamilyMembers, isServerAccount, isHydrated]);
 
   useFocusEffect(
     useCallback(() => {

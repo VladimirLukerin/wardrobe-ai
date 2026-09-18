@@ -22,8 +22,11 @@ import {
   postFamilyInviteReject,
 } from '@/services/family-api';
 import { getAuthToken } from '@/storage/auth-token-storage';
+import { canUseFamilyFeatures } from '@/utils/account-capabilities';
 import { NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import { pruneRemovedFamilyMemberCaches } from '@/utils/clear-family-member-caches';
+
+const FAMILY_FEATURES_DISABLED_ERROR = 'Семейные функции доступны после сохранения аккаунта.';
 
 type FamilyStatus = 'idle' | 'loading' | 'loaded' | 'error';
 type FamilyErrorKind = 'network' | 'server';
@@ -58,7 +61,8 @@ function isBackgroundState(state: AppStateStatus | null): boolean {
 }
 
 export function FamilyProvider({ children }: { children: ReactNode }) {
-  const { isServerAccount, accountSessionKey } = useAccount();
+  const { isServerAccount, user, accountSessionKey } = useAccount();
+  const familyFeaturesEnabled = isServerAccount && canUseFamilyFeatures(user);
 
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [incomingInvites, setIncomingInvites] = useState<FamilyInvite[]>([]);
@@ -80,7 +84,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
     }
 
     const run = (async () => {
-      if (!isServerAccount) {
+      if (!familyFeaturesEnabled) {
         setMembers([]);
         setIncomingInvites([]);
         setOutgoingInvites([]);
@@ -155,22 +159,37 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
     } finally {
       refreshInFlightRef.current = null;
     }
-  }, [isServerAccount]);
+  }, [familyFeaturesEnabled]);
 
   const refreshFamilyIfStale = useCallback(async () => {
+    if (!familyFeaturesEnabled) {
+      return;
+    }
+
     if (Date.now() - lastRefreshAtRef.current < PASSIVE_REFRESH_MIN_INTERVAL_MS) {
       return;
     }
 
     await refreshFamily();
-  }, [refreshFamily]);
+  }, [familyFeaturesEnabled, refreshFamily]);
 
   useEffect(() => {
     hasLoadedRef.current = false;
     lastRefreshAtRef.current = 0;
     setDismissedPopupInviteIds([]);
-    void refreshFamily();
-  }, [refreshFamily, accountSessionKey]);
+
+    if (familyFeaturesEnabled) {
+      void refreshFamily();
+      return;
+    }
+
+    setMembers([]);
+    setIncomingInvites([]);
+    setOutgoingInvites([]);
+    setStatus('idle');
+    setError(null);
+    setErrorKind(null);
+  }, [familyFeaturesEnabled, refreshFamily, accountSessionKey]);
 
   useEffect(() => {
     pruneRemovedFamilyMemberCaches(members);
@@ -200,6 +219,10 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
 
   const inviteMember = useCallback(
     async (publicId: string) => {
+      if (!familyFeaturesEnabled) {
+        throw new AccountApiError(403, FAMILY_FEATURES_DISABLED_ERROR);
+      }
+
       const token = await getAuthToken();
 
       if (!token) {
@@ -219,10 +242,14 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
 
       await refreshFamily();
     },
-    [refreshFamily],
+    [familyFeaturesEnabled, refreshFamily],
   );
 
   const acceptInvite = useCallback(async (inviteId: string) => {
+    if (!familyFeaturesEnabled) {
+      throw new AccountApiError(403, FAMILY_FEATURES_DISABLED_ERROR);
+    }
+
     const token = await getAuthToken();
 
     if (!token) {
@@ -237,9 +264,13 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
 
     setIncomingInvites((current) => current.filter((invite) => invite.id !== inviteId));
     await refreshFamily();
-  }, [refreshFamily]);
+  }, [familyFeaturesEnabled, refreshFamily]);
 
   const rejectInvite = useCallback(async (inviteId: string) => {
+    if (!familyFeaturesEnabled) {
+      throw new AccountApiError(403, FAMILY_FEATURES_DISABLED_ERROR);
+    }
+
     const token = await getAuthToken();
 
     if (!token) {
@@ -254,10 +285,14 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
 
     setIncomingInvites((current) => current.filter((invite) => invite.id !== inviteId));
     await refreshFamily();
-  }, [refreshFamily]);
+  }, [familyFeaturesEnabled, refreshFamily]);
 
   const removeMember = useCallback(
     async (memberPublicId: string) => {
+      if (!familyFeaturesEnabled) {
+        throw new AccountApiError(403, FAMILY_FEATURES_DISABLED_ERROR);
+      }
+
       const token = await getAuthToken();
 
       if (!token) {
@@ -272,7 +307,7 @@ export function FamilyProvider({ children }: { children: ReactNode }) {
 
       await refreshFamily();
     },
-    [refreshFamily],
+    [familyFeaturesEnabled, refreshFamily],
   );
 
   const invitePopup = useMemo(

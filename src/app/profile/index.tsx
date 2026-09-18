@@ -45,10 +45,6 @@ import { isAccountProtected } from '@/utils/account-is-protected';
 import { isRetryableNetworkError, NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import { getLocalCalendarDateKeyForTimezone } from '@/utils/wear-date';
 
-const PROFILE = {
-  completion: 70,
-} as const;
-
 const STYLE_HINT = 'Ваш стиль пока изучается';
 const STYLE_TOOLTIP =
   'Оценивайте образы, чтобы мы лучше понимали ваши предпочтения.';
@@ -135,7 +131,7 @@ export default function ProfileScreen() {
 
     const messageParts: string[] = [];
 
-    if (!user?.emailVerified && !user?.phoneVerified) {
+    if (!isAccountProtected(user)) {
       messageParts.push(
         'Без подтверждённого email или телефона восстановить этот аккаунт после выхода будет невозможно.',
       );
@@ -376,24 +372,16 @@ export default function ProfileScreen() {
                     </View>
                   )}
                 </View>
-
-                <ThemedText themeColor="textSecondary" style={styles.completionText}>
-                  Профиль заполнен на {PROFILE.completion}%
-                </ThemedText>
-
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${PROFILE.completion}%` }]} />
-                </View>
               </>
             ) : (
               <>
                 <ThemedText style={styles.name}>Гостевой профиль</ThemedText>
 
                 <View style={styles.guestCard}>
-                  <ThemedText style={styles.guestCardTitle}>Аккаунт не защищён</ThemedText>
+                  <ThemedText style={styles.guestCardTitle}>Аккаунт не сохранён</ThemedText>
                   <ThemedText themeColor="textSecondary" style={styles.guestCardText}>
-                    Подключите email или телефон, чтобы сохранить гардероб и восстановить его на
-                    другом устройстве.
+                    Гардероб и настройки работают на этом устройстве. Подключите email или телефон,
+                    чтобы восстановить аккаунт и использовать семейные функции.
                   </ThemedText>
 
                   <Pressable
@@ -450,137 +438,155 @@ export default function ProfileScreen() {
             )}
           </Pressable>
 
-          <View style={styles.familyBlock}>
-            <View style={styles.familyHeader}>
-              <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
-              {pendingIncomingCount > 0 ? (
-                <View style={styles.familyBadge}>
-                  <ThemedText style={styles.familyBadgeText}>{pendingIncomingCount}</ThemedText>
-                </View>
-              ) : null}
-            </View>
+          {isProtected ? (
+            <View style={styles.familyBlock}>
+              <View style={styles.familyHeader}>
+                <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
+                {pendingIncomingCount > 0 ? (
+                  <View style={styles.familyBadge}>
+                    <ThemedText style={styles.familyBadgeText}>{pendingIncomingCount}</ThemedText>
+                  </View>
+                ) : null}
+              </View>
 
-            {status === 'loading' && members.length === 0 ? (
-              <ThemedText themeColor="textSecondary" style={styles.familyStatusText}>
-                Загрузка…
-              </ThemedText>
-            ) : null}
-
-            {status === 'error' && errorKind === 'network' ? (
-              <NetworkErrorState
-                compact
-                onRetry={() => {
-                  void refreshFamily();
-                }}
-              />
-            ) : null}
-
-            {status === 'error' && errorKind !== 'network' ? (
-              <View style={styles.familyStatusCard}>
+              {status === 'loading' && members.length === 0 ? (
                 <ThemedText themeColor="textSecondary" style={styles.familyStatusText}>
-                  {error ?? 'Не удалось загрузить семью'}
+                  Загрузка…
                 </ThemedText>
-                <Pressable
-                  onPress={() => {
+              ) : null}
+
+              {status === 'error' && errorKind === 'network' ? (
+                <NetworkErrorState
+                  compact
+                  onRetry={() => {
                     void refreshFamily();
                   }}
-                  style={({ pressed }) => [styles.familyRetryButton, pressed && styles.pressed]}>
-                  <ThemedText style={styles.familyRetryButtonText}>Повторить</ThemedText>
-                </Pressable>
-              </View>
-            ) : null}
+                />
+              ) : null}
 
-            {incomingInvites.map((invite) => (
-              <View key={invite.id} style={styles.familyInviteCard}>
-                <ThemedText style={styles.familyInviteText}>
-                  {getFamilyMemberLabel(invite.sender)} хочет добавить вас в семью
-                </ThemedText>
-                <View style={styles.familyInviteActions}>
-                  <Pressable
-                    onPress={() => {
-                      void handleInviteAction(() => acceptInvite(invite.id));
-                    }}
-                    style={({ pressed }) => [styles.familyAcceptButton, pressed && styles.pressed]}>
-                    <ThemedText style={styles.familyAcceptButtonText}>Принять</ThemedText>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      void handleInviteAction(() => rejectInvite(invite.id));
-                    }}
-                    style={({ pressed }) => [styles.familyRejectButton, pressed && styles.pressed]}>
-                    <ThemedText style={styles.familyRejectButtonText}>Отклонить</ThemedText>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
-
-            {outgoingInvites.map((invite) => (
-              <View key={invite.id} style={styles.familyOutgoingCard}>
-                <ThemedText themeColor="textSecondary" style={styles.familyOutgoingText}>
-                  Приглашение отправлено: {getFamilyMemberLabel(invite.recipient)}
-                </ThemedText>
-              </View>
-            ))}
-
-            {status === 'loaded' &&
-            members.length === 0 &&
-            incomingInvites.length === 0 &&
-            outgoingInvites.length === 0 ? (
-              <ThemedText themeColor="textSecondary" style={styles.familyEmptyText}>
-                Добавьте близких по ID пользователя, чтобы видеть их здесь после принятия приглашения.
-              </ThemedText>
-            ) : null}
-
-            <ScrollView
-              horizontal
-              nestedScrollEnabled
-              showsHorizontalScrollIndicator={false}
-              style={styles.familyScroll}
-              contentContainerStyle={styles.familyRow}>
-              <View style={styles.familyMember}>
-                <View style={styles.miniAvatar}>
-                  <ThemedText style={styles.miniAvatarLetter}>
-                    {getInitial(displayName)}
+              {status === 'error' && errorKind !== 'network' ? (
+                <View style={styles.familyStatusCard}>
+                  <ThemedText themeColor="textSecondary" style={styles.familyStatusText}>
+                    {error ?? 'Не удалось загрузить семью'}
                   </ThemedText>
+                  <Pressable
+                    onPress={() => {
+                      void refreshFamily();
+                    }}
+                    style={({ pressed }) => [styles.familyRetryButton, pressed && styles.pressed]}>
+                    <ThemedText style={styles.familyRetryButtonText}>Повторить</ThemedText>
+                  </Pressable>
                 </View>
-                <ThemedText style={styles.memberLabel}>Я</ThemedText>
-              </View>
+              ) : null}
 
-              {members.map((member) => (
-                <Pressable
-                  key={member.publicId}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/profile/family/[publicId]',
-                      params: { publicId: member.publicId, displayName: getFamilyMemberLabel(member) },
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Открыть профиль: ${getFamilyMemberLabel(member)}`}
-                  style={({ pressed }) => [styles.familyMember, pressed && styles.pressed]}>
-                  <View style={styles.miniAvatar}>
-                    <ThemedText style={styles.miniAvatarLetter}>
-                      {getInitial(getFamilyMemberLabel(member))}
-                    </ThemedText>
+              {incomingInvites.map((invite) => (
+                <View key={invite.id} style={styles.familyInviteCard}>
+                  <ThemedText style={styles.familyInviteText}>
+                    {getFamilyMemberLabel(invite.sender)} хочет добавить вас в семью
+                  </ThemedText>
+                  <View style={styles.familyInviteActions}>
+                    <Pressable
+                      onPress={() => {
+                        void handleInviteAction(() => acceptInvite(invite.id));
+                      }}
+                      style={({ pressed }) => [styles.familyAcceptButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.familyAcceptButtonText}>Принять</ThemedText>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        void handleInviteAction(() => rejectInvite(invite.id));
+                      }}
+                      style={({ pressed }) => [styles.familyRejectButton, pressed && styles.pressed]}>
+                      <ThemedText style={styles.familyRejectButtonText}>Отклонить</ThemedText>
+                    </Pressable>
                   </View>
-                  <ThemedText style={styles.memberLabel} numberOfLines={1}>
-                    {getFamilyMemberLabel(member)}
-                  </ThemedText>
-                </Pressable>
+                </View>
               ))}
 
-              <Pressable
-                onPress={() => setIsAddMemberSheetVisible(true)}
-                style={({ pressed }) => [styles.familyMember, pressed && styles.pressed]}>
-                <View style={styles.addMemberAvatar}>
-                  <ThemedText style={styles.addMemberPlus}>+</ThemedText>
+              {outgoingInvites.map((invite) => (
+                <View key={invite.id} style={styles.familyOutgoingCard}>
+                  <ThemedText themeColor="textSecondary" style={styles.familyOutgoingText}>
+                    Приглашение отправлено: {getFamilyMemberLabel(invite.recipient)}
+                  </ThemedText>
                 </View>
-                <ThemedText themeColor="textSecondary" style={styles.memberLabel}>
-                  Добавить
+              ))}
+
+              {status === 'loaded' &&
+              members.length === 0 &&
+              incomingInvites.length === 0 &&
+              outgoingInvites.length === 0 ? (
+                <ThemedText themeColor="textSecondary" style={styles.familyEmptyText}>
+                  Добавьте близких по ID пользователя, чтобы видеть их здесь после принятия
+                  приглашения.
                 </ThemedText>
+              ) : null}
+
+              <ScrollView
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                style={styles.familyScroll}
+                contentContainerStyle={styles.familyRow}>
+                <View style={styles.familyMember}>
+                  <View style={styles.miniAvatar}>
+                    <ThemedText style={styles.miniAvatarLetter}>
+                      {getInitial(displayName)}
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={styles.memberLabel}>Я</ThemedText>
+                </View>
+
+                {members.map((member) => (
+                  <Pressable
+                    key={member.publicId}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/profile/family/[publicId]',
+                        params: {
+                          publicId: member.publicId,
+                          displayName: getFamilyMemberLabel(member),
+                        },
+                      })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Открыть профиль: ${getFamilyMemberLabel(member)}`}
+                    style={({ pressed }) => [styles.familyMember, pressed && styles.pressed]}>
+                    <View style={styles.miniAvatar}>
+                      <ThemedText style={styles.miniAvatarLetter}>
+                        {getInitial(getFamilyMemberLabel(member))}
+                      </ThemedText>
+                    </View>
+                    <ThemedText style={styles.memberLabel} numberOfLines={1}>
+                      {getFamilyMemberLabel(member)}
+                    </ThemedText>
+                  </Pressable>
+                ))}
+
+                <Pressable
+                  onPress={() => setIsAddMemberSheetVisible(true)}
+                  style={({ pressed }) => [styles.familyMember, pressed && styles.pressed]}>
+                  <View style={styles.addMemberAvatar}>
+                    <ThemedText style={styles.addMemberPlus}>+</ThemedText>
+                  </View>
+                  <ThemedText themeColor="textSecondary" style={styles.memberLabel}>
+                    Добавить
+                  </ThemedText>
+                </Pressable>
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={styles.familyBlock}>
+              <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.familyLockedText}>
+                Сохраните аккаунт, чтобы добавить близких и создавать совместные образы.
+              </ThemedText>
+              <Pressable
+                onPress={() => setIsSaveAccountVisible(true)}
+                style={({ pressed }) => [styles.familyLockedButton, pressed && styles.pressed]}>
+                <ThemedText style={styles.familyLockedButtonText}>Сохранить аккаунт</ThemedText>
               </Pressable>
-            </ScrollView>
-          </View>
+            </View>
+          )}
 
           <Pressable
             onPress={() => setIsBodyParametersSheetVisible(true)}
@@ -605,9 +611,23 @@ export default function ProfileScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => router.push('/profile/paired-outfits')}
+            onPress={() => {
+              if (isProtected) {
+                router.push('/profile/paired-outfits');
+                return;
+              }
+
+              setIsSaveAccountVisible(true);
+            }}
             style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-            <ThemedText style={styles.settingsTitle}>Совместные образы</ThemedText>
+            <View style={styles.settingsRowContent}>
+              <ThemedText style={styles.settingsTitle}>Совместные образы</ThemedText>
+              {!isProtected ? (
+                <ThemedText themeColor="textSecondary" style={styles.settingsSubtitle}>
+                  Доступно после сохранения аккаунта
+                </ThemedText>
+              ) : null}
+            </View>
             <SymbolView
               name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
               size={12}
@@ -823,25 +843,32 @@ const styles = StyleSheet.create({
     color: Colors.light.text,
     textAlign: 'center',
   },
-  completionText: {
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    marginTop: Spacing.two,
+  familyLockedText: {
+    fontSize: 15,
+    lineHeight: 22,
   },
-  progressTrack: {
-    width: '100%',
-    maxWidth: 240,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.light.backgroundElement,
-    overflow: 'hidden',
-    marginTop: Spacing.one,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
+  familyLockedButton: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: Colors.light.text,
+    paddingHorizontal: Spacing.three,
+  },
+  familyLockedButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.background,
+  },
+  settingsRowContent: {
+    flex: 1,
+    gap: 2,
+    paddingRight: Spacing.two,
+  },
+  settingsSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   guestCard: {
     width: '100%',
