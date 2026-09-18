@@ -76,3 +76,12 @@ jobs:
 
       - name: Run outfit candidate selection test
         run: npm run test:outfit-candidate-selection
+
+      - name: Run guest weather advisor test
+        run: npm run test:guest-weather-advisor
+
+      - name: Run auth entry flow test
+        run: npm run test:auth-entry-flow
+
+      - name: Run rate limit placement test
+        run: npm run test:rate-limit-placement

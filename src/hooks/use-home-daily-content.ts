@@ -52,12 +52,14 @@ import type { WardrobeItem } from '@/contexts/wardrobe-context';
 import { buildStylistContext } from '@/utils/build-stylist-context';
 import { buildHomeInputSignature } from '@/utils/home-input-signature';
 import { buildLocationKey } from '@/utils/home-location-key';
+import { buildGuestHomeCta, buildGuestWeatherAdvice } from '@/utils/guest-weather-advisor';
 import { replaceOutfitItem } from '@/utils/outfit-item-replacement';
 import type { WearHistoryLookup } from '@/utils/build-wardrobe-suggestion-payload';
 
 type Params = {
   isHydrated: boolean;
   isServerAccount: boolean;
+  isGuestUser: boolean;
   accountScope: string;
   localDate: string;
   preferencesSyncStatus: PreferencesSyncStatus;
@@ -72,7 +74,7 @@ type Params = {
   requestLocation: SuggestOutfitsLocation | null;
   wearHistory: WearHistoryLookup;
 };
-type LoadState = 'idle' | 'loading' | 'success' | 'error' | 'empty-wardrobe';
+type LoadState = 'idle' | 'loading' | 'success' | 'error' | 'empty-wardrobe' | 'guest-weather';
 export type HomeContentErrorKind = 'network' | 'server' | 'rate_limited' | 'provider_rate_limited';
 
 const CACHE_SIGNATURE_PREFIX = 'v3';
@@ -155,6 +157,7 @@ export function useHomeDailyContent(params: Params) {
   const {
     isHydrated,
     isServerAccount,
+    isGuestUser,
     accountScope,
     localDate,
     preferencesSyncStatus,
@@ -175,6 +178,8 @@ export function useHomeDailyContent(params: Params) {
   const [outfitErrorKind, setOutfitErrorKind] = useState<HomeContentErrorKind | null>(null);
   const [weatherError, setWeatherError] = useState<CurrentWeatherErrorCode | null>(null);
   const [recommendationKey, setRecommendationKey] = useState<string | null>(null);
+  const [guestWeatherAdvice, setGuestWeatherAdvice] = useState<string | null>(null);
+  const [guestHomeCta, setGuestHomeCta] = useState<string | null>(null);
   const [outfitFeedback, setOutfitFeedback] = useState<OutfitFeedback | null>(null);
   const [isFeedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackLoadError, setFeedbackLoadError] = useState(false);
@@ -294,6 +299,74 @@ export function useHomeDailyContent(params: Params) {
     };
 
     try {
+      if (p.isGuestUser) {
+        setHomeOutfit(null);
+        setRecommendationKey(null);
+        setGuestHomeCta(buildGuestHomeCta(p.items.length));
+        setLoadState(p.items.length < 2 ? 'empty-wardrobe' : 'guest-weather');
+        setWeatherLoading(p.stylistPreferences.considerWeather && !!p.requestLocation);
+
+        weatherTask = (async () => {
+          if (!p.stylistPreferences.considerWeather || !p.requestLocation || !locationKey) {
+            setGuestWeatherAdvice(buildGuestWeatherAdvice({}));
+            setWeatherLoading(false);
+            return;
+          }
+
+          try {
+            setWeatherError(null);
+
+            const cachedWeather = await loadWeatherCache();
+            const freshWeatherEntry =
+              cachedWeather &&
+              cachedWeather.locationKey === locationKey &&
+              isWeatherCacheFresh(cachedWeather.fetchedAt)
+                ? cachedWeather
+                : null;
+            let resolvedWeather = freshWeatherEntry?.data ?? null;
+
+            if (!resolvedWeather) {
+              resolvedWeather = await fetchCurrentWeather(p.requestLocation);
+            }
+
+            if (!active()) {
+              return;
+            }
+
+            if (resolvedWeather) {
+              setWeather(resolvedWeather);
+              writes.current = writes.current
+                .catch(() => {})
+                .then(() =>
+                  saveWeatherCache({ data: resolvedWeather!, locationKey, fetchedAt: Date.now() }),
+                );
+            }
+
+            setGuestWeatherAdvice(buildGuestWeatherAdvice(resolvedWeather ?? {}));
+          } catch (weatherFailure) {
+            if (!active()) {
+              return;
+            }
+
+            if (weatherFailure instanceof CurrentWeatherError) {
+              setWeatherError(weatherFailure.code);
+            } else {
+              console.error('Unexpected guest weather error:', weatherFailure);
+              setWeatherError('server');
+            }
+
+            setGuestWeatherAdvice(buildGuestWeatherAdvice({}));
+          } finally {
+            if (active()) {
+              setWeatherLoading(false);
+            }
+          }
+        })();
+
+        await weatherTask;
+        return;
+      }
+
       if (p.items.length < 2) {
         setLoadState('empty-wardrobe');
         return;
@@ -929,7 +1002,7 @@ export function useHomeDailyContent(params: Params) {
       generation.current += 1;
       busy.current = false;
     };
-  }, [isHydrated, isServerAccount, localDate, preferencesSyncStatus, syncKey, sync]);
+  }, [isHydrated, isGuestUser, isServerAccount, localDate, preferencesSyncStatus, syncKey, sync]);
 
   const replaceItem = useCallback(
     (targetId: string, replacementId: string): boolean => {
@@ -1005,6 +1078,8 @@ export function useHomeDailyContent(params: Params) {
   return {
     loadState,
     homeOutfit,
+    guestWeatherAdvice,
+    guestHomeCta,
     weather,
     weatherError,
     isWeatherLoading,

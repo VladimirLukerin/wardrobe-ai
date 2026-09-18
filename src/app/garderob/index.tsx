@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { WardrobeFiltersSheet } from '@/components/wardrobe-filters-sheet';
 import { WardrobeGridCard } from '@/components/wardrobe-grid-card';
+import { PhotoCaptureOnboardingSheet } from '@/components/photo-capture-onboarding-sheet';
 import { EMPTY_WARDROBE_FILTERS, countWardrobeFilters, filterWardrobe } from '@/utils/wardrobe-filters';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,7 +25,14 @@ export default function GarderobScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterCount = countWardrobeFilters(filters);
   const visibleItems = filterWardrobe(items, filters, favoritesOnly);
-  const { takePhoto, pickFromGallery } = useAddWardrobeItem();
+  const {
+    takePhoto,
+    pickFromGallery,
+    isPhotoOnboardingVisible,
+    handlePhotoOnboardingContinue,
+    handlePhotoOnboardingSkipForever,
+    handlePhotoOnboardingClose,
+  } = useAddWardrobeItem();
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const { width: windowWidth } = useWindowDimensions();
 
@@ -116,6 +124,13 @@ export default function GarderobScreen() {
           />
         )}
       </SafeAreaView>
+
+      <PhotoCaptureOnboardingSheet
+        visible={isPhotoOnboardingVisible}
+        onContinue={handlePhotoOnboardingContinue}
+        onSkipForever={handlePhotoOnboardingSkipForever}
+        onClose={handlePhotoOnboardingClose}
+      />
 
       {filtersOpen && <WardrobeFiltersSheet filters={filters} items={items} favoritesOnly={favoritesOnly}
         onClose={() => setFiltersOpen(false)} onApply={(next) => { setFilters(next); setFiltersOpen(false); }} />}

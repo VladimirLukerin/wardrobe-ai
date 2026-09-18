@@ -8,6 +8,44 @@ export type DetectLocationOutcome =
   | { status: 'permission_denied' }
   | { status: 'unavailable' };
 
+export async function readAutoLocationIfPermissionGranted(): Promise<DetectLocationOutcome> {
+  const permission = await Location.getForegroundPermissionsAsync();
+
+  if (permission.status !== Location.PermissionStatus.GRANTED) {
+    return { status: 'permission_denied' };
+  }
+
+  let latitude: number;
+  let longitude: number;
+
+  try {
+    const position = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+
+    latitude = position.coords.latitude;
+    longitude = position.coords.longitude;
+  } catch {
+    return { status: 'unavailable' };
+  }
+
+  try {
+    const geocoded = await reverseGeocodeWithDevice(latitude, longitude);
+
+    return {
+      status: 'success',
+      location: {
+        source: 'auto',
+        latitude,
+        longitude,
+        ...geocoded,
+      },
+    };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
 export async function detectCurrentAutoLocation(): Promise<DetectLocationOutcome> {
   const currentPermission = await Location.getForegroundPermissionsAsync();
 

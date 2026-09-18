@@ -1,4 +1,4 @@
-import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -26,8 +26,15 @@ export function AppAuthEntryOverlay({
   const isFirstLaunch = variant === 'firstLaunch';
   const primaryLabel = isFirstLaunch ? 'Начать без входа' : 'Продолжить без входа';
 
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal visible={visible} animationType="fade" statusBarTranslucent>
+    <View
+      pointerEvents="box-none"
+      style={[StyleSheet.absoluteFill, styles.overlayRoot]}
+      accessibilityViewIsModal>
       <View
         style={[
           styles.container,
@@ -80,14 +87,18 @@ export function AppAuthEntryOverlay({
           </Pressable>
         </View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  overlayRoot: {
+    zIndex: 1000,
+    elevation: 1000,
+    backgroundColor: Colors.light.background,
+  },
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
     paddingHorizontal: Spacing.four,
     justifyContent: 'space-between',
   },

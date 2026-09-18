@@ -296,6 +296,8 @@ export default function HomeScreen() {
   const {
     loadState,
     homeOutfit,
+    guestWeatherAdvice,
+    guestHomeCta,
     weather,
     weatherError,
     isWeatherLoading,
@@ -410,12 +412,36 @@ export default function HomeScreen() {
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Что надеть сегодня</ThemedText>
 
+            {(loadState === 'guest-weather' || loadState === 'empty-wardrobe') && guestWeatherAdvice ? (
+              <View style={styles.guestAdviceBlock}>
+                <ThemedText style={styles.guestAdviceText}>{guestWeatherAdvice}</ThemedText>
+                {guestHomeCta ? (
+                  <ThemedText themeColor="textSecondary" style={styles.guestAdviceCta}>
+                    {guestHomeCta}
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : null}
+
             {loadState === 'empty-wardrobe' && (
               <View style={styles.emptyBlock}>
                 <ThemedText style={styles.emptyTitle}>Добавьте вещи в гардероб</ThemedText>
                 <ThemedText themeColor="textSecondary" style={styles.emptySubtitle}>
-                  Когда в гардеробе появится несколько вещей, я смогу подобрать образ на сегодня.
+                  {guestHomeCta ??
+                    'Когда в гардеробе появится несколько вещей, я смогу подобрать образ на сегодня.'}
                 </ThemedText>
+                <Pressable
+                  onPress={() => router.push('/garderob')}
+                  style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}>
+                  <ThemedText style={styles.primaryButtonText}>
+                    {items.length === 0 ? 'Добавить первую вещь' : 'Открыть гардероб'}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            )}
+
+            {loadState === 'guest-weather' && (
+              <View style={styles.emptyBlock}>
                 <Pressable
                   onPress={() => router.push('/garderob')}
                   style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}>
@@ -639,6 +665,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center',
+  },
+  guestAdviceBlock: {
+    gap: Spacing.two,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.two,
+    backgroundColor: Colors.light.backgroundElement,
+    borderRadius: 16,
+  },
+  guestAdviceText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: Colors.light.text,
+  },
+  guestAdviceCta: {
+    fontSize: 15,
+    lineHeight: 22,
   },
   emptyBlock: {
     alignItems: 'center',

@@ -21,6 +21,13 @@ const DEFAULT_LIMITS: Record<AiRateLimitType, RateLimitConfig> = {
   paired: { max: 10, windowMs: 60 * 60 * 1000 },
 };
 
+const DEV_DEFAULT_LIMITS: Record<AiRateLimitType, number> = {
+  photo: 100,
+  suggest: 100,
+  daily: 100,
+  paired: 100,
+};
+
 const ENV_MAX_KEYS: Record<AiRateLimitType, string> = {
   photo: 'AI_RATE_LIMIT_PHOTO_MAX',
   suggest: 'AI_RATE_LIMIT_SUGGEST_MAX',
@@ -53,9 +60,13 @@ function parseMaxFromEnv(type: AiRateLimitType): number | null {
 export function getAiRateLimitConfig(type: AiRateLimitType): RateLimitConfig {
   const defaults = DEFAULT_LIMITS[type];
   const maxOverride = parseMaxFromEnv(type);
+  const devDefaultMax =
+    process.env.NODE_ENV !== 'production' && maxOverride === null
+      ? DEV_DEFAULT_LIMITS[type]
+      : null;
 
   return {
-    max: maxOverride ?? defaults.max,
+    max: maxOverride ?? devDefaultMax ?? defaults.max,
     windowMs: defaults.windowMs,
   };
 }
@@ -149,6 +160,26 @@ export function enforceAiRateLimit(
   logAiRateLimit(type, userId);
   respondAiRateLimited(res, result.retryAfterSeconds);
   return false;
+}
+
+export class AiRateLimitExceededError extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super('rate_limited');
+    this.name = 'AiRateLimitExceededError';
+  }
+}
+
+export function consumeAiRateLimit(
+  userId: string,
+  type: AiRateLimitType,
+  now = clock(),
+): void {
+  const result = checkAiRateLimit(userId, type, now);
+
+  if (!result.allowed) {
+    logAiRateLimit(type, userId);
+    throw new AiRateLimitExceededError(result.retryAfterSeconds);
+  }
 }
 
 export function getAiRateLimitBucketCountForTests(): number {

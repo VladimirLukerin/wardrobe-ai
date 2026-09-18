@@ -24,11 +24,18 @@ import {
 import { getPhotoRejectMessage, isPhotoRejectReason } from './photo-decision';
 import { prepareUploadedImage, type PreparedUploadedImage } from './prepare-uploaded-image';
 import { validateAndRecognizeClothingPhoto } from './photo-validation-recognition';
-import { createImageFingerprint, runCachedImageProcessing } from './processing-cost-guard';
+import { createImageFingerprint, runCachedImageProcessing, type PhotoProcessingResult } from './processing-cost-guard';
 
 const BACKGROUND_REMOVAL_USER_MESSAGE = 'Не удалось обработать фон';
 
-async function runProcessingPipeline(prepared: PreparedUploadedImage) {
+class PhotoProcessingRateLimitedError extends Error {
+  constructor() {
+    super('photo_rate_limited');
+    this.name = 'PhotoProcessingRateLimitedError';
+  }
+}
+
+async function runProcessingPipeline(prepared: PreparedUploadedImage): Promise<PhotoProcessingResult> {
   const totalStartedAt = Date.now();
 
   const openAiStartedAt = Date.now();
@@ -115,16 +122,18 @@ export async function handleProcessClothingImage(req: Request, res: Response): P
       return;
     }
 
-    if (!enforceAiRateLimit(res, req.authUser.id, 'photo')) {
-      return;
-    }
-
     const prepareStartedAt = Date.now();
     const prepared = await prepareUploadedImage(req.file.buffer, req.file.mimetype);
     logPhotoTiming('prepare', Date.now() - prepareStartedAt);
 
     const fingerprint = createImageFingerprint(prepared.buffer);
-    const result = await runCachedImageProcessing(fingerprint, () => runProcessingPipeline(prepared));
+    const result = await runCachedImageProcessing(fingerprint, async () => {
+      if (!enforceAiRateLimit(res, req.authUser!.id, 'photo')) {
+        throw new PhotoProcessingRateLimitedError();
+      }
+
+      return runProcessingPipeline(prepared);
+    });
 
     if (!result.accepted) {
       res.status(200).json({
@@ -145,6 +154,10 @@ export async function handleProcessClothingImage(req: Request, res: Response): P
       processedImageBase64: result.processedImage.toString('base64'),
     });
   } catch (error) {
+    if (error instanceof PhotoProcessingRateLimitedError) {
+      return;
+    }
+
     if (error instanceof PhotoProcessingGuardError) {
       res.status(error.statusCode).json({ error: error.message });
       return;

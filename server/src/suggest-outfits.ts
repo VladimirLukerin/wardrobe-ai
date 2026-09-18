@@ -1,7 +1,11 @@
 import type { Request, Response } from 'express';
 import type { OutfitFeedbackReason } from './db/outfit-feedback-reasons';
 import { mergeOutfitFeedbackIntoBehavioralContext } from './outfit-feedback/build-outfit-feedback-context';
-import { enforceAiRateLimit } from './ai-request-rate-limit';
+import {
+  AiRateLimitExceededError,
+  consumeAiRateLimit,
+  respondAiRateLimited,
+} from './ai-request-rate-limit';
 import {
   buildCompactUserBehaviorSection,
   buildCompactWardrobeSummary,
@@ -903,8 +907,12 @@ export async function generateOutfitSuggestionsFromBody(
     );
 
     if (wardrobe.length > aiWardrobe.length) {
-      console.log(`[OUTFIT AI] wardrobe total=${wardrobe.length} selected=${aiWardrobe.length}`);
+      console.log(`[OUTFIT AI] totalWardrobe=${wardrobe.length} shortlist=${aiWardrobe.length}`);
     }
+  }
+
+  if (options?.userId) {
+    consumeAiRateLimit(options.userId, 'suggest');
   }
 
   const openai = new OpenAI({ apiKey, maxRetries: 0 });
@@ -953,7 +961,7 @@ export async function generateOutfitSuggestionsFromBody(
 
   if (process.env.NODE_ENV !== 'production') {
     console.log(
-      `[OUTFIT AI] wardrobe=${aiWardrobe.length} promptChars=${promptText.length} estimatedTokens=${estimatePromptTokens(promptText)}`,
+      `[OUTFIT AI] totalWardrobe=${wardrobe.length} shortlist=${aiWardrobe.length} promptChars=${promptText.length} estimatedTokens=${estimatePromptTokens(promptText)}`,
     );
   }
 
@@ -1052,16 +1060,17 @@ export async function suggestOutfitsHandler(req: Request, res: Response): Promis
       return;
     }
 
-    if (!enforceAiRateLimit(res, req.authUser.id, 'suggest')) {
-      return;
-    }
-
     const result = await generateOutfitSuggestionsFromBody(parsedBody, {
       userId: req.authUser.id,
     });
 
     res.json(result);
   } catch (error) {
+    if (error instanceof AiRateLimitExceededError) {
+      respondAiRateLimited(res, error.retryAfterSeconds);
+      return;
+    }
+
     if (error instanceof AiProviderRateLimitError) {
       respondAiProviderRateLimited(res, error.retryAfterSeconds);
       return;

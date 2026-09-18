@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import {
@@ -27,8 +27,13 @@ import { WearHistorySyncProvider } from '@/contexts/wear-history-sync-context';
 import { WardrobeSyncProvider } from '@/contexts/wardrobe-sync-context';
 import { WardrobeProvider } from '@/contexts/wardrobe-context';
 import { useCameraPermissionStartup } from '@/hooks/use-camera-permission-startup';
+import { useLocationBootstrap } from '@/hooks/use-location-bootstrap';
 import type { ServerUser } from '@/services/account';
 import { isOnboardingCompleted, markOnboardingCompleted } from '@/storage/onboarding-storage';
+import {
+  handleAuthLoginPress,
+  shouldResetAuthEntrySheetsOnSessionChange,
+} from '@/utils/auth-entry-flow';
 import { DefaultTheme, ThemeProvider } from 'expo-router';
 
 let launchPlayed = false;
@@ -67,18 +72,30 @@ export function AccountScopedApp() {
     });
   }, []);
 
+  const previousSessionKeyRef = useRef(accountSessionKey);
+
   useEffect(() => {
     if (__DEV__) {
       console.log(`[ACCOUNT REMOUNT] ${accountSessionKey}`);
     }
 
-    setIsLoginChoiceVisible(false);
-    setIsAuthRegistrationFlow(false);
-    setRegistrationEmail('');
-    setIsEmailLinkVisible(false);
-    setIsSetPasswordVisible(false);
+    if (shouldResetAuthEntrySheetsOnSessionChange(previousSessionKeyRef.current, accountSessionKey)) {
+      setIsLoginChoiceVisible(false);
+      setIsAuthRegistrationFlow(false);
+      setRegistrationEmail('');
+      setIsEmailLinkVisible(false);
+      setIsSetPasswordVisible(false);
+    }
+
+    previousSessionKeyRef.current = accountSessionKey;
     refreshOnboardingState();
   }, [accountSessionKey, refreshOnboardingState]);
+
+  useEffect(() => {
+    if (__DEV__ && isLoginChoiceVisible) {
+      console.log('[AUTH ENTRY] login sheet visible=true');
+    }
+  }, [isLoginChoiceVisible]);
 
   const handleStartGuest = useCallback(async () => {
     if (__DEV__) {
@@ -103,10 +120,14 @@ export function AccountScopedApp() {
   const handleOpenLogin = useCallback(() => {
     if (__DEV__) {
       console.log('[AUTH ENTRY] login pressed');
-      console.log('[AUTH ENTRY] login sheet open');
     }
 
-    setIsLoginChoiceVisible(true);
+    setIsLoginChoiceVisible((current) =>
+      handleAuthLoginPress({
+        isLoginChoiceVisible: current,
+        showAuthSplash: true,
+      }).isLoginChoiceVisible,
+    );
   }, []);
 
   const handleLoginSuccess = useCallback(async () => {
@@ -155,6 +176,7 @@ export function AccountScopedApp() {
   const authEntryVariant = hasCompletedOnboarding ? 'returning' : 'firstLaunch';
 
   useCameraPermissionStartup(showMainApp);
+  useLocationBootstrap(showMainApp);
 
   return (
     <>

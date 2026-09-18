@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 
 import { useAccount } from '@/contexts/account-context';
+import { isAccountProtected } from '@/utils/account-is-protected';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
 import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useOutfits } from '@/contexts/outfits-context';
@@ -16,6 +17,7 @@ const HomeDailyContentContext = createContext<ReturnType<typeof useHomeDailyCont
 
 export function HomeDailyContentProvider({ children }: { children: ReactNode }) {
   const { isServerAccount, user, accountSessionKey } = useAccount();
+  const isGuestUser = !isAccountProtected(user);
   const accountScope = user?.id ?? `session-${accountSessionKey}`;
   const { items, isHydrated: wardrobeReady } = useWardrobe();
   const { savedOutfits, isHydrated: outfitsReady } = useOutfits();
@@ -70,6 +72,7 @@ export function HomeDailyContentProvider({ children }: { children: ReactNode }) 
   const value = useHomeDailyContent({
     isHydrated: wardrobeReady && outfitsReady && stylistReady && bodyReady && wearHistoryReady,
     isServerAccount,
+    isGuestUser,
     accountScope,
     localDate,
     preferencesSyncStatus,
