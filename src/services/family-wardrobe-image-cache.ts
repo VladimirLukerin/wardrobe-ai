@@ -1,5 +1,3 @@
-import { File } from 'expo-file-system';
-
 import {
   familyMemberOriginalImageEndpoint,
   familyMemberProcessedImageEndpoint,

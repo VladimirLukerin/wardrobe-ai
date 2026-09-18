@@ -16,7 +16,9 @@
     "test:model-comparison-benchmark": "tsx scripts/test-model-comparison-benchmark.ts",
     "dev:seed-wardrobe": "tsx scripts/dev-seed-wardrobe.ts",
     "dev:clear-seed-wardrobe": "tsx scripts/dev-clear-seed-wardrobe.ts",
-    "dev:generate-wardrobe-fixtures": "tsx scripts/dev-generate-wardrobe-fixtures.ts"
+    "dev:generate-wardrobe-fixtures": "tsx scripts/dev-generate-wardrobe-fixtures.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run test:processing-cost-guard"
   },
   "dependencies": {
     "@imgly/background-removal-node": "^1.4.5",

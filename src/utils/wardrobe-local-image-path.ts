@@ -75,7 +75,7 @@ export function localImageFileExists(uri: string | undefined): boolean {
   }
 }
 
-export async function buildLocalImageFingerprint(uri: string): string | null {
+export function buildLocalImageFingerprint(uri: string): string | null {
   try {
     const file = new File(uri);
 

@@ -11,7 +11,7 @@ import {
 } from '../photo-processing/photo-processing-error';
 import { BackgroundRemovalError } from './background-removal-error';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(__filename);
 
 let cachedConfig: Config | null = null;
 
