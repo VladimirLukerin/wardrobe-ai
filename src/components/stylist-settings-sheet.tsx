@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -21,6 +21,14 @@ import {
 import { Colors, Spacing } from '@/constants/theme';
 import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
+import {
+  getDailyStylistReminderPermissionStatus,
+  reconcileDailyStylistReminder,
+  requestDailyStylistReminderPermission,
+  saveDailyStylistReminderEnabled,
+} from '@/services/daily-stylist-reminder';
+import { loadDailyStylistReminderState } from '@/storage/daily-stylist-reminder-storage';
+import { getDeviceTimeZone } from '@/utils/daily-stylist-reminder-plan';
 
 type StylistSettingsSheetProps = {
   visible: boolean;
@@ -121,6 +129,9 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
   const { queuePreferencesSync } = usePreferencesSync();
 
   const [draft, setDraft] = useState<StylistPreferences>(DEFAULT_STYLIST_PREFERENCES);
+  const [draftReminderEnabled, setDraftReminderEnabled] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const wasVisibleRef = useRef(false);
 
   const translateY = useSharedValue(0);
@@ -165,6 +176,9 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
     }
 
     wasVisibleRef.current = true;
+    void loadDailyStylistReminderState().then((reminderState) => {
+      setDraftReminderEnabled(reminderState.dailyStylistReminderEnabled);
+    });
     setDraft({
       considerWeather,
       styleExperiment,
@@ -174,6 +188,7 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
       dailyStylistTime,
       timezone,
     });
+    setReminderMessage(null);
   }, [
     visible,
     isHydrated,
@@ -187,11 +202,107 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
     translateY,
   ]);
 
-  const handleSave = () => {
-    setStylistPreferences(draft);
-    queuePreferencesSync();
-    onClose();
+  const showPermissionDeniedAlert = useCallback(() => {
+    Alert.alert(
+      'Уведомления недоступны',
+      'Уведомления отключены в настройках устройства.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Открыть настройки',
+          onPress: () => {
+            void Linking.openSettings();
+          },
+        },
+      ],
+    );
+  }, []);
+
+  const handleReminderToggle = useCallback(
+    async (value: boolean) => {
+      setReminderMessage(null);
+
+      if (!value) {
+        setDraftReminderEnabled(false);
+        return;
+      }
+
+      if (!draft.dailyStylistEnabled) {
+        return;
+      }
+
+      const currentStatus = await getDailyStylistReminderPermissionStatus();
+
+      if (currentStatus === 'denied') {
+        setDraftReminderEnabled(false);
+        setReminderMessage('Уведомления отключены в настройках устройства.');
+        showPermissionDeniedAlert();
+        return;
+      }
+
+      const permissionResult =
+        currentStatus === 'granted'
+          ? { status: 'granted' as const }
+          : await requestDailyStylistReminderPermission();
+
+      if (permissionResult.status !== 'granted') {
+        setDraftReminderEnabled(false);
+        setReminderMessage('Уведомления отключены в настройках устройства.');
+        showPermissionDeniedAlert();
+        return;
+      }
+
+      setDraftReminderEnabled(true);
+    },
+    [draft.dailyStylistEnabled, showPermissionDeniedAlert],
+  );
+
+  const handleSave = async () => {
+    if (isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const deviceTimeZone = getDeviceTimeZone();
+      const nextPreferences: StylistPreferences = {
+        ...draft,
+        timezone: deviceTimeZone ?? draft.timezone,
+      };
+
+      if (!nextPreferences.dailyStylistEnabled) {
+        setDraftReminderEnabled(false);
+      }
+
+      setStylistPreferences(nextPreferences);
+      await saveDailyStylistReminderEnabled(
+        nextPreferences.dailyStylistEnabled && draftReminderEnabled,
+      );
+
+      const reconcileResult = await reconcileDailyStylistReminder({
+        stylistPreferences: nextPreferences,
+      });
+
+      queuePreferencesSync();
+
+      if (
+        draftReminderEnabled &&
+        nextPreferences.dailyStylistEnabled &&
+        !reconcileResult.state.dailyStylistReminderEnabled
+      ) {
+        setDraftReminderEnabled(false);
+        setReminderMessage('Не удалось включить напоминание на этом устройстве.');
+        return;
+      }
+
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  const deviceTimeZoneLabel = getDeviceTimeZone() ?? draft.timezone;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -272,12 +383,34 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
                   <SectionTitle>ОБРАЗ НА КАЖДЫЙ ДЕНЬ</SectionTitle>
                   <ToggleRow
                     title="Образ на каждый день"
-                    subtitle="Мы подготовим образ заранее к выбранному времени."
+                    subtitle="Стилист будет подбирать отдельный образ на каждый день."
                     value={draft.dailyStylistEnabled}
-                    onValueChange={(value) =>
-                      setDraft((current) => ({ ...current, dailyStylistEnabled: value }))
-                    }
+                    onValueChange={(value) => {
+                      setDraft((current) => ({ ...current, dailyStylistEnabled: value }));
+
+                      if (!value) {
+                        setDraftReminderEnabled(false);
+                        setReminderMessage(null);
+                      }
+                    }}
                   />
+                  {draft.dailyStylistEnabled ? (
+                    <>
+                      <ToggleRow
+                        title="Напоминать об образе"
+                        subtitle="Уведомим в выбранное время на этом устройстве."
+                        value={draftReminderEnabled}
+                        onValueChange={(value) => {
+                          void handleReminderToggle(value);
+                        }}
+                      />
+                      {reminderMessage ? (
+                        <ThemedText themeColor="textSecondary" style={styles.reminderMessage}>
+                          {reminderMessage}
+                        </ThemedText>
+                      ) : null}
+                    </>
+                  ) : null}
                   <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
                     Время рекомендации
                   </ThemedText>
@@ -294,19 +427,11 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
                     ))}
                   </View>
                   <ThemedText themeColor="textSecondary" style={styles.sectionHint}>
-                    Часовой пояс
+                    Часовой пояс устройства
                   </ThemedText>
-                  <TextInput
-                    value={draft.timezone}
-                    onChangeText={(value) =>
-                      setDraft((current) => ({ ...current, timezone: value }))
-                    }
-                    placeholder="Europe/Moscow"
-                    placeholderTextColor={Colors.light.textSecondary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.timezoneInput}
-                  />
+                  <View style={styles.timezoneReadOnly}>
+                    <ThemedText style={styles.timezoneReadOnlyText}>{deviceTimeZoneLabel}</ThemedText>
+                  </View>
                 </View>
 
                 <View style={styles.section}>
@@ -325,8 +450,15 @@ export default function StylistSettingsSheet({ visible, onClose }: StylistSettin
 
             <View style={[styles.floatingSaveArea, { paddingBottom: bottomInset }]}>
               <Pressable
-                onPress={handleSave}
-                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+                onPress={() => {
+                  void handleSave();
+                }}
+                disabled={isSaving}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  pressed && styles.pressed,
+                  isSaving && styles.primaryButtonDisabled,
+                ]}>
                 <ThemedText style={styles.primaryButtonText}>Сохранить</ThemedText>
               </Pressable>
             </View>
@@ -480,6 +612,26 @@ const styles = StyleSheet.create({
   },
   modeOptionTextSelected: {
     color: Colors.light.background,
+  },
+  timezoneReadOnly: {
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.light.backgroundSelected,
+    paddingHorizontal: Spacing.three,
+    justifyContent: 'center',
+    backgroundColor: Colors.light.backgroundElement,
+  },
+  timezoneReadOnlyText: {
+    fontSize: 16,
+    color: Colors.light.text,
+  },
+  reminderMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
   },
   timezoneInput: {
     minHeight: 48,

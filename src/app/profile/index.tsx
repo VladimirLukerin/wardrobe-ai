@@ -34,6 +34,11 @@ import {
   DevGenerateDailyOutfitError,
   generateDevDailyOutfitForToday,
 } from '@/services/dev-generate-daily-outfit';
+import {
+  getDailyStylistReminderPermissionStatus,
+  requestDailyStylistReminderPermission,
+  scheduleDailyStylistDevTestNotification,
+} from '@/services/daily-stylist-reminder';
 import { refreshDevTestData } from '@/services/dev-refresh-test-data';
 import { restoreDevTestDataFromServer } from '@/services/dev-server-restore';
 import { isAccountProtected } from '@/utils/account-is-protected';
@@ -68,6 +73,8 @@ export default function ProfileScreen() {
   const [isDevRefreshInProgress, setIsDevRefreshInProgress] = useState(false);
   const [isDevServerRestoreInProgress, setIsDevServerRestoreInProgress] = useState(false);
   const [isDevDailyGenerateInProgress, setIsDevDailyGenerateInProgress] = useState(false);
+  const [isDevDailyNotificationTestInProgress, setIsDevDailyNotificationTestInProgress] =
+    useState(false);
   const { user, logoutFromProfile, devResetTestAccount, isServerAccount } = useAccount();
   const { displayName } = useAccountProfile();
   const { status: preferencesSyncStatus } = usePreferencesSync();
@@ -236,6 +243,49 @@ export default function ProfileScreen() {
         );
       } finally {
         setIsDevDailyGenerateInProgress(false);
+      }
+    })();
+  };
+
+  const handleDevNotificationTestPress = () => {
+    void (async () => {
+      if (isDevDailyNotificationTestInProgress) {
+        return;
+      }
+
+      setIsDevDailyNotificationTestInProgress(true);
+
+      try {
+        const permissionStatus = await getDailyStylistReminderPermissionStatus();
+
+        if (permissionStatus === 'undetermined') {
+          const permissionResult = await requestDailyStylistReminderPermission();
+
+          if (permissionResult.status !== 'granted') {
+            Alert.alert(
+              'Уведомления недоступны',
+              'Уведомления отключены в настройках устройства.',
+            );
+            return;
+          }
+        } else if (permissionStatus === 'denied') {
+          Alert.alert(
+            'Уведомления недоступны',
+            'Уведомления отключены в настройках устройства.',
+          );
+          return;
+        }
+
+        const result = await scheduleDailyStylistDevTestNotification();
+
+        if (!result.ok) {
+          Alert.alert('Не удалось запланировать тестовое уведомление');
+          return;
+        }
+
+        Alert.alert('Тестовое уведомление через 5 секунд');
+      } finally {
+        setIsDevDailyNotificationTestInProgress(false);
       }
     })();
   };
@@ -603,6 +653,22 @@ export default function ProfileScreen() {
                   ) : (
                     <ThemedText style={styles.devServerRestoreText}>
                       Сгенерировать образ на сегодня
+                    </ThemedText>
+                  )}
+                </Pressable>
+                <Pressable
+                  onPress={handleDevNotificationTestPress}
+                  disabled={isDevDailyNotificationTestInProgress}
+                  style={({ pressed }) => [
+                    styles.devServerRestoreButton,
+                    pressed && styles.pressed,
+                    isDevDailyNotificationTestInProgress && styles.devRefreshButtonDisabled,
+                  ]}>
+                  {isDevDailyNotificationTestInProgress ? (
+                    <ActivityIndicator color={Colors.light.textSecondary} />
+                  ) : (
+                    <ThemedText style={styles.devServerRestoreText}>
+                      Тест уведомления через 5 секунд
                     </ThemedText>
                   )}
                 </Pressable>

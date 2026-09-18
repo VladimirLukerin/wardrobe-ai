@@ -52,7 +52,8 @@
           "locationWhenInUsePermission": "Wardrobe AI использует ваше местоположение, чтобы учитывать погоду при подборе одежды.",
           "locationAlwaysAndWhenInUsePermission": "Wardrobe AI использует ваше местоположение, чтобы учитывать погоду при подборе одежды."
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,

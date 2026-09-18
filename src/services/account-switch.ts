@@ -8,11 +8,14 @@ import { loadWardrobeItems } from '@/storage/wardrobe-storage';
 import { loadOutfitsSyncMetadata } from '@/storage/outfits-sync-storage';
 import { loadWearHistorySyncMetadata } from '@/storage/wear-history-sync-storage';
 import { loadWardrobeSyncMetadata } from '@/storage/wardrobe-sync-storage';
+import { DAILY_STYLIST_REMINDER_STORAGE_KEY } from '@/storage/daily-stylist-reminder-storage';
+import { clearDailyStylistReminderForAccountSwitch } from '@/services/daily-stylist-reminder';
 import { clearAccountRuntimeCaches } from '@/utils/clear-account-runtime-caches';
 
 export const USER_SCOPED_STORAGE_KEYS = [
   '@wardrobe-ai/profile/body-parameters',
   '@wardrobe-ai/profile/stylist-preferences',
+  DAILY_STYLIST_REMINDER_STORAGE_KEY,
   '@wardrobe-ai/profile/account',
   ACCOUNT_CACHE_STORAGE_KEY,
   '@wardrobe-ai/profile/preferences-sync-metadata',
@@ -36,6 +39,7 @@ export type LocalAccountAssessment = {
 };
 
 export async function prepareLocalStateForAccountSwitch(): Promise<void> {
+  await clearDailyStylistReminderForAccountSwitch();
   clearAccountRuntimeCaches();
   await AsyncStorage.multiRemove([...USER_SCOPED_STORAGE_KEYS]);
 }

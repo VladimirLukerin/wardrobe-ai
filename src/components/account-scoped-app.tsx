@@ -6,6 +6,7 @@ import { AccountProfileReloader } from '@/components/account-profile-reloader';
 import { AccountRestoreOverlay } from '@/components/account-restore-overlay';
 import { AppAuthEntryOverlay } from '@/components/app-auth-entry-overlay';
 import AppTabs from '@/components/app-tabs';
+import { DailyStylistReminderLifecycle } from '@/components/daily-stylist-reminder-lifecycle';
 import { FamilyInviteBanner } from '@/components/family-invite-banner';
 import { HomeLaunchOverlay } from '@/components/home-launch-overlay';
 import { useAccount } from '@/contexts/account-context';
@@ -118,6 +119,7 @@ export function AccountScopedApp() {
                     <StylistPreferencesProvider key={accountSessionKey}>
                       <BodyParametersProvider key={accountSessionKey}>
                         <PreferencesSyncProvider key={accountSessionKey}>
+                          <DailyStylistReminderLifecycle enabled={showMainApp} />
                           <FamilyProvider>
                             <ThemeProvider value={DefaultTheme}>
                               <HomeDailyContentProvider key={accountSessionKey}>
