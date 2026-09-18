@@ -482,6 +482,7 @@ export function useHomeDailyContent(params: Params) {
           devDailyHomeLog('[DAILY HOME] manual regenerate');
           const daily = await regenerateDailyOutfit(token, p.localDate, p.requestLocation, {
             accountScope: p.accountScope,
+            manual: true,
           });
           if (!active()) return;
 

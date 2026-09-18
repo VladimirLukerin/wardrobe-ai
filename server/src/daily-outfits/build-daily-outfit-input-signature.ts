@@ -7,7 +7,6 @@ import type { SuggestOutfitsLocation } from '../suggest-outfits';
 export type BuildDailyOutfitInputSignatureParams = {
   userId: string;
   localDate: string;
-  locationOverride?: SuggestOutfitsLocation | null;
 };
 
 type NormalizedLocationPlace = {
@@ -64,6 +63,25 @@ function resolveActiveLocation(body: ValidatedBodyParameters | null): SuggestOut
   return null;
 }
 
+export function roundCoordinateForSignature(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function buildWeatherLocationSignature(
+  considerWeather: boolean,
+  location: SuggestOutfitsLocation | null,
+) {
+  if (!considerWeather || !location) {
+    return null;
+  }
+
+  return {
+    latitude: roundCoordinateForSignature(location.latitude),
+    longitude: roundCoordinateForSignature(location.longitude),
+    name: location.name ?? '',
+  };
+}
+
 function buildLocationPreferences(body: ValidatedBodyParameters | null) {
   if (!body) {
     return {
@@ -83,7 +101,6 @@ function buildLocationPreferences(body: ValidatedBodyParameters | null) {
 export function buildDailyOutfitInputSignature({
   userId,
   localDate,
-  locationOverride,
 }: BuildDailyOutfitInputSignatureParams): string {
   const wardrobe = getActiveWardrobeItemsForUser(userId);
   const preferences = getPreferencesResponse(userId);
@@ -91,7 +108,7 @@ export function buildDailyOutfitInputSignature({
   const stylist = preferences.stylistPreferences;
   const considerWeather = stylist?.considerWeather ?? true;
   const locationPreferences = buildLocationPreferences(body);
-  const activeLocation = locationOverride ?? resolveActiveLocation(body);
+  const activeLocation = resolveActiveLocation(body);
 
   return buildDailyInputSignature({
     localDate,
@@ -109,14 +126,7 @@ export function buildDailyOutfitInputSignature({
       weatherSensitivity: body?.weatherSensitivity ?? null,
     },
     locationPreferences,
-    weatherLocation:
-      considerWeather && activeLocation
-        ? {
-            latitude: activeLocation.latitude,
-            longitude: activeLocation.longitude,
-            name: activeLocation.name ?? '',
-          }
-        : null,
+    weatherLocation: buildWeatherLocationSignature(considerWeather, activeLocation),
   });
 }
 
@@ -124,12 +134,10 @@ export function isDailyOutfitInputSignatureStale(
   userId: string,
   localDate: string,
   storedSignature: string,
-  locationOverride?: SuggestOutfitsLocation | null,
 ): boolean {
   const currentSignature = buildDailyOutfitInputSignature({
     userId,
     localDate,
-    locationOverride,
   });
   const stale = currentSignature !== storedSignature;
 

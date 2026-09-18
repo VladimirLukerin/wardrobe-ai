@@ -1,20 +1,27 @@
 import {
+  getDailyOutfitForDate,
   upsertDailyOutfit,
   type DailyOutfitResponse,
 } from '../db/daily-outfits-repository';
 import { getPreferencesResponse } from '../db/user-preferences-repository';
 import { buildPersonPairedOutfitContext } from '../paired-outfits/build-person-context';
 import type { SuggestOutfitsLocation } from '../suggest-outfits';
+import { hasMinimumWardrobeForOutfit } from '../suggest-outfits';
 import {
-  generateOutfitSuggestionsFromBody,
-  hasMinimumWardrobeForOutfit,
-} from '../suggest-outfits';
-import { buildDailyOutfitInputSignature } from './build-daily-outfit-input-signature';
+  buildDailyOutfitInputSignature,
+  isDailyOutfitInputSignatureStale,
+} from './build-daily-outfit-input-signature';
+import { generateDailyOutfitWithAi } from './generate-daily-outfit-ai';
+import {
+  logDailyGenerationSkipped,
+  resolveDailyGenerationDecision,
+} from './resolve-daily-generation';
 import {
   AiProviderRateLimitError,
   AI_PROVIDER_RATE_LIMIT_CODE,
   AI_PROVIDER_RATE_LIMIT_MESSAGE,
 } from '../outfit-ai/provider-rate-limit';
+import { AiRateLimitExceededError } from '../ai-request-rate-limit';
 
 export class DailyOutfitGenerationError extends Error {
   readonly status: number;
@@ -41,18 +48,20 @@ export async function generateAndStoreDailyOutfit({
   localDate,
   location,
   force = false,
+  manual = false,
 }: {
   userId: string;
   localDate: string;
   location: SuggestOutfitsLocation | null;
   force?: boolean;
+  manual?: boolean;
 }): Promise<DailyOutfitResponse> {
   const inFlightKey = `${userId}:${localDate}`;
   const existing = regenerationInFlight.get(inFlightKey);
 
   if (existing) {
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[DAILY REGEN] dedup');
+      console.log(`[DAILY AI] dedup scope=${inFlightKey}`);
     }
 
     return existing;
@@ -63,6 +72,7 @@ export async function generateAndStoreDailyOutfit({
     localDate,
     location,
     force,
+    manual,
   }).finally(() => {
     regenerationInFlight.delete(inFlightKey);
   });
@@ -77,16 +87,41 @@ async function generateAndStoreDailyOutfitInternal({
   localDate,
   location,
   force,
+  manual,
 }: {
   userId: string;
   localDate: string;
   location: SuggestOutfitsLocation | null;
   force: boolean;
+  manual: boolean;
 }): Promise<DailyOutfitResponse> {
   const preferences = getPreferencesResponse(userId);
+  const dailyStylistEnabled = preferences.stylistPreferences?.dailyStylistEnabled ?? false;
+  const existingOutfit = getDailyOutfitForDate(userId, localDate);
+  const isStale = existingOutfit
+    ? isDailyOutfitInputSignatureStale(userId, localDate, existingOutfit.inputSignature)
+    : false;
 
-  if (!force && !preferences.stylistPreferences?.dailyStylistEnabled) {
-    throw new DailyOutfitGenerationError(403, 'Daily stylist is disabled.');
+  const decision = resolveDailyGenerationDecision({
+    manual,
+    force,
+    dailyStylistEnabled,
+    existingOutfit,
+    isStale,
+  });
+
+  if (decision.action === 'skip') {
+    logDailyGenerationSkipped(decision.reason);
+
+    if (decision.reason === 'disabled') {
+      if (decision.outfit) {
+        return decision.outfit;
+      }
+
+      throw new DailyOutfitGenerationError(403, 'Daily stylist is disabled.');
+    }
+
+    return decision.outfit;
   }
 
   const person = buildPersonPairedOutfitContext(userId);
@@ -95,50 +130,61 @@ async function generateAndStoreDailyOutfitInternal({
     throw new DailyOutfitGenerationError(422, 'Недостаточно вещей для daily outfit.');
   }
 
-  const requestBody = {
+  const { itemIds, description, weather } = await generateDailyOutfitWithAi({
+    userId,
     wardrobe: person.wardrobe,
     stylistPreferences: person.stylistPreferences,
     userParameters: person.userParameters,
     behavioralContext: person.behavioralContext,
     location,
-  };
+    reason: decision.reason,
+  }).catch((error) => {
+    if (error instanceof AiProviderRateLimitError) {
+      throw new DailyOutfitGenerationError(429, AI_PROVIDER_RATE_LIMIT_MESSAGE, {
+        code: AI_PROVIDER_RATE_LIMIT_CODE,
+        retryAfterSeconds: error.retryAfterSeconds,
+      });
+    }
 
-  const { outfits, weather } = await generateOutfitSuggestionsFromBody(requestBody, { userId }).catch(
-    (error) => {
-      if (error instanceof AiProviderRateLimitError) {
-        throw new DailyOutfitGenerationError(429, AI_PROVIDER_RATE_LIMIT_MESSAGE, {
-          code: AI_PROVIDER_RATE_LIMIT_CODE,
-          retryAfterSeconds: error.retryAfterSeconds,
-        });
-      }
+    if (error instanceof AiRateLimitExceededError) {
+      throw new DailyOutfitGenerationError(429, 'Слишком много AI-запросов. Попробуйте чуть позже.', {
+        code: 'rate_limited',
+        retryAfterSeconds: error.retryAfterSeconds,
+      });
+    }
 
-      throw error;
-    },
-  );
-  const outfit = outfits.find((candidate) => candidate.itemIds.length >= 2);
+    throw error;
+  });
 
-  if (!outfit) {
+  if (itemIds.length < 2) {
     throw new DailyOutfitGenerationError(502, 'Не удалось сгенерировать daily outfit.');
   }
 
   const inputSignature = buildDailyOutfitInputSignature({
     userId,
     localDate,
-    locationOverride: location,
   });
 
   if (process.env.NODE_ENV !== 'production') {
     console.log(
-      `[DAILY OUTFIT] generated user=${userId.slice(0, 8)} date=${localDate} items=${outfit.itemIds.length}`,
+      `[DAILY OUTFIT] generated user=${userId.slice(0, 8)} date=${localDate} items=${itemIds.length}`,
     );
   }
 
   return upsertDailyOutfit({
     userId,
     localDate,
-    itemIds: outfit.itemIds,
-    description: outfit.description,
+    itemIds,
+    description,
     weather,
     inputSignature,
   });
+}
+
+export function getDailyRegenerationInFlightCountForTests(): number {
+  return regenerationInFlight.size;
+}
+
+export function clearDailyRegenerationInFlightForTests(): void {
+  regenerationInFlight.clear();
 }

@@ -99,6 +99,15 @@ export type PairedOutfitPromptInput = {
   personB: PairedOutfitPromptPersonInput;
 };
 
+export type DailyOutfitPromptInput = {
+  wardrobe: WardrobeItemPayload[];
+  weather: CurrentWeather | null;
+  considerWeather: boolean;
+  stylistPreferences: StylistPreferencesPayload;
+  userParameters: UserParametersPayload;
+  behavioralContext: BehavioralContextPayload;
+};
+
 function normalizeCategory(category: string): string {
   return category.trim().toLowerCase();
 }
@@ -536,6 +545,60 @@ export function buildPairedOutfitPromptText(input: PairedOutfitPromptInput): str
   return lines.join('\n');
 }
 
+function buildDailyPreferencesLine(input: DailyOutfitPromptInput): string {
+  const parts = [`style=${input.stylistPreferences.styleExperiment}`];
+  const fit = encodeFitPreference(input.userParameters.fitPreference);
+
+  if (fit) {
+    parts.push(`fit=${fit}`);
+  }
+
+  if (input.userParameters.weatherSensitivity) {
+    parts.push(`weatherSens=${encodeWeatherSensitivity(input.userParameters.weatherSensitivity)}`);
+  }
+
+  if (input.stylistPreferences.avoidRepeatedOutfits) {
+    parts.push('avoidRepeat=1');
+  }
+
+  return `PREFS: ${parts.join(' ')}`;
+}
+
+function buildDailyRulesSection(): string[] {
+  return [
+    'RULES:',
+    '- one complete outfit',
+    '- owned IDs only',
+    '- max bottom=1 shoes=1 outer=1 tops=2',
+    '- weather/comfort before behavior',
+    '- desc: 1 RU sentence <=140 chars',
+  ];
+}
+
+export function buildDailyOutfitPromptText(input: DailyOutfitPromptInput): string {
+  const lines = ['MODE=daily', '', buildDailyPreferencesLine(input)];
+
+  if (input.weather) {
+    lines.push('', ...buildCompactWeatherSection(input.weather));
+  } else {
+    lines.push('', ...buildCompactWeatherUnavailableSection(input.considerWeather));
+  }
+
+  const behaviorLines = buildCompactBehaviorSection(
+    input.behavioralContext,
+    input.stylistPreferences.avoidRepeatedOutfits,
+  );
+
+  if (behaviorLines.length > 0) {
+    lines.push('', ...behaviorLines);
+  }
+
+  lines.push('', 'ITEMS:', buildCompactWardrobeSummary(input.wardrobe), '', ...buildDailyRulesSection());
+  lines.push('', 'TASK: return one outfit for today; prefer top+bottom+shoes when available');
+
+  return lines.join('\n');
+}
+
 export function buildPersonalOutfitPromptText(input: PersonalOutfitPromptInput): string {
   const lines = [
     'Stylist. Use ONLY wardrobe IDs below.',
@@ -639,6 +702,38 @@ export function logPairedPromptUsage(params: {
   );
   console.log(
     `[PAIRED AI COST] input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0}`,
+  );
+}
+
+export function logDailyPromptUsage(params: {
+  reason: string;
+  wardrobeTotal: number;
+  shortlist: number;
+  promptText: string;
+  actualInputTokens?: number;
+  actualOutputTokens?: number;
+  actualTotalTokens?: number;
+}): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  const estimated = estimatePromptTokens(params.promptText);
+
+  if (params.actualInputTokens === undefined) {
+    console.log(
+      `[DAILY AI] reason=${params.reason} wardrobe=${params.wardrobeTotal} shortlist=${params.shortlist} promptChars=${params.promptText.length} estimatedTokens=${estimated}`,
+    );
+    return;
+  }
+
+  const overheadRatio = (params.actualInputTokens / Math.max(estimated, 1)).toFixed(2);
+
+  console.log(
+    `[DAILY AI] usage input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0} total=${params.actualTotalTokens ?? 0} estimated=${estimated} actualInput=${params.actualInputTokens} overheadRatio=${overheadRatio}`,
+  );
+  console.log(
+    `[DAILY AI COST] input=${params.actualInputTokens} output=${params.actualOutputTokens ?? 0}`,
   );
 }
 

@@ -77,6 +77,9 @@ jobs:
       - name: Run paired outfit prompt test
         run: npm run test:paired-outfit-prompt
 
+      - name: Run daily outfit AI test
+        run: npm run test:daily-outfit-ai
+
       - name: Run outfit candidate selection test
         run: npm run test:outfit-candidate-selection
 

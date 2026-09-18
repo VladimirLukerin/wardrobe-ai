@@ -278,7 +278,7 @@ export async function regenerateDailyOutfit(
   token: string,
   localDate: string,
   location: SuggestOutfitsLocation | null,
-  options: { accountScope: string; dedupLogLabel?: string },
+  options: { accountScope: string; dedupLogLabel?: string; manual?: boolean },
 ): Promise<DailyOutfit> {
   const inFlightKey = `${options.accountScope}:${localDate}`;
   const existing = dailyRegenerationInFlight.get(inFlightKey);
@@ -301,6 +301,7 @@ export async function regenerateDailyOutfit(
       },
       body: JSON.stringify({
         localDate,
+        manual: options.manual === true,
         ...(location ? { location } : {}),
       }),
     });
