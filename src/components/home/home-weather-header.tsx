@@ -140,7 +140,7 @@ export function HomeWeatherHeader({
                   android: symbol.android as 'cloud',
                   web: symbol.web as 'cloud',
                 }}
-                size={20}
+                size={PrikinHomeLayout.weatherSymbolSize}
                 tintColor={PrikinColors.textPrimary}
               />
               <View style={styles.tempColumn}>

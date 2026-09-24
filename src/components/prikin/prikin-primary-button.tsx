@@ -82,7 +82,6 @@ const styles = StyleSheet.create({
   homeHeight: {
     minHeight: PrikinHomeLayout.homePrimaryButtonMinHeight,
     paddingVertical: PrikinHomeLayout.homePrimaryButtonPaddingVertical,
-    paddingHorizontal: PrikinHomeLayout.homePrimaryButtonPaddingHorizontal,
   },
   homeRadius: {
     borderRadius: PrikinHomeLayout.homePrimaryButtonRadius,

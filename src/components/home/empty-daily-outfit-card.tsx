@@ -1,13 +1,16 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
 import { PRIKIN_OUTFITS_EMPTY_CLOTHES_SVG } from '@/components/prikin/illustrations';
-import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
+import { getHomeCardContentWidth, PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors } from '@/constants/prikin-tokens';
 
 export function EmptyDailyOutfitCard() {
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = getHomeCardContentWidth(screenWidth);
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { width: cardWidth, minHeight: PrikinHomeLayout.referenceTodayCardMinHeight }]}>
       <Text style={styles.cardHeading}>Твой образ на сегодня</Text>
       <View style={styles.row}>
         <PrikinIllustration
@@ -18,9 +21,7 @@ export function EmptyDailyOutfitCard() {
           style={styles.illustration}
         />
         <View style={styles.copy}>
-          <Text style={styles.title}>
-            Что надеть?{'\n'}Скоро подскажем.
-          </Text>
+          <Text style={styles.title}>Что надеть? Скоро подскажем.</Text>
           <Text style={styles.subtitle}>
             Добавь свои вещи — и мы сразу соберём тебе образ под погоду и планы.
           </Text>
@@ -32,10 +33,12 @@ export function EmptyDailyOutfitCard() {
 
 const styles = StyleSheet.create({
   card: {
+    alignSelf: 'center',
     backgroundColor: PrikinColors.surface,
     borderRadius: PrikinHomeLayout.cardRadius,
     paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
-    paddingVertical: PrikinHomeLayout.cardPaddingVertical,
+    paddingTop: PrikinHomeLayout.cardPaddingTop,
+    paddingBottom: PrikinHomeLayout.cardPaddingBottom,
     gap: PrikinHomeLayout.cardTitleToContentGap,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PrikinColors.borderSubtle,

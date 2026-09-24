@@ -15,8 +15,10 @@ export function HomeWornNowSection() {
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: PrikinHomeLayout.communitySectionTopGap,
-    marginTop: 0,
+    gap: PrikinHomeLayout.wornSectionTitleBodyGap,
+    marginTop: PrikinHomeLayout.communitySectionTopGap,
+    alignSelf: 'stretch',
+    paddingHorizontal: PrikinHomeLayout.headerExtraHorizontalInset,
   },
   divider: {
     height: StyleSheet.hairlineWidth,

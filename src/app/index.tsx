@@ -581,14 +581,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: PrikinHomeLayout.contentHorizontalPadding,
-    gap: PrikinHomeLayout.sectionGap,
+    paddingHorizontal: PrikinHomeLayout.cardHorizontalMargin,
+    gap: PrikinHomeLayout.headerToCardsGap,
   },
   headerBlock: {
     gap: PrikinHomeLayout.headerBlockGap,
+    paddingHorizontal: PrikinHomeLayout.headerExtraHorizontalInset,
   },
   dailySection: {
     gap: PrikinHomeLayout.cardStackGap,
+    alignItems: 'center',
   },
   dailyCardHeading: {
     fontSize: PrikinHomeLayout.sectionCardTitleFontSize,
@@ -600,7 +602,8 @@ const styles = StyleSheet.create({
     backgroundColor: PrikinColors.surface,
     borderRadius: PrikinHomeLayout.cardRadius,
     paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
-    paddingVertical: PrikinHomeLayout.cardPaddingVertical,
+    paddingTop: PrikinHomeLayout.cardPaddingTop,
+    paddingBottom: PrikinHomeLayout.cardPaddingBottom,
     gap: PrikinHomeLayout.cardInnerGap,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PrikinColors.borderSubtle,
@@ -610,7 +613,7 @@ const styles = StyleSheet.create({
     gap: PrikinHomeLayout.cardStackGap,
   },
   section: {
-    gap: PrikinHomeLayout.sectionGap,
+    gap: PrikinHomeLayout.cardStackGap,
   },
   sectionHeaderRow: {
     flexDirection: 'row',

@@ -1,9 +1,9 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
 import { PRIKIN_WARDROBE_EMPTY_HANGER_SVG } from '@/components/prikin/illustrations';
 import { PrikinPrimaryButton } from '@/components/prikin/prikin-primary-button';
-import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
+import { getHomeCardContentWidth, PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors } from '@/constants/prikin-tokens';
 
 type FirstWardrobeItemCardProps = {
@@ -11,8 +11,12 @@ type FirstWardrobeItemCardProps = {
 };
 
 export function FirstWardrobeItemCard({ onAddFirstItem }: FirstWardrobeItemCardProps) {
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = getHomeCardContentWidth(screenWidth);
+
   return (
-    <View style={styles.card}>
+    <View
+      style={[styles.card, { width: cardWidth, minHeight: PrikinHomeLayout.referenceFirstItemCardMinHeight }]}>
       <Text style={styles.cardHeading}>Начнём с первой вещи</Text>
       <View style={styles.row}>
         <PrikinIllustration
@@ -37,10 +41,12 @@ export function FirstWardrobeItemCard({ onAddFirstItem }: FirstWardrobeItemCardP
 
 const styles = StyleSheet.create({
   card: {
+    alignSelf: 'center',
     backgroundColor: PrikinColors.surface,
     borderRadius: PrikinHomeLayout.cardRadius,
     paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
-    paddingVertical: PrikinHomeLayout.cardPaddingVertical,
+    paddingTop: PrikinHomeLayout.cardPaddingTop,
+    paddingBottom: PrikinHomeLayout.cardPaddingBottom,
     gap: PrikinHomeLayout.cardTitleToContentGap,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PrikinColors.borderSubtle,
@@ -68,6 +74,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignSelf: 'stretch',
+    marginHorizontal: -PrikinHomeLayout.homePrimaryButtonBleedHorizontal,
     marginTop: PrikinHomeLayout.cardTitleToButtonGap,
   },
 });
