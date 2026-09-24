@@ -31,6 +31,7 @@
     "test:admin-backend": "tsx scripts/test-admin-backend.ts",
     "test:ai-usage-settings": "tsx scripts/test-ai-usage-and-settings.ts",
     "admin:create": "tsx scripts/admin-create.ts",
+    "admin:set-role": "tsx scripts/admin-set-role.ts",
     "test:local-background-removal": "tsx scripts/test-local-background-removal.ts",
     "test:photo-pipeline-timings": "tsx scripts/test-photo-pipeline-timings.ts",
     "test:processing-resize-benchmark": "tsx scripts/test-processing-resize-benchmark.ts",

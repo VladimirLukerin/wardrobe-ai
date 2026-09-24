@@ -3,7 +3,7 @@ import { stdin as input, stdout as output } from 'node:process';
 
 import { normalizeEmail } from '../src/auth/normalize-email';
 import { validatePasswordInput } from '../src/auth/password';
-import { isAdminRole, type AdminRole } from '../src/admin/admin-config';
+import { resolveAdminCreateRole, type AdminRole } from '../src/admin/admin-config';
 import { createAdminUser } from '../src/admin/db/admin-users-repository';
 import { closeDatabase, getDatabase } from '../src/db/database';
 
@@ -36,8 +36,14 @@ async function main(): Promise<void> {
 
   const email = await readRequiredEnvOrPrompt(process.env.ADMIN_EMAIL, 'Admin email');
   const password = await readRequiredEnvOrPrompt(process.env.ADMIN_PASSWORD, 'Admin password', true);
-  const roleRaw = (process.env.ADMIN_ROLE ?? 'owner').trim();
-  const role: AdminRole = isAdminRole(roleRaw) ? roleRaw : 'owner';
+  let role: AdminRole;
+
+  try {
+    role = resolveAdminCreateRole(process.env.ADMIN_ROLE);
+  } catch {
+    console.error('Invalid admin role. Use viewer, admin, or owner.');
+    process.exit(1);
+  }
 
   const normalized = normalizeEmail(email);
 

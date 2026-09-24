@@ -26,11 +26,23 @@ npm run admin:create
 
 Optional env:
 
-- `ADMIN_ROLE` — `owner` (default), `admin`, or `viewer`
+- `ADMIN_ROLE` — `viewer` (default), `admin`, or `owner`
+
+New accounts created without `ADMIN_ROLE` receive the **viewer** role. Promote the first operator with `ADMIN_ROLE=owner` on create, or use `npm run admin:set-role` (see below).
 
 The script validates email/password, stores a scrypt hash, and refuses duplicate emails. It never prints the password or hash.
 
 There is **no** public HTTP endpoint for admin creation.
+
+## Change an admin role (CLI)
+
+From `server/` with Node 22:
+
+```bash
+npm run admin:set-role -- --email you@example.com --role owner
+```
+
+Roles: `viewer`, `admin`, `owner`. Updates `updated_at` only; password and sessions are unchanged. Safe output example: `Updated you@example.com role to owner`.
 
 ## Login
 
@@ -74,9 +86,9 @@ Other auth routes:
 
 | Role | Access in this phase |
 | --- | --- |
-| `viewer` | Read-only admin user APIs |
-| `admin` | Same read-only access (reserved for future mutations) |
-| `owner` | Highest privilege (future destructive ops) |
+| `viewer` | Read-only: dashboard, users, AI usage, settings |
+| `admin` | Read access plus safe `app_settings` mutations (audited) |
+| `owner` | Highest privilege; reserved for future destructive operations |
 
 Inactive admins cannot log in.
 

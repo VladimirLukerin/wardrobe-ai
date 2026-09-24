@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { Server } from 'node:http';
 
-import { adminRoleMeetsRequirement } from '../src/admin/admin-config';
+import { adminRoleMeetsRequirement, resolveAdminCreateRole } from '../src/admin/admin-config';
 import { verifyAdminPassword } from '../src/admin/admin-password';
 import {
   resetAdminLoginRateLimitsForTests,
@@ -16,7 +16,9 @@ import {
   createAdminUser,
   findAdminUserByEmail,
   setAdminUserActive,
+  setAdminUserRoleByEmail,
 } from '../src/admin/db/admin-users-repository';
+import { parseAdminSetRoleArgs } from '../src/admin/admin-set-role-cli';
 import { getAdminDashboardMetrics } from '../src/admin/dashboard/admin-dashboard-service';
 import { listAdminUsers } from '../src/admin/users/admin-users-service';
 import { createApp } from '../src/app';
@@ -413,12 +415,76 @@ async function testDashboardEndpoint(baseUrl: string): Promise<void> {
   console.log('OK admin dashboard endpoint');
 }
 
+async function testAdminRoleManagement(): Promise<void> {
+  assert(resolveAdminCreateRole(undefined) === 'viewer', 'Default create role should be viewer');
+  assert(resolveAdminCreateRole('owner') === 'owner', 'Explicit owner role on create');
+  assert(resolveAdminCreateRole('admin') === 'admin', 'Explicit admin role on create');
+
+  const defaultRoleUser = await createAdminUser({
+    email: `default-role-${crypto.randomUUID()}@example.com`,
+    password: 'DefaultRolePass123!',
+    role: resolveAdminCreateRole(undefined),
+  });
+  assert(defaultRoleUser.role === 'viewer', 'admin:create default path should create viewer');
+
+  let invalidCreateRoleRejected = false;
+
+  try {
+    resolveAdminCreateRole('superuser');
+  } catch {
+    invalidCreateRoleRejected = true;
+  }
+
+  assert(invalidCreateRoleRejected, 'Invalid create role should be rejected');
+
+  const suffix = crypto.randomUUID();
+  const email = `role-cli-${suffix}@example.com`;
+  const password = 'RoleCliPass123!';
+
+  const created = await createAdminUser({ email, password, role: 'viewer' });
+  assert(created.role === 'viewer', 'Created admin should start as viewer');
+
+  const promotedAdmin = setAdminUserRoleByEmail(email, 'admin');
+  assert(promotedAdmin.role === 'admin', 'set-role viewer -> admin');
+
+  const promotedOwner = setAdminUserRoleByEmail(email, 'owner');
+  assert(promotedOwner.role === 'owner', 'set-role admin -> owner');
+  assert(
+    promotedOwner.updated_at >= created.updated_at,
+    'set-role should update updated_at',
+  );
+
+  let invalidSetRoleRejected = false;
+
+  try {
+    parseAdminSetRoleArgs(['--email', email, '--role', 'root']);
+  } catch {
+    invalidSetRoleRejected = true;
+  }
+
+  assert(invalidSetRoleRejected, 'Invalid set-role should be rejected');
+
+  let missingAdminRejected = false;
+
+  try {
+    setAdminUserRoleByEmail(`missing-${suffix}@example.com`, 'admin');
+  } catch (error) {
+    missingAdminRejected =
+      error instanceof Error && error.message.includes('Admin user not found');
+  }
+
+  assert(missingAdminRejected, 'Missing admin should be rejected for set-role');
+
+  console.log('OK admin role management');
+}
+
 async function main(): Promise<void> {
   getDatabase();
   process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
 
   testRoleHelper();
   await testBootstrapAndPasswordStorage();
+  await testAdminRoleManagement();
   testListPaginationUnit();
 
   await withTestServer(async (baseUrl) => {

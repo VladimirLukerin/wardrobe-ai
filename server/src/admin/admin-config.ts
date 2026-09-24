@@ -26,6 +26,20 @@ export function isAdminRole(value: string): value is AdminRole {
   return (ADMIN_ROLES as readonly string[]).includes(value);
 }
 
+export function resolveAdminCreateRole(raw: string | undefined): AdminRole {
+  const trimmed = raw?.trim();
+
+  if (!trimmed) {
+    return 'viewer';
+  }
+
+  if (!isAdminRole(trimmed)) {
+    throw new Error('Invalid admin role.');
+  }
+
+  return trimmed;
+}
+
 const ROLE_RANK: Record<AdminRole, number> = {
   viewer: 1,
   admin: 2,

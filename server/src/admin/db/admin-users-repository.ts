@@ -119,3 +119,48 @@ export function setAdminUserActive(adminUserId: string, isActive: boolean): void
     adminUserId,
   );
 }
+
+export function setAdminUserRole(adminUserId: string, role: AdminRole): DbAdminUser {
+  if (!isAdminRole(role)) {
+    throw new Error('Invalid admin role.');
+  }
+
+  const existing = findAdminUserById(adminUserId);
+
+  if (!existing) {
+    throw new Error('Admin user not found.');
+  }
+
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  db.prepare('UPDATE admin_users SET role = ?, updated_at = ? WHERE id = ?').run(
+    role,
+    now,
+    adminUserId,
+  );
+
+  const updated = findAdminUserById(adminUserId);
+
+  if (!updated) {
+    throw new Error('Admin user not found.');
+  }
+
+  return updated;
+}
+
+export function setAdminUserRoleByEmail(email: string, role: AdminRole): DbAdminUser {
+  const normalized = normalizeEmail(email);
+
+  if (!normalized.ok) {
+    throw new Error('Invalid admin email.');
+  }
+
+  const existing = findAdminUserByEmail(normalized.email);
+
+  if (!existing) {
+    throw new Error('Admin user not found.');
+  }
+
+  return setAdminUserRole(existing.id, role);
+}
