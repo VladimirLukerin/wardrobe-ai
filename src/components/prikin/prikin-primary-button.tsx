@@ -39,11 +39,18 @@ export function PrikinPrimaryButton({
         {showPlusIcon ? (
           <SymbolView
             name={{ ios: 'plus', android: 'add', web: 'add' }}
-            size={18}
+            size={isCompact ? 20 : 18}
             tintColor={isOutline ? PrikinColors.buttonPrimary : PrikinColors.buttonPrimaryText}
           />
         ) : null}
-        <Text style={[styles.label, isOutline ? styles.labelOutline : styles.labelFilled]}>{label}</Text>
+        <Text
+          style={[
+            styles.label,
+            isCompact && styles.labelCompact,
+            isOutline ? styles.labelOutline : styles.labelFilled,
+          ]}>
+          {label}
+        </Text>
       </View>
     </Pressable>
   );
@@ -65,7 +72,7 @@ const styles = StyleSheet.create({
     borderRadius: PrikinRadii.button,
   },
   compactRadius: {
-    borderRadius: PrikinHomeRadii.button,
+    borderRadius: 26,
   },
   content: {
     flexDirection: 'row',
@@ -83,6 +90,10 @@ const styles = StyleSheet.create({
   },
   label: {
     ...PrikinTypography.buttonLabel,
+  },
+  labelCompact: {
+    fontSize: 16,
+    lineHeight: 20,
   },
   labelFilled: {
     color: PrikinColors.buttonPrimaryText,

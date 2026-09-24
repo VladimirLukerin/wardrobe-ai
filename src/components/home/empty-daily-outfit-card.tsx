@@ -2,7 +2,8 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
 import { PRIKIN_HOME_OUTFIT_EMPTY_SVG } from '@/components/prikin/illustrations';
-import { PrikinColors, PrikinHomeRadii, PrikinSpacing } from '@/constants/prikin-tokens';
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
+import { PrikinColors } from '@/constants/prikin-tokens';
 
 export function EmptyDailyOutfitCard() {
   return (
@@ -11,7 +12,7 @@ export function EmptyDailyOutfitCard() {
       <View style={styles.row}>
         <PrikinIllustration
           xml={PRIKIN_HOME_OUTFIT_EMPTY_SVG}
-          width={148}
+          width={PrikinHomeLayout.outfitIllustrationWidth}
           aspectRatio={130 / 118}
           accessibilityLabel="Иллюстрация рубашки и брюк"
           style={styles.illustration}
@@ -32,22 +33,23 @@ export function EmptyDailyOutfitCard() {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: PrikinColors.surface,
-    borderRadius: PrikinHomeRadii.card,
-    padding: PrikinSpacing.homeCardPadding,
-    gap: PrikinSpacing.homeCardGap,
+    borderRadius: PrikinHomeLayout.cardRadius,
+    paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
+    paddingVertical: PrikinHomeLayout.cardPaddingVertical,
+    gap: PrikinHomeLayout.cardInnerGap,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PrikinColors.borderSubtle,
   },
   cardHeading: {
-    fontSize: 16,
+    fontSize: PrikinHomeLayout.cardHeadingFontSize,
     fontWeight: '600',
-    lineHeight: 22,
+    lineHeight: PrikinHomeLayout.cardHeadingLineHeight,
     color: PrikinColors.textPrimary,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: PrikinSpacing.homeCardGap,
+    gap: PrikinHomeLayout.cardInnerGap,
   },
   illustration: {
     flexShrink: 0,
@@ -55,17 +57,17 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     minWidth: 0,
-    gap: 6,
+    gap: 4,
   },
   title: {
-    fontSize: 15,
+    fontSize: PrikinHomeLayout.cardMessageFontSize,
     fontWeight: '600',
-    lineHeight: 20,
+    lineHeight: PrikinHomeLayout.cardMessageLineHeight,
     color: PrikinColors.textPrimary,
   },
   subtitle: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: PrikinHomeLayout.cardBodyFontSize,
+    lineHeight: PrikinHomeLayout.cardBodyLineHeight,
     color: PrikinColors.textSecondary,
   },
 });

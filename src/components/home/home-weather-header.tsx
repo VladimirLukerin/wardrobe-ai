@@ -3,7 +3,8 @@ import { SymbolView } from 'expo-symbols';
 
 import { NetworkErrorState } from '@/components/network-error-state';
 import { PrikinHandwritten } from '@/components/prikin/prikin-brand-header';
-import { PrikinColors, PrikinSpacing } from '@/constants/prikin-tokens';
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
+import { PrikinColors } from '@/constants/prikin-tokens';
 import type { CurrentWeatherErrorCode } from '@/services/current-weather';
 import type { OutfitWeather } from '@/services/outfit-suggestions';
 import { NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE } from '@/utils/network-error';
@@ -11,7 +12,8 @@ import { formatWeatherTemperature } from '@/utils/weather-code';
 import { getWeatherSymbolName } from '@/utils/weather-symbol';
 
 type HomeWeatherHeaderProps = {
-  locationName: string;
+  locationName: string | null;
+  isLocationPending: boolean;
   considerWeather: boolean;
   weather: OutfitWeather | null;
   isLoading: boolean;
@@ -22,6 +24,7 @@ type HomeWeatherHeaderProps = {
 
 export function HomeWeatherHeader({
   locationName,
+  isLocationPending,
   considerWeather,
   weather,
   isLoading,
@@ -29,60 +32,73 @@ export function HomeWeatherHeader({
   onRetry,
   onLocationPress,
 }: HomeWeatherHeaderProps) {
-  const locationLabel = `${locationName} ›`;
   const symbol = weather ? getWeatherSymbolName(weather.weatherCode) : null;
+  const showWeatherLoading =
+    considerWeather && !weather && (isLoading || (Boolean(locationName) && !error));
+  const showWeatherError = considerWeather && !weather && Boolean(error) && Boolean(locationName);
+
+  const locationLabel = locationName ? `${locationName} ›` : null;
 
   return (
     <View style={styles.wrap}>
       <View style={styles.mainRow}>
         <View style={styles.leftColumn}>
-          {onLocationPress ? (
-            <Pressable
-              onPress={onLocationPress}
-              accessibilityRole="button"
-              accessibilityLabel={`Город: ${locationName}`}
-              style={({ pressed }) => [styles.locationRow, pressed && styles.pressed]}>
+          {locationLabel ? (
+            onLocationPress ? (
+              <Pressable
+                onPress={onLocationPress}
+                accessibilityRole="button"
+                accessibilityLabel={`Город: ${locationName}`}
+                style={({ pressed }) => [styles.locationRow, pressed && styles.pressed]}>
+                <Text style={styles.location}>{locationLabel}</Text>
+              </Pressable>
+            ) : (
               <Text style={styles.location}>{locationLabel}</Text>
-            </Pressable>
+            )
+          ) : isLocationPending ? (
+            <View style={styles.locationPendingRow}>
+              <ActivityIndicator size="small" color={PrikinColors.textSecondary} />
+              <Text style={styles.locationPending}>Определяем город…</Text>
+            </View>
           ) : (
-            <Text style={styles.location}>{locationLabel}</Text>
+            <Text style={styles.locationMuted}>Город не указан</Text>
           )}
 
-          {considerWeather ? (
-            weather && symbol ? (
-              <View style={styles.weatherRow}>
-                <SymbolView
-                  name={{
-                    ios: symbol.ios as 'cloud.fill',
-                    android: symbol.android as 'cloud',
-                    web: symbol.web as 'cloud',
-                  }}
-                  size={22}
-                  tintColor={PrikinColors.textPrimary}
-                />
-                <View style={styles.tempColumn}>
-                  <Text style={styles.temperature}>
-                    {formatWeatherTemperature(weather.temperatureC)}
-                  </Text>
-                  <Text style={styles.feelsLike}>
-                    Ощущается как {formatWeatherTemperature(weather.apparentTemperatureC)}
-                  </Text>
-                </View>
-              </View>
-            ) : isLoading ? (
-              <View style={styles.loadingRow}>
-                <ActivityIndicator size="small" color={PrikinColors.textSecondary} />
-                <Text style={styles.loadingText}>Погода…</Text>
-              </View>
-            ) : error ? (
-              <NetworkErrorState
-                compact
-                title={error === 'network' ? NETWORK_ERROR_TITLE : 'Не удалось загрузить погоду'}
-                hint={error === 'network' ? NETWORK_ERROR_HINT : 'Попробуйте ещё раз.'}
-                onRetry={onRetry}
-                style={styles.weatherError}
+          {considerWeather && weather && symbol ? (
+            <View style={styles.weatherRow}>
+              <SymbolView
+                name={{
+                  ios: symbol.ios as 'cloud.fill',
+                  android: symbol.android as 'cloud',
+                  web: symbol.web as 'cloud',
+                }}
+                size={24}
+                tintColor={PrikinColors.textPrimary}
               />
-            ) : null
+              <View style={styles.tempColumn}>
+                <Text style={styles.temperature}>
+                  {formatWeatherTemperature(weather.temperatureC)}
+                </Text>
+                <Text style={styles.feelsLike}>
+                  Ощущается как {formatWeatherTemperature(weather.apparentTemperatureC)}
+                </Text>
+              </View>
+            </View>
+          ) : showWeatherLoading ? (
+            <View style={styles.weatherPlaceholder}>
+              <ActivityIndicator size="small" color={PrikinColors.textSecondary} />
+              <Text style={styles.loadingText}>Погода…</Text>
+            </View>
+          ) : showWeatherError ? (
+            <NetworkErrorState
+              compact
+              title={error === 'network' ? NETWORK_ERROR_TITLE : 'Не удалось загрузить погоду'}
+              hint={error === 'network' ? NETWORK_ERROR_HINT : 'Попробуйте ещё раз.'}
+              onRetry={onRetry}
+              style={styles.weatherError}
+            />
+          ) : considerWeather ? (
+            <View style={styles.weatherPlaceholder} />
           ) : null}
         </View>
 
@@ -94,13 +110,14 @@ export function HomeWeatherHeader({
 
 const styles = StyleSheet.create({
   wrap: {
-    minHeight: 56,
+    minHeight: 72,
+    marginTop: PrikinHomeLayout.logoToLocationGap,
   },
   mainRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: PrikinSpacing.homeCardGap,
+    gap: 8,
   },
   leftColumn: {
     flex: 1,
@@ -111,53 +128,71 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   location: {
-    fontSize: 14,
+    fontSize: PrikinHomeLayout.locationFontSize,
     fontWeight: '600',
-    lineHeight: 20,
+    lineHeight: PrikinHomeLayout.locationLineHeight,
     color: PrikinColors.textPrimary,
+  },
+  locationMuted: {
+    fontSize: PrikinHomeLayout.locationFontSize,
+    fontWeight: '500',
+    lineHeight: PrikinHomeLayout.locationLineHeight,
+    color: PrikinColors.textSecondary,
+  },
+  locationPendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: PrikinHomeLayout.locationLineHeight,
+  },
+  locationPending: {
+    fontSize: 14,
+    lineHeight: PrikinHomeLayout.locationLineHeight,
+    color: PrikinColors.textSecondary,
   },
   weatherRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
     marginTop: 2,
   },
   tempColumn: {
     gap: 0,
     flexShrink: 1,
+    paddingTop: 2,
   },
   temperature: {
-    fontSize: 22,
+    fontSize: PrikinHomeLayout.temperatureFontSize,
     fontWeight: '600',
-    lineHeight: 26,
+    lineHeight: PrikinHomeLayout.temperatureLineHeight,
     color: PrikinColors.textPrimary,
   },
   feelsLike: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: PrikinHomeLayout.feelsLikeFontSize,
+    lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
     color: PrikinColors.textSecondary,
   },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    minHeight: 28,
+  weatherPlaceholder: {
+    minHeight: 36,
+    justifyContent: 'center',
   },
   loadingText: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: PrikinHomeLayout.feelsLikeFontSize,
+    lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
     color: PrikinColors.textSecondary,
   },
   weatherError: {
-    marginTop: 4,
+    marginTop: 2,
     alignSelf: 'stretch',
   },
   handwritten: {
     flexShrink: 0,
-    maxWidth: 108,
+    maxWidth: 112,
+    fontSize: 16,
+    lineHeight: 20,
     textAlign: 'right',
     transform: [{ rotate: '-10deg' }],
-    marginTop: 4,
+    marginTop: 8,
   },
   pressed: {
     opacity: 0.85,

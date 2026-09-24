@@ -3,7 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
 import { PRIKIN_HOME_FIRST_ITEM_HANGER_SVG } from '@/components/prikin/illustrations';
 import { PrikinPrimaryButton } from '@/components/prikin/prikin-primary-button';
-import { PrikinColors, PrikinHomeRadii, PrikinSpacing } from '@/constants/prikin-tokens';
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
+import { PrikinColors } from '@/constants/prikin-tokens';
 
 type FirstWardrobeItemCardProps = {
   onAddFirstItem: () => void;
@@ -16,7 +17,7 @@ export function FirstWardrobeItemCard({ onAddFirstItem }: FirstWardrobeItemCardP
       <View style={styles.row}>
         <PrikinIllustration
           xml={PRIKIN_HOME_FIRST_ITEM_HANGER_SVG}
-          width={96}
+          width={PrikinHomeLayout.hangerIllustrationWidth}
           aspectRatio={130 / 80}
           accessibilityLabel="Иллюстрация вешалки"
           style={styles.illustration}
@@ -37,22 +38,23 @@ export function FirstWardrobeItemCard({ onAddFirstItem }: FirstWardrobeItemCardP
 const styles = StyleSheet.create({
   card: {
     backgroundColor: PrikinColors.surface,
-    borderRadius: PrikinHomeRadii.card,
-    padding: PrikinSpacing.homeCardPadding,
-    gap: PrikinSpacing.homeCardGap,
+    borderRadius: PrikinHomeLayout.cardRadius,
+    paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
+    paddingVertical: PrikinHomeLayout.cardPaddingVertical,
+    gap: PrikinHomeLayout.cardInnerGap,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PrikinColors.borderSubtle,
   },
   cardHeading: {
-    fontSize: 16,
+    fontSize: PrikinHomeLayout.cardHeadingFontSize,
     fontWeight: '600',
-    lineHeight: 22,
+    lineHeight: PrikinHomeLayout.cardHeadingLineHeight,
     color: PrikinColors.textPrimary,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: PrikinSpacing.homeCardGap,
+    gap: PrikinHomeLayout.cardInnerGap,
   },
   illustration: {
     flexShrink: 0,
@@ -60,11 +62,12 @@ const styles = StyleSheet.create({
   hint: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: PrikinHomeLayout.cardBodyFontSize,
+    lineHeight: PrikinHomeLayout.cardBodyLineHeight,
     color: PrikinColors.textSecondary,
   },
   button: {
     alignSelf: 'stretch',
+    marginTop: 2,
   },
 });

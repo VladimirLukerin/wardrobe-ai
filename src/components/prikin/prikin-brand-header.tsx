@@ -7,10 +7,18 @@ import { PrikinLogo } from '@/components/welcome/prikin-logo';
 const LOGO_WIDTH = 112;
 const LOGO_WIDTH_COMPACT = 100;
 
-export function PrikinBrandHeader({ compact = false }: { compact?: boolean }) {
+export function PrikinBrandHeader({
+  compact = false,
+  logoWidth,
+}: {
+  compact?: boolean;
+  logoWidth?: number;
+}) {
+  const width = logoWidth ?? (compact ? LOGO_WIDTH_COMPACT : LOGO_WIDTH);
+
   return (
     <View style={[styles.header, compact && styles.headerCompact]}>
-      <PrikinLogo width={compact ? LOGO_WIDTH_COMPACT : LOGO_WIDTH} />
+      <PrikinLogo width={width} />
     </View>
   );
 }
@@ -46,7 +54,7 @@ const styles = StyleSheet.create({
   },
   headerCompact: {
     paddingTop: 0,
-    paddingBottom: 6,
+    paddingBottom: 0,
   },
   handwritten: {
     ...PrikinTypography.handwritten,

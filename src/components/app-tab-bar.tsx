@@ -87,7 +87,7 @@ export function AppTabBar() {
               style={({ pressed }) => [styles.cameraButton, pressed && styles.pressed]}>
               <SymbolView
                 name={{ ios: 'camera.fill', android: 'photo_camera', web: 'photo_camera' }}
-                size={22}
+                size={20}
                 tintColor={PrikinColors.buttonPrimaryText}
               />
             </Pressable>
@@ -115,8 +115,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.one,
-    paddingTop: 6,
-    minHeight: 48,
+    paddingTop: 4,
+    minHeight: 46,
   },
   sideGroup: {
     flex: 1,
@@ -132,20 +132,24 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     ...PrikinTypography.tabLabel,
+    fontSize: 10,
+    lineHeight: 12,
   },
   tabLabelActive: {
     ...PrikinTypography.tabLabelActive,
+    fontSize: 10,
+    lineHeight: 12,
   },
   cameraSlot: {
-    width: 64,
+    width: 60,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    marginTop: -Spacing.three,
+    marginTop: -Spacing.two,
   },
   cameraButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: PrikinColors.buttonPrimary,
     alignItems: 'center',
     justifyContent: 'center',

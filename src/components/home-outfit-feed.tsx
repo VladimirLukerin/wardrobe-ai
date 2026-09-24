@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { WornOutfitFeedCard } from '@/components/worn-outfit-feed-card';
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors, PrikinSpacing } from '@/constants/prikin-tokens';
 import { useHomeWornOutfitFeed } from '@/hooks/use-home-worn-outfit-feed';
 import type { WornOutfitFeedDisplayEntry } from '@/services/home-worn-outfit-feed';
@@ -73,22 +74,22 @@ export function HomeOutfitFeed() {
 
 const styles = StyleSheet.create({
   section: {
-    gap: PrikinSpacing.homeCardGap,
+    gap: PrikinHomeLayout.cardInnerGap,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: PrikinHomeLayout.wornSectionTitleFontSize,
     fontWeight: '600',
-    lineHeight: 22,
+    lineHeight: PrikinHomeLayout.cardHeadingLineHeight,
     color: PrikinColors.textPrimary,
   },
   bodySecondary: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: PrikinHomeLayout.feelsLikeFontSize,
+    lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
     color: PrikinColors.textSecondary,
   },
   emptyText: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: PrikinHomeLayout.wornSectionBodyFontSize,
+    lineHeight: PrikinHomeLayout.cardBodyLineHeight,
     color: PrikinColors.textSecondary,
   },
   feedRow: {

@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors } from '@/constants/prikin-tokens';
 import { formatHomeGreetingLine } from '@/utils/home-greeting';
 
@@ -18,12 +19,12 @@ export function HomeGreeting({ displayName, profileHydrated }: HomeGreetingProps
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingTop: 2,
+    paddingTop: 4,
   },
   greeting: {
-    fontSize: 18,
+    fontSize: PrikinHomeLayout.greetingFontSize,
     fontWeight: '700',
-    lineHeight: 24,
+    lineHeight: PrikinHomeLayout.greetingLineHeight,
     color: PrikinColors.textPrimary,
   },
 });

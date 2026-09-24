@@ -23,6 +23,7 @@ import { HomeWornNowSection } from '@/components/home/home-worn-now-section';
 import { HomeOutfitFeedback } from '@/components/home-outfit-feedback';
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
 import { HomeWardrobeSummary } from '@/components/home-wardrobe-summary';
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors, PrikinHomeRadii, PrikinSpacing } from '@/constants/prikin-tokens';
 import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
@@ -350,18 +351,17 @@ export default function HomeScreen() {
             showsVerticalScrollIndicator={false}>
             <HomeBrandHeader />
 
-            {activeLocation ? (
-              <HomeWeatherHeader
-                locationName={activeLocation.name}
-                considerWeather={considerWeather}
-                weather={weather}
-                isLoading={isWeatherLoading}
-                error={weatherError}
-                onRetry={() => {
-                  void refreshWeather();
-                }}
-              />
-            ) : null}
+            <HomeWeatherHeader
+              locationName={activeLocation?.name ?? null}
+              isLocationPending={locationMode === 'auto' && !activeLocation}
+              considerWeather={considerWeather}
+              weather={weather}
+              isLoading={isWeatherLoading}
+              error={weatherError}
+              onRetry={() => {
+                void refreshWeather();
+              }}
+            />
 
             <HomeGreeting displayName={displayName} profileHydrated={isProfileHydrated} />
 
@@ -558,31 +558,32 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: PrikinSpacing.screenHorizontal,
-    gap: PrikinSpacing.homeSectionGap,
+    gap: PrikinHomeLayout.sectionGap,
   },
   dailySection: {
-    gap: PrikinSpacing.homeSectionGap,
+    gap: PrikinHomeLayout.sectionGap,
   },
   dailyCardHeading: {
-    fontSize: 16,
+    fontSize: PrikinHomeLayout.cardHeadingFontSize,
     fontWeight: '600',
-    lineHeight: 22,
+    lineHeight: PrikinHomeLayout.cardHeadingLineHeight,
     color: PrikinColors.textPrimary,
   },
   guestDailyCard: {
     backgroundColor: PrikinColors.surface,
-    borderRadius: PrikinHomeRadii.card,
-    padding: PrikinSpacing.homeCardPadding,
-    gap: PrikinSpacing.homeCardGap,
+    borderRadius: PrikinHomeLayout.cardRadius,
+    paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
+    paddingVertical: PrikinHomeLayout.cardPaddingVertical,
+    gap: PrikinHomeLayout.cardInnerGap,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PrikinColors.borderSubtle,
   },
   emptyOutfitBlock: {
     alignItems: 'stretch',
-    gap: PrikinSpacing.homeSectionGap,
+    gap: PrikinHomeLayout.sectionGap,
   },
   section: {
-    gap: PrikinSpacing.homeSectionGap,
+    gap: PrikinHomeLayout.sectionGap,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
