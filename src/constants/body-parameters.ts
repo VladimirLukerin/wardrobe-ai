@@ -43,6 +43,7 @@ export type ManualLocation = LocationPlace;
 
 export type AutoLocation = LocationPlace & {
   source: 'auto';
+  updatedAt?: number;
 };
 
 export type BodyParameters = {

@@ -1,8 +1,30 @@
 import type { Request, Response } from 'express';
 import OpenAI from 'openai';
+import type { OutfitFeedbackReason } from './db/outfit-feedback-reasons';
+import { mergeOutfitFeedbackIntoBehavioralContext } from './outfit-feedback/build-outfit-feedback-context';
+import {
+  AiRateLimitExceededError,
+  consumeAiRateLimit,
+  respondAiRateLimited,
+} from './ai-request-rate-limit';
+import {
+  buildCompactWeatherSection,
+  buildPersonalOutfitPromptText,
+  capBehavioralContext,
+  estimatePromptTokens,
+  logOutfitPromptUsage,
+} from './outfit-ai/prompt-optimization';
+import { selectOutfitCandidates } from './outfit-ai/candidate-selection';
+import {
+  AiProviderRateLimitError,
+  isOpenAiProviderRateLimitError,
+  respondAiProviderRateLimited,
+  toAiProviderRateLimitError,
+} from './outfit-ai/provider-rate-limit';
+import { trackOpenAiResponsesCall } from './ai-usage/record-ai-usage';
+import { respondIfGuestAiDisabled } from './app-settings/guest-ai-access';
 
 import { getCurrentWeather, type CurrentWeather } from './providers/weather';
-import { getWeatherCodeLabel } from './weather-code';
 
 const MODEL = 'gpt-4o';
 const MAX_OUTFITS = 3;
@@ -14,6 +36,15 @@ const DEFAULT_STYLE_EXPERIMENT: StyleExperiment = 'balanced';
 const WEATHER_SENSITIVITIES = ['Часто мёрзну', 'Обычно', 'Мне часто жарко'] as const;
 
 type WeatherSensitivity = (typeof WEATHER_SENSITIVITIES)[number];
+
+const FIT_PREFERENCES = ['По фигуре', 'Обычная', 'Свободная'] as const;
+
+type FitPreference = (typeof FIT_PREFERENCES)[number];
+
+const WARDROBE_MODES = ['owned-only', 'allow-suggestions'] as const;
+
+type WardrobeMode = (typeof WARDROBE_MODES)[number];
+const DEFAULT_WARDROBE_MODE: WardrobeMode = 'owned-only';
 
 export type SuggestOutfitsLocation = {
   latitude: number;
@@ -31,15 +62,53 @@ export type WardrobeItemPayload = {
   pattern: string;
   printDescription: string | null;
   style: string;
+  isFavorite: boolean;
+  wearCount: number;
+  lastWornAt: string | null;
+};
+
+export type CompactOutfitRef = {
+  itemIds: string[];
+  title?: string;
+};
+
+export type OutfitFeedbackContextPayload = {
+  recentlyLikedItemIds: string[];
+  recentlyDislikedItemIds: string[];
+  likedCombinations: CompactOutfitRef[];
+  dislikedCombinations: CompactOutfitRef[];
+  stronglyDislikedItemIds: string[];
+  reasonCounts: Partial<Record<OutfitFeedbackReason, number>>;
+};
+
+export type BehavioralContextPayload = {
+  favoriteItemIds: string[];
+  frequentlyWorn: Array<{ id: string; wearCount: number; lastWornAt: string | null }>;
+  recentManualOutfits: CompactOutfitRef[];
+  recentSavedAiOutfits: CompactOutfitRef[];
+  recentOutfitSignatures: string[];
+  outfitFeedback?: OutfitFeedbackContextPayload;
+};
+
+export type StylistPreferencesPayload = {
+  styleExperiment: StyleExperiment;
+  considerWeather: boolean;
+  wardrobeMode: WardrobeMode;
+  avoidRepeatedOutfits: boolean;
+};
+
+export type UserParametersPayload = {
+  fitPreference: FitPreference | null;
+  weatherSensitivity: WeatherSensitivity | null;
 };
 
 export type SuggestOutfitsRequestBody = {
   selectedItemId?: string;
   wardrobe: WardrobeItemPayload[];
-  styleExperiment: StyleExperiment;
-  considerWeather: boolean;
+  stylistPreferences: StylistPreferencesPayload;
+  userParameters: UserParametersPayload;
+  behavioralContext: BehavioralContextPayload;
   location: SuggestOutfitsLocation | null;
-  weatherSensitivity: WeatherSensitivity | null;
 };
 
 export type OutfitSuggestion = {
@@ -84,6 +153,164 @@ function parseWeatherSensitivity(value: unknown): WeatherSensitivity | null {
   }
 
   return null;
+}
+
+function parseFitPreference(value: unknown): FitPreference | null {
+  if (typeof value === 'string' && FIT_PREFERENCES.includes(value as FitPreference)) {
+    return value as FitPreference;
+  }
+
+  return null;
+}
+
+function parseWardrobeMode(value: unknown): WardrobeMode {
+  if (typeof value === 'string' && WARDROBE_MODES.includes(value as WardrobeMode)) {
+    return value as WardrobeMode;
+  }
+
+  return DEFAULT_WARDROBE_MODE;
+}
+
+function parseCompactOutfitRef(value: unknown): CompactOutfitRef | null {
+  if (!isRecord(value) || !Array.isArray(value.itemIds)) {
+    return null;
+  }
+
+  const itemIds = value.itemIds.filter((itemId): itemId is string => typeof itemId === 'string');
+
+  if (itemIds.length === 0) {
+    return null;
+  }
+
+  return {
+    itemIds,
+    title:
+      typeof value.title === 'string' && value.title.trim().length > 0
+        ? value.title.trim()
+        : undefined,
+  };
+}
+
+function parseOutfitFeedbackContext(value: unknown): OutfitFeedbackContextPayload | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const parseItemIds = (raw: unknown): string[] =>
+    Array.isArray(raw) ? raw.filter((itemId): itemId is string => typeof itemId === 'string') : [];
+
+  const parseCombinations = (raw: unknown): CompactOutfitRef[] =>
+    Array.isArray(raw)
+      ? raw
+          .map((entry) => parseCompactOutfitRef(entry))
+          .filter((entry): entry is CompactOutfitRef => entry !== null)
+      : [];
+
+  const reasonCounts: Partial<Record<OutfitFeedbackReason, number>> = {};
+
+  if (isRecord(value.reasonCounts)) {
+    for (const [key, count] of Object.entries(value.reasonCounts)) {
+      if (typeof count === 'number' && Number.isFinite(count) && count > 0) {
+        reasonCounts[key as OutfitFeedbackReason] = Math.floor(count);
+      }
+    }
+  }
+
+  return {
+    recentlyLikedItemIds: parseItemIds(value.recentlyLikedItemIds),
+    recentlyDislikedItemIds: parseItemIds(value.recentlyDislikedItemIds),
+    likedCombinations: parseCombinations(value.likedCombinations),
+    dislikedCombinations: parseCombinations(value.dislikedCombinations),
+    stronglyDislikedItemIds: parseItemIds(value.stronglyDislikedItemIds),
+    reasonCounts,
+  };
+}
+
+function parseBehavioralContext(value: unknown, wardrobe: WardrobeItemPayload[]): BehavioralContextPayload {
+  const fallbackFavorites = wardrobe.filter((item) => item.isFavorite).map((item) => item.id);
+
+  if (!isRecord(value)) {
+    return {
+      favoriteItemIds: fallbackFavorites,
+      frequentlyWorn: [],
+      recentManualOutfits: [],
+      recentSavedAiOutfits: [],
+      recentOutfitSignatures: [],
+    };
+  }
+
+  const favoriteItemIds = Array.isArray(value.favoriteItemIds)
+    ? value.favoriteItemIds.filter((itemId): itemId is string => typeof itemId === 'string')
+    : fallbackFavorites;
+
+  const frequentlyWorn = Array.isArray(value.frequentlyWorn)
+    ? value.frequentlyWorn
+        .map((entry) => {
+          if (!isRecord(entry) || typeof entry.id !== 'string') {
+            return null;
+          }
+
+          const wearCount =
+            typeof entry.wearCount === 'number' && Number.isFinite(entry.wearCount) && entry.wearCount >= 0
+              ? Math.floor(entry.wearCount)
+              : 0;
+
+          return {
+            id: entry.id,
+            wearCount,
+            lastWornAt:
+              typeof entry.lastWornAt === 'string' && entry.lastWornAt.trim().length > 0
+                ? entry.lastWornAt.trim()
+                : null,
+          };
+        })
+        .filter((entry): entry is { id: string; wearCount: number; lastWornAt: string | null } => entry !== null)
+    : [];
+
+  const recentManualOutfits = Array.isArray(value.recentManualOutfits)
+    ? value.recentManualOutfits
+        .map((entry) => parseCompactOutfitRef(entry))
+        .filter((entry): entry is CompactOutfitRef => entry !== null)
+    : [];
+
+  const recentSavedAiOutfits = Array.isArray(value.recentSavedAiOutfits)
+    ? value.recentSavedAiOutfits
+        .map((entry) => parseCompactOutfitRef(entry))
+        .filter((entry): entry is CompactOutfitRef => entry !== null)
+    : [];
+
+  const recentOutfitSignatures = Array.isArray(value.recentOutfitSignatures)
+    ? value.recentOutfitSignatures.filter((signature): signature is string => typeof signature === 'string')
+    : [];
+
+  return {
+    favoriteItemIds,
+    frequentlyWorn,
+    recentManualOutfits,
+    recentSavedAiOutfits,
+    recentOutfitSignatures,
+    outfitFeedback: parseOutfitFeedbackContext(value.outfitFeedback),
+  };
+}
+
+function parseStylistPreferences(body: Record<string, unknown>): StylistPreferencesPayload {
+  const nested = isRecord(body.stylistPreferences) ? body.stylistPreferences : null;
+
+  return {
+    styleExperiment: parseStyleExperiment(nested?.styleExperiment ?? body.styleExperiment),
+    considerWeather: nested ? nested.considerWeather === true : body.considerWeather === true,
+    wardrobeMode: parseWardrobeMode(nested?.wardrobeMode ?? body.wardrobeMode),
+    avoidRepeatedOutfits: nested ? nested.avoidRepeatedOutfits !== false : body.avoidRepeatedOutfits !== false,
+  };
+}
+
+function parseUserParameters(body: Record<string, unknown>): UserParametersPayload {
+  const nested = isRecord(body.userParameters) ? body.userParameters : null;
+
+  return {
+    fitPreference: parseFitPreference(nested?.fitPreference ?? body.fitPreference),
+    weatherSensitivity: parseWeatherSensitivity(nested?.weatherSensitivity ?? body.weatherSensitivity),
+  };
 }
 
 function parseLocation(value: unknown): SuggestOutfitsLocation | null {
@@ -133,6 +360,11 @@ function parseRequestBody(body: unknown): SuggestOutfitsRequestBody | null {
       continue;
     }
 
+    const wearCount =
+      typeof entry.wearCount === 'number' && Number.isFinite(entry.wearCount) && entry.wearCount >= 0
+        ? Math.floor(entry.wearCount)
+        : 0;
+
     parsedWardrobe.push({
       id: entry.id,
       name: typeof entry.name === 'string' ? entry.name : '',
@@ -146,6 +378,12 @@ function parseRequestBody(body: unknown): SuggestOutfitsRequestBody | null {
             ? null
             : null,
       style: typeof entry.style === 'string' ? entry.style : '',
+      isFavorite: entry.isFavorite === true,
+      wearCount,
+      lastWornAt:
+        typeof entry.lastWornAt === 'string' && entry.lastWornAt.trim().length > 0
+          ? entry.lastWornAt.trim()
+          : null,
     });
   }
 
@@ -156,14 +394,14 @@ function parseRequestBody(body: unknown): SuggestOutfitsRequestBody | null {
   return {
     selectedItemId,
     wardrobe: parsedWardrobe,
-    styleExperiment: parseStyleExperiment(body.styleExperiment),
-    considerWeather: body.considerWeather === true,
+    stylistPreferences: parseStylistPreferences(body),
+    userParameters: parseUserParameters(body),
+    behavioralContext: parseBehavioralContext(body.behavioralContext, parsedWardrobe),
     location: parseLocation(body.location),
-    weatherSensitivity: parseWeatherSensitivity(body.weatherSensitivity),
   };
 }
 
-function buildWeatherSensitivityInstructions(
+export function buildWeatherSensitivityInstructions(
   weatherSensitivity: WeatherSensitivity,
 ): string[] {
   switch (weatherSensitivity) {
@@ -186,24 +424,11 @@ function buildWeatherSensitivityInstructions(
   }
 }
 
-function buildWeatherPromptLines(weather: CurrentWeather): string[] {
-  const conditions = getWeatherCodeLabel(weather.weatherCode);
-
-  return [
-    'ТЕКУЩАЯ ПОГОДА (учитывай при выборе вещей ТОЛЬКО из wardrobe):',
-    `- температура: ${weather.temperatureC}°C`,
-    `- ощущается как: ${weather.apparentTemperatureC}°C`,
-    `- осадки: ${weather.precipitationMm} мм`,
-    `- ветер: ${weather.windSpeedKmh} км/ч`,
-    `- условия: ${conditions}`,
-    'Используй temperature и apparent temperature вместе.',
-    'При сильном ветре и осадках учитывай это, если в wardrobe есть подходящие вещи.',
-    'Не придумывай отсутствующую одежду и itemIds.',
-    'Если нужной вещи нет в wardrobe, собери лучший доступный вариант и при необходимости упомяни в description, что комплект ограничен текущим гардеробом.',
-  ];
+export function buildWeatherSection(weather: CurrentWeather): string[] {
+  return buildCompactWeatherSection(weather);
 }
 
-async function resolveWeatherContext(
+export async function resolveWeatherContext(
   considerWeather: boolean,
   location: SuggestOutfitsLocation | null,
 ): Promise<CurrentWeather | null> {
@@ -333,6 +558,16 @@ function pickItemsForCategoryGroup(
   return new Set(kept);
 }
 
+export function hasMinimumWardrobeForOutfit(wardrobe: WardrobeItemPayload[]): boolean {
+  if (wardrobe.length < 2) {
+    return false;
+  }
+
+  const groups = new Set(wardrobe.map((item) => getCategoryGroup(item.category)));
+
+  return groups.has('BOTTOM') && groups.has('TOP');
+}
+
 export function sanitizeItemIdsByCategory(
   itemIds: string[],
   wardrobeById: Map<string, WardrobeItemPayload>,
@@ -378,7 +613,7 @@ export function sanitizeItemIdsByCategory(
   return orderedUnique.filter((itemId) => allowed.has(itemId));
 }
 
-function buildSharedSelectionRules(): string[] {
+export function buildSharedSelectionRules(): string[] {
   return [
     'ОБЩИЕ ПРАВИЛА ВЫБОРА:',
     '- Используй ТОЛЬКО id из wardrobe. Не придумывай вещи.',
@@ -497,104 +732,198 @@ export function sanitizeOutfitSuggestions(
   return sanitized;
 }
 
-function buildWardrobeSummary(wardrobe: WardrobeItemPayload[]): string {
-  return wardrobe
-    .map((item) => {
-      const printPart =
-        item.printDescription && item.pattern !== 'Без принта'
-          ? `, принт: ${item.printDescription}`
-          : '';
-
-      return `- id: ${item.id}; name: ${item.name}; category: ${item.category}; color: ${item.color}; pattern: ${item.pattern}${printPart}; style: ${item.style}`;
-    })
-    .join('\n');
+function buildPriorityOrderSection(): string[] {
+  return [
+    'SIGNAL PRIORITY (highest to lowest):',
+    '1. weather appropriateness / physical comfort;',
+    '2. category compatibility (no conflicting items);',
+    '3. explicit user preferences (styleExperiment, fitPreference, weatherSensitivity, wardrobeMode);',
+    '4. behavioral signals (favorites, wear history, saved outfits);',
+    '5. variety / avoiding unnecessary repetition.',
+    '',
+    'Behavioral signals are preferences, NOT hard constraints.',
+  ];
 }
 
-export async function suggestOutfitsHandler(req: Request, res: Response): Promise<void> {
-  try {
-    const parsedBody = parseRequestBody(req.body);
+function buildHardRulesSection(
+  isHomeMode: boolean,
+  maxOutfits: number,
+  selectedItemId?: string,
+): string[] {
+  return [
+    'A. HARD RULES',
+    '- Use ONLY existing item ids from wardrobe. Never invent items.',
+    '- Category conflicts are forbidden (max 1 bottom, max 1 shoes, max 1 outerwear, max 2 tops).',
+    selectedItemId
+      ? `- selectedItemId "${selectedItemId}" is REQUIRED in every outfit regardless of recency or favorites.`
+      : '- Pick one coherent outfit from existing items.',
+    isHomeMode
+      ? '- Return exactly 1 outfit.'
+      : `- Return up to ${maxOutfits} distinct outfits.`,
+    '- Do not return identical item sets in different order.',
+  ];
+}
 
-    if (!parsedBody) {
-      res.status(400).json({ error: 'Некорректное тело запроса.' });
-      return;
-    }
+export function buildFitPreferenceLines(fitPreference: FitPreference | null): string[] {
+  if (!fitPreference) {
+    return [];
+  }
 
-    const {
-      selectedItemId,
-      wardrobe,
-      styleExperiment,
-      considerWeather,
-      location,
-      weatherSensitivity,
-    } = parsedBody;
-    const validIds = new Set(wardrobe.map((item) => item.id));
+  switch (fitPreference) {
+    case 'По фигуре':
+      return [
+        'fitPreference: closer-to-body silhouettes when wardrobe metadata reasonably supports it.',
+        'Do NOT invent fit properties that are not present in wardrobe metadata.',
+      ];
+    case 'Свободная':
+      return [
+        'fitPreference: relaxed / roomy silhouettes and comfortable layering when wardrobe metadata supports it.',
+        'Do NOT invent fit properties that are not present in wardrobe metadata.',
+      ];
+    case 'Обычная':
+    default:
+      return ['fitPreference: neutral — no extra fit bias beyond wardrobe metadata.'];
+  }
+}
 
-    if (selectedItemId && !validIds.has(selectedItemId)) {
-      res.status(400).json({ error: 'selectedItemId отсутствует в wardrobe.' });
-      return;
-    }
+function buildUserExplicitPreferencesSection(
+  stylistPreferences: StylistPreferencesPayload,
+  userParameters: UserParametersPayload,
+  compact: boolean,
+): string[] {
+  const lines = compact
+    ? [
+        'C. USER PREFERENCES',
+        `styleExperiment: ${stylistPreferences.styleExperiment}`,
+        `considerWeather: ${stylistPreferences.considerWeather}`,
+        `wardrobeMode: ${stylistPreferences.wardrobeMode}`,
+        `avoidRepeatedOutfits: ${stylistPreferences.avoidRepeatedOutfits}`,
+      ]
+    : [
+        'C. USER EXPLICIT PREFERENCES',
+        `styleExperiment: ${stylistPreferences.styleExperiment}`,
+        `considerWeather: ${stylistPreferences.considerWeather}`,
+        `wardrobeMode: ${stylistPreferences.wardrobeMode}`,
+        `avoidRepeatedOutfits: ${stylistPreferences.avoidRepeatedOutfits}`,
+        '',
+        ...buildStyleExperimentInstructions(stylistPreferences.styleExperiment),
+      ];
 
-    const isHomeMode = !selectedItemId;
-    const maxOutfits = isHomeMode ? 1 : MAX_OUTFITS;
-
-    const apiKey = process.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      res.status(500).json({ error: 'OPENAI_API_KEY не настроен на сервере.' });
-      return;
-    }
-
-    const openai = new OpenAI({ apiKey });
-    const wardrobeSummary = buildWardrobeSummary(wardrobe);
-    const selectedItem = selectedItemId
-      ? wardrobe.find((item) => item.id === selectedItemId)
-      : undefined;
-    const weather = await resolveWeatherContext(considerWeather, location);
-
-    const promptLines = isHomeMode
-      ? [
-          'Ты стилист. Подбери ОДИН полный образ на сегодня из переданного гардероба.',
-          'Самостоятельно выбери логичный комплект из существующих вещей — верх, низ и обувь, если они есть в wardrobe.',
-          'Старайся не дублировать одну категорию в образе без необходимости (например, две пары брюк).',
-          'Учитывай цвет, стиль, категорию и принт при сочетании.',
-          'Если вещей мало, можно предложить неполный, но логичный комплект.',
-          'Верни ровно 1 образ.',
-          '',
-          ...buildSharedSelectionRules().slice(0, 6),
-          '',
-          ...buildStyleExperimentInstructions(styleExperiment),
-        ]
-      : [
-          'Ты стилист. Подбери до 3 РАЗНЫХ образов из переданного гардероба.',
-          `Обязательная вещь для каждого образа: id "${selectedItemId}" (${selectedItem?.name ?? 'выбранная вещь'}).`,
-          'Каждый образ должен содержать selectedItemId.',
-          'Старайся не дублировать одну категорию в образе без необходимости (например, две пары брюк).',
-          'Учитывай цвет, стиль, категорию и принт при сочетании.',
-          'Если вещей мало, можно предложить неполный, но логичный комплект.',
-          'Верни максимум 3 образа.',
-          '',
-          ...buildSharedSelectionRules(),
-          '',
-          ...buildStyleExperimentInstructions(styleExperiment),
-        ];
-
-    if (weather) {
-      promptLines.push('', ...buildWeatherPromptLines(weather));
-
-      if (weatherSensitivity) {
-        promptLines.push('', ...buildWeatherSensitivityInstructions(weatherSensitivity));
-      }
-    }
-
-    promptLines.push(
+  if (stylistPreferences.wardrobeMode === 'owned-only') {
+    lines.push('', 'wardrobeMode owned-only: use ONLY items from wardrobe.');
+  } else if (!compact) {
+    lines.push(
       '',
-      'description: одно короткое предложение на русском, не более 140 символов, без списков и повторения заголовка.',
-      'Кратко объясни сочетание реальных вещей по цвету, стилю или слоям. Погоду упоминай только если её данные переданы.',
-      'Не выдумывай материал, удобство, теплоту вещей или обстоятельства пользователя.',
-      '', 'Wardrobe:', wardrobeSummary,
+      'wardrobeMode allow-suggestions: prefer owned wardrobe items; mention missing pieces only in description, never as itemIds.',
     );
+  }
 
-    const response = await openai.responses.create({
+  const fitLines = buildFitPreferenceLines(userParameters.fitPreference);
+
+  if (fitLines.length > 0) {
+    lines.push('', ...(compact ? fitLines.slice(0, 1) : fitLines));
+  }
+
+  if (userParameters.weatherSensitivity) {
+    lines.push(
+      '',
+      ...(compact
+        ? [`weatherSensitivity: ${userParameters.weatherSensitivity}`]
+        : buildWeatherSensitivityInstructions(userParameters.weatherSensitivity)),
+    );
+  }
+
+  return lines;
+}
+
+export async function generateOutfitSuggestionsFromBody(
+  parsedBody: SuggestOutfitsRequestBody,
+  options?: { userId?: string },
+): Promise<{ outfits: OutfitSuggestion[]; weather: CurrentWeather | null }> {
+  const {
+    selectedItemId,
+    wardrobe,
+    stylistPreferences,
+    userParameters,
+    behavioralContext: parsedBehavioralContext,
+    location,
+  } = parsedBody;
+  const { considerWeather } = stylistPreferences;
+  const validIds = new Set(wardrobe.map((item) => item.id));
+  const behavioralContext = capBehavioralContext(
+    options?.userId
+      ? mergeOutfitFeedbackIntoBehavioralContext(parsedBehavioralContext, options.userId, validIds)
+      : parsedBehavioralContext,
+  );
+  const weather = await resolveWeatherContext(considerWeather, location);
+  const aiWardrobe = selectOutfitCandidates({
+    wardrobe,
+    weather,
+    stylistPreferences,
+    userParameters,
+    behavioralContext,
+    fixedItemId: selectedItemId,
+    mode: selectedItemId ? 'personal-fixed-item' : 'personal',
+  });
+  const aiValidIds = new Set(aiWardrobe.map((item) => item.id));
+
+  if (selectedItemId && !aiValidIds.has(selectedItemId)) {
+    throw new Error('selectedItemId отсутствует в wardrobe.');
+  }
+
+  const isHomeMode = !selectedItemId;
+  const maxOutfits = isHomeMode ? 1 : MAX_OUTFITS;
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY не настроен на сервере.');
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(
+      `[OUTFIT PERSONALIZATION] favorites: ${behavioralContext.favoriteItemIds.length}, ` +
+        `wear history items: ${behavioralContext.frequentlyWorn.length}, ` +
+        `manual outfits: ${behavioralContext.recentManualOutfits.length}, ` +
+        `saved ai outfits: ${behavioralContext.recentSavedAiOutfits.length}`,
+    );
+  }
+
+  const selectedItem = selectedItemId
+    ? wardrobe.find((item) => item.id === selectedItemId)
+    : undefined;
+
+  if (options?.userId) {
+    consumeAiRateLimit(options.userId, 'suggest');
+  }
+
+  const openai = new OpenAI({ apiKey, maxRetries: 0 });
+  const promptText = buildPersonalOutfitPromptText({
+    wardrobe: aiWardrobe,
+    weather,
+    considerWeather,
+    stylistPreferences,
+    userParameters,
+    behavioralContext,
+    selectedItemId,
+    selectedItemName: selectedItem?.name,
+    isHomeMode,
+    maxOutfits,
+  });
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(
+      `[OUTFIT AI] totalWardrobe=${wardrobe.length} shortlist=${aiWardrobe.length} promptChars=${promptText.length} estimatedTokens=${estimatePromptTokens(promptText)}`,
+    );
+  }
+
+  let response;
+
+  try {
+    response = await trackOpenAiResponsesCall({
+      userId: options?.userId ?? null,
+      requestType: 'suggest',
+      call: () =>
+        openai.responses.create({
       model: MODEL,
       input: [
         {
@@ -602,7 +931,7 @@ export async function suggestOutfitsHandler(req: Request, res: Response): Promis
           content: [
             {
               type: 'input_text',
-              text: promptLines.join('\n'),
+              text: promptText,
             },
           ],
         },
@@ -638,27 +967,78 @@ export async function suggestOutfitsHandler(req: Request, res: Response): Promis
           },
         },
       },
+    }),
     });
+  } catch (error) {
+    if (isOpenAiProviderRateLimitError(error)) {
+      throw toAiProviderRateLimitError(error);
+    }
 
-    const outputText = response.output_text;
+    throw error;
+  }
 
-    if (!outputText) {
-      res.status(502).json({ error: 'OpenAI не вернул результат подбора образов.' });
+  if (process.env.NODE_ENV !== 'production' && response.usage) {
+    logOutfitPromptUsage({
+      promptText,
+      actualInputTokens: response.usage.input_tokens,
+      actualOutputTokens: response.usage.output_tokens,
+      actualTotalTokens: response.usage.total_tokens,
+    });
+  }
+
+  const outputText = response.output_text;
+
+  if (!outputText) {
+    throw new Error('OpenAI не вернул результат подбора образов.');
+  }
+
+  const parsed = JSON.parse(outputText) as RawOutfitsResponse;
+  const rawOutfits = Array.isArray(parsed.outfits) ? parsed.outfits : [];
+  const outfits = sanitizeOutfitSuggestions(
+    rawOutfits,
+    aiValidIds,
+    selectedItemId,
+    aiWardrobe,
+    maxOutfits,
+  );
+
+  return { outfits, weather };
+}
+
+export async function suggestOutfitsHandler(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.authUser) {
+      res.status(401).json({ error: 'Unauthorized' });
       return;
     }
 
-    const parsed = JSON.parse(outputText) as RawOutfitsResponse;
-    const rawOutfits = Array.isArray(parsed.outfits) ? parsed.outfits : [];
-    const outfits = sanitizeOutfitSuggestions(
-      rawOutfits,
-      validIds,
-      selectedItemId,
-      wardrobe,
-      maxOutfits,
-    );
+    if (respondIfGuestAiDisabled(res, req.authUser)) {
+      return;
+    }
 
-    res.json({ outfits, weather });
+    const parsedBody = parseRequestBody(req.body);
+
+    if (!parsedBody) {
+      res.status(400).json({ error: 'Некорректное тело запроса.' });
+      return;
+    }
+
+    const result = await generateOutfitSuggestionsFromBody(parsedBody, {
+      userId: req.authUser.id,
+    });
+
+    res.json(result);
   } catch (error) {
+    if (error instanceof AiRateLimitExceededError) {
+      respondAiRateLimited(res, error.retryAfterSeconds);
+      return;
+    }
+
+    if (error instanceof AiProviderRateLimitError) {
+      respondAiProviderRateLimited(res, error.retryAfterSeconds);
+      return;
+    }
+
     console.error('Failed to suggest outfits:', error);
     res.status(500).json({ error: 'Не удалось подобрать образы.' });
   }

@@ -1,21 +1,51 @@
-import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { FlatList, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { HomeBrandHeader } from '@/components/home-brand-header';
+import {
+  PrikinHandwritten,
+  PrikinTerracottaDot,
+} from '@/components/prikin/prikin-brand-header';
+import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
+import { PRIKIN_WARDROBE_EMPTY_HANGER_SVG } from '@/components/prikin/illustrations';
+import { PrikinPrimaryButton } from '@/components/prikin/prikin-primary-button';
 import { WardrobeFiltersSheet } from '@/components/wardrobe-filters-sheet';
+import { WardrobeGridCard } from '@/components/wardrobe-grid-card';
+import { PhotoCaptureOnboardingSheet } from '@/components/photo-capture-onboarding-sheet';
 import { EMPTY_WARDROBE_FILTERS, countWardrobeFilters, filterWardrobe } from '@/utils/wardrobe-filters';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
-import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
+import { buildWardrobeImageExtraData } from '@/constants/wardrobe-item';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import {
+  PrikinColors,
+  PrikinRadii,
+  PrikinSpacing,
+  PrikinTypography,
+} from '@/constants/prikin-tokens';
 import { useWardrobe } from '@/contexts/wardrobe-context';
 import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
 
 const GRID_GAP = Spacing.two;
 const NUM_COLUMNS = 2;
+
+function formatWardrobeItemCount(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${count} вещь`;
+  }
+
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+    return `${count} вещи`;
+  }
+
+  return `${count} вещей`;
+}
 
 export default function GarderobScreen() {
   const { items } = useWardrobe();
@@ -24,12 +54,23 @@ export default function GarderobScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterCount = countWardrobeFilters(filters);
   const visibleItems = filterWardrobe(items, filters, favoritesOnly);
-  const { takePhoto, pickFromGallery } = useAddWardrobeItem();
+  const favoriteCount = useMemo(() => items.filter((item) => item.isFavorite).length, [items]);
+  const wardrobeCountLabel = useMemo(() => formatWardrobeItemCount(items.length), [items.length]);
+  const {
+    takePhoto,
+    pickFromGallery,
+    isPhotoOnboardingVisible,
+    handlePhotoOnboardingContinue,
+    handlePhotoOnboardingSkipForever,
+    handlePhotoOnboardingClose,
+  } = useAddWardrobeItem();
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const { width: windowWidth } = useWindowDimensions();
 
   const contentWidth = Math.min(windowWidth, MaxContentWidth);
-  const cardWidth = (contentWidth - Spacing.four * 2 - GRID_GAP) / NUM_COLUMNS;
+  const horizontalPadding = PrikinSpacing.screenHorizontal;
+  const cardWidth = (contentWidth - horizontalPadding * 2 - GRID_GAP) / NUM_COLUMNS;
+  const wardrobeImageExtraData = useMemo(() => buildWardrobeImageExtraData(items), [items]);
 
   const handleSelectCamera = useCallback(async () => {
     setIsAddSheetVisible(false);
@@ -41,74 +82,144 @@ export default function GarderobScreen() {
     await pickFromGallery();
   }, [pickFromGallery]);
 
-  const renderItem = useCallback(
-    ({ item }: { item: (typeof items)[number] }) => {
-      const displayImageUri = getWardrobeItemDisplayImageUri(item);
+  const openAddSheet = useCallback(() => setIsAddSheetVisible(true), []);
 
-      return (
-        <Pressable
-          onPress={() =>
-            router.push({
-              pathname: '/garderob/[id]',
-              params: { id: item.id },
-            })
-          }
-          style={({ pressed }) => [styles.cardPressable, { width: cardWidth }, pressed && styles.buttonPressed]}>
-          <ThemedView style={styles.card}>
-            <Image
-              source={{ uri: displayImageUri }}
-              style={styles.cardImage}
-              contentFit="cover"
-            />
-            <ThemedText style={styles.cardLabel}>{item.isFavorite ? `♥ ${item.name}` : item.name}</ThemedText>
-          </ThemedView>
-        </Pressable>
-      );
-    },
+  const renderItem = useCallback(
+    ({ item }: { item: (typeof items)[number] }) => (
+      <WardrobeGridCard
+        item={item}
+        width={cardWidth}
+        onPress={() =>
+          router.push({
+            pathname: '/garderob/[id]',
+            params: { id: item.id },
+          })
+        }
+      />
+    ),
     [cardWidth],
   );
+
+  const isTrulyEmpty = items.length === 0;
+
+  const filteredEmptyTitle =
+    filterCount > 0 ? 'Ничего не найдено' : 'В избранном пока пусто';
+  const filteredEmptyHint =
+    filterCount > 0
+      ? 'Попробуй изменить поиск или фильтры.'
+      : 'Нажми на сердечко в карточке вещи, чтобы добавить её сюда.';
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ThemedText type="subtitle" style={styles.title}>
-          Мой гардероб
-        </ThemedText>
+        <HomeBrandHeader />
 
-        <Pressable
-          onPress={() => setIsAddSheetVisible(true)}
-          style={({ pressed }) => [styles.addButton, pressed && styles.buttonPressed]}>
-          <ThemedText style={styles.addButtonText}>+ Добавить вещь</ThemedText>
-        </Pressable>
+        <View style={styles.titleBlock}>
+          <Text style={styles.screenTitle}>Мой гардероб</Text>
+          <Text style={styles.itemCount}>{wardrobeCountLabel}</Text>
+          {!isTrulyEmpty ? (
+            <Pressable
+              onPress={() => router.push('/garderob/statistics')}
+              accessibilityRole="link"
+              accessibilityLabel="Статистика гардероба"
+              style={({ pressed }) => [styles.statisticsLink, pressed && styles.buttonPressed]}>
+              <Text style={styles.statisticsLinkText}>Статистика</Text>
+            </Pressable>
+          ) : null}
+        </View>
 
         <View style={styles.filterBar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: favoritesOnly }}
-          accessibilityLabel="Показывать только избранное"
-          onPress={() => setFavoritesOnly((current) => !current)}
-          style={({ pressed }) => [styles.favoriteFilter, favoritesOnly && styles.favoriteFilterActive, pressed && styles.buttonPressed]}>
-          <ThemedText>{favoritesOnly ? '♥' : '♡'} Избранное ({items.filter((item) => item.isFavorite).length})</ThemedText>
-        </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Поиск и фильтры. Активно: ${filterCount}`}
-            onPress={() => setFiltersOpen(true)} style={({ pressed }) => [styles.filtersButton, filterCount > 0 && styles.favoriteFilterActive, pressed && styles.buttonPressed]}>
-            <SymbolView name={{ ios: 'line.3.horizontal.decrease', android: 'filter_list', web: 'filter_list' }} size={22} tintColor={Colors.light.text} />
-            {filterCount > 0 && <ThemedText style={styles.filterBadge}>{filterCount}</ThemedText>}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: favoritesOnly }}
+            accessibilityLabel="Показывать только избранное"
+            onPress={() => setFavoritesOnly((current) => !current)}
+            style={({ pressed }) => [
+              styles.favoriteFilter,
+              favoritesOnly && styles.favoriteFilterActive,
+              pressed && styles.buttonPressed,
+            ]}>
+            <SymbolView
+              name={{
+                ios: favoritesOnly ? 'heart.fill' : 'heart',
+                android: favoritesOnly ? 'favorite' : 'favorite_border',
+                web: favoritesOnly ? 'favorite' : 'favorite_border',
+              }}
+              size={18}
+              tintColor={favoritesOnly ? PrikinColors.textPrimary : PrikinColors.textSecondary}
+            />
+            <Text style={[styles.favoriteFilterText, favoritesOnly && styles.favoriteFilterTextActive]}>
+              Избранное · {favoriteCount}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Поиск и фильтры. Активно: ${filterCount}`}
+            onPress={() => setFiltersOpen(true)}
+            style={({ pressed }) => [
+              styles.filtersButton,
+              filterCount > 0 && styles.filtersButtonActive,
+              pressed && styles.buttonPressed,
+            ]}>
+            <SymbolView
+              name={{ ios: 'line.3.horizontal.decrease', android: 'filter_list', web: 'filter_list' }}
+              size={22}
+              tintColor={PrikinColors.textPrimary}
+            />
+            {filterCount > 0 && (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{filterCount}</Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
         {visibleItems.length === 0 ? (
-          <ThemedView style={styles.emptyState}>
-            <ThemedText style={styles.emptyTitle}>{items.length === 0 ? 'Гардероб пока пуст' : filterCount > 0 ? 'Ничего не найдено' : 'В избранном пока пусто'}</ThemedText>
-            <ThemedText themeColor="textSecondary" style={styles.emptyHint}>
-              {items.length === 0 ? 'Добавь первую вещь, чтобы начать создавать образы.' : filterCount > 0 ? 'Попробуй изменить поиск или фильтры.' : 'Нажми на сердечко в карточке вещи, чтобы добавить её сюда.'}
-            </ThemedText>
-            {items.length > 0 && <Pressable onPress={() => { setFilters({ ...EMPTY_WARDROBE_FILTERS }); setFavoritesOnly(false); }} style={styles.sheetCancel} accessibilityRole="button"><ThemedText>Показать все вещи</ThemedText></Pressable>}
-          </ThemedView>
+          isTrulyEmpty ? (
+            <View style={styles.emptyWardrobe}>
+              <View style={styles.emptyHeroRow}>
+                <PrikinIllustration
+                  xml={PRIKIN_WARDROBE_EMPTY_HANGER_SVG}
+                  width={168}
+                  aspectRatio={180 / 190}
+                  accessibilityLabel="Иллюстрация вешалки на бумаге"
+                  style={styles.emptyHeroIllustration}
+                />
+                <PrikinHandwritten style={styles.emptyHeroHandwritten}>Начнём с любимого</PrikinHandwritten>
+              </View>
+              <Text style={styles.emptyTitle}>Здесь будут твои вещи</Text>
+              <Text style={styles.emptySubtitle}>
+                Добавь первую — и мы поможем сочетать её с остальными.
+              </Text>
+              <PrikinPrimaryButton
+                label="Добавить вещь"
+                onPress={openAddSheet}
+                style={styles.emptyAddButton}
+              />
+              <Text style={styles.emptyFootnote}>
+                Сфотографируй или выбери фото из галереи
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.filteredEmptyState}>
+              <Text style={styles.emptyTitle}>{filteredEmptyTitle}</Text>
+              <Text style={styles.emptySubtitle}>{filteredEmptyHint}</Text>
+              <Pressable
+                onPress={() => {
+                  setFilters({ ...EMPTY_WARDROBE_FILTERS });
+                  setFavoritesOnly(false);
+                }}
+                style={({ pressed }) => [styles.showAllLink, pressed && styles.buttonPressed]}
+                accessibilityRole="button">
+                <Text style={styles.showAllLinkText}>Показать все вещи</Text>
+              </Pressable>
+            </View>
+          )
         ) : (
           <FlatList
             style={styles.list}
             data={visibleItems}
+            extraData={wardrobeImageExtraData}
             keyExtractor={(item) => item.id}
             numColumns={NUM_COLUMNS}
             renderItem={renderItem}
@@ -119,8 +230,25 @@ export default function GarderobScreen() {
         )}
       </SafeAreaView>
 
-      {filtersOpen && <WardrobeFiltersSheet filters={filters} items={items} favoritesOnly={favoritesOnly}
-        onClose={() => setFiltersOpen(false)} onApply={(next) => { setFilters(next); setFiltersOpen(false); }} />}
+      <PhotoCaptureOnboardingSheet
+        visible={isPhotoOnboardingVisible}
+        onContinue={handlePhotoOnboardingContinue}
+        onSkipForever={handlePhotoOnboardingSkipForever}
+        onClose={handlePhotoOnboardingClose}
+      />
+
+      {filtersOpen && (
+        <WardrobeFiltersSheet
+          filters={filters}
+          items={items}
+          favoritesOnly={favoritesOnly}
+          onClose={() => setFiltersOpen(false)}
+          onApply={(next) => {
+            setFilters(next);
+            setFiltersOpen(false);
+          }}
+        />
+      )}
 
       <Modal
         visible={isAddSheetVisible}
@@ -129,15 +257,20 @@ export default function GarderobScreen() {
         onRequestClose={() => setIsAddSheetVisible(false)}>
         <Pressable style={styles.sheetOverlay} onPress={() => setIsAddSheetVisible(false)}>
           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
-            <ThemedText style={styles.sheetTitle}>Добавить вещь</ThemedText>
-            <ThemedText themeColor="textSecondary" style={styles.sheetSubtitle}>
-              Выбери, откуда добавить фотографию
-            </ThemedText>
+            <Text style={styles.sheetTitle}>Добавить вещь</Text>
+            <Text style={styles.sheetSubtitle}>Выбери, откуда добавить фотографию</Text>
 
             <Pressable
               onPress={handleSelectCamera}
               style={({ pressed }) => [styles.sheetOption, pressed && styles.buttonPressed]}>
-              <ThemedText style={styles.sheetOptionTitle}>📷 Сделать фото</ThemedText>
+              <View style={styles.sheetOptionTitleRow}>
+                <SymbolView
+                  name={{ ios: 'camera', android: 'photo_camera', web: 'photo_camera' }}
+                  size={22}
+                  tintColor={PrikinColors.textPrimary}
+                />
+                <Text style={styles.sheetOptionTitle}>Сделать фото</Text>
+              </View>
               <ThemedText themeColor="textSecondary" style={styles.sheetOptionHint}>
                 Открыть камеру
               </ThemedText>
@@ -146,7 +279,14 @@ export default function GarderobScreen() {
             <Pressable
               onPress={handleSelectGallery}
               style={({ pressed }) => [styles.sheetOption, pressed && styles.buttonPressed]}>
-              <ThemedText style={styles.sheetOptionTitle}>🖼 Выбрать из галереи</ThemedText>
+              <View style={styles.sheetOptionTitleRow}>
+                <SymbolView
+                  name={{ ios: 'photo.on.rectangle', android: 'photo_library', web: 'photo_library' }}
+                  size={22}
+                  tintColor={PrikinColors.textPrimary}
+                />
+                <Text style={styles.sheetOptionTitle}>Выбрать из галереи</Text>
+              </View>
               <ThemedText themeColor="textSecondary" style={styles.sheetOptionHint}>
                 Выбрать существующее фото
               </ThemedText>
@@ -155,7 +295,7 @@ export default function GarderobScreen() {
             <Pressable
               onPress={() => setIsAddSheetVisible(false)}
               style={({ pressed }) => [styles.sheetCancel, pressed && styles.buttonPressed]}>
-              <ThemedText style={styles.sheetCancelText}>Отмена</ThemedText>
+              <Text style={styles.sheetCancelText}>Отмена</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -167,74 +307,156 @@ export default function GarderobScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+    backgroundColor: PrikinColors.background,
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
+    paddingHorizontal: PrikinSpacing.screenHorizontal,
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     width: '100%',
   },
-  filterBar: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginBottom: Spacing.three },
-  filtersButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 20, borderWidth: 1, borderColor: Colors.light.backgroundElement },
-  filterBadge: { position: 'absolute', top: -4, right: -3, minWidth: 20, height: 20, lineHeight: 20, textAlign: 'center', borderRadius: 10, backgroundColor: Colors.light.text, color: Colors.light.background, fontSize: 12 },
+  titleBlock: {
+    gap: 4,
+    marginBottom: PrikinSpacing.sectionGap,
+  },
+  screenTitle: {
+    ...PrikinTypography.screenTitle,
+  },
+  itemCount: {
+    ...PrikinTypography.bodySecondary,
+  },
+  statisticsLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: 2,
+    marginTop: 2,
+  },
+  statisticsLinkText: {
+    ...PrikinTypography.caption,
+    color: PrikinColors.textMuted,
+    textDecorationLine: 'underline',
+  },
+  filterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginBottom: Spacing.three,
+  },
   favoriteFilter: {
     flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.light.backgroundElement,
-    borderRadius: 20,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    minHeight: 44,
     justifyContent: 'center',
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
+    borderRadius: PrikinRadii.pill,
+    paddingHorizontal: PrikinSpacing.cardPadding,
+    paddingVertical: 12,
+    minHeight: 44,
+    backgroundColor: PrikinColors.surface,
   },
   favoriteFilterActive: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderColor: Colors.light.text,
+    backgroundColor: PrikinColors.paper,
+    borderColor: PrikinColors.textPrimary,
+  },
+  favoriteFilterText: {
+    ...PrikinTypography.body,
+    fontSize: 15,
+    color: PrikinColors.textSecondary,
+  },
+  favoriteFilterTextActive: {
+    color: PrikinColors.textPrimary,
+    fontWeight: '600',
+  },
+  filtersButton: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
+    backgroundColor: PrikinColors.surface,
+  },
+  filtersButtonActive: {
+    backgroundColor: PrikinColors.paper,
+    borderColor: PrikinColors.textPrimary,
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -3,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: PrikinColors.buttonPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  filterBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: PrikinColors.buttonPrimaryText,
+    lineHeight: 16,
   },
   list: {
     flex: 1,
   },
-  title: {
-    marginTop: Spacing.three,
-    marginBottom: Spacing.four,
-  },
-  addButton: {
-    borderWidth: 1.5,
-    borderColor: Colors.light.text,
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginBottom: Spacing.four,
-  },
   buttonPressed: {
     opacity: 0.85,
   },
-  addButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colors.light.text,
+  emptyWardrobe: {
+    flex: 1,
+    gap: PrikinSpacing.sectionGap,
+    paddingTop: Spacing.two,
   },
-  emptyState: {
+  emptyHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: Spacing.three,
+    flexWrap: 'wrap',
+  },
+  emptyHeroIllustration: {
+    flexShrink: 0,
+  },
+  emptyHeroHandwritten: {
+    flexShrink: 1,
+    maxWidth: 160,
+    transform: [{ rotate: '-12deg' }],
+  },
+  emptyFootnote: {
+    ...PrikinTypography.caption,
+    textAlign: 'center',
+    color: PrikinColors.textSecondary,
+  },
+  emptyAddButton: {
+    alignSelf: 'stretch',
+  },
+  emptyTitle: {
+    ...PrikinTypography.sectionTitle,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    ...PrikinTypography.bodySecondary,
+    textAlign: 'center',
+  },
+  filteredEmptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: Spacing.two,
     paddingHorizontal: Spacing.two,
   },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-    color: Colors.light.text,
+  showAllLink: {
+    marginTop: Spacing.two,
+    paddingVertical: Spacing.two,
   },
-  emptyHint: {
-    fontSize: 16,
-    lineHeight: 24,
-    textAlign: 'center',
+  showAllLinkText: {
+    ...PrikinTypography.textAction,
+    color: PrikinColors.textPrimary,
   },
   grid: {
     paddingBottom: Spacing.four,
@@ -243,62 +465,46 @@ const styles = StyleSheet.create({
     gap: GRID_GAP,
     marginBottom: GRID_GAP,
   },
-  cardPressable: {
-    borderRadius: 14,
-  },
-  card: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  cardImage: {
-    width: '100%',
-    aspectRatio: 3 / 4,
-  },
-  cardLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.light.text,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
-  },
   sheetOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: PrikinColors.scrim,
   },
   sheet: {
-    backgroundColor: Colors.light.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: Spacing.four,
+    backgroundColor: PrikinColors.surface,
+    borderTopLeftRadius: PrikinRadii.sheet,
+    borderTopRightRadius: PrikinRadii.sheet,
+    paddingHorizontal: PrikinSpacing.screenHorizontal,
     paddingTop: Spacing.four,
     paddingBottom: Spacing.five,
     gap: Spacing.two,
   },
   sheetTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: Colors.light.text,
+    ...PrikinTypography.sheetTitle,
+    color: PrikinColors.textPrimary,
     textAlign: 'center',
   },
   sheetSubtitle: {
-    fontSize: 15,
-    lineHeight: 22,
+    ...PrikinTypography.bodySecondary,
     textAlign: 'center',
     marginBottom: Spacing.two,
   },
   sheetOption: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 14,
+    backgroundColor: PrikinColors.background,
+    borderRadius: PrikinRadii.input,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     gap: Spacing.one,
   },
+  sheetOptionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
   sheetOptionTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: PrikinColors.textPrimary,
   },
   sheetOptionHint: {
     fontSize: 14,
@@ -310,8 +516,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sheetCancelText: {
-    fontSize: 17,
-    fontWeight: '500',
-    color: Colors.light.textSecondary,
+    ...PrikinTypography.textAction,
+    color: PrikinColors.textSecondary,
   },
 });

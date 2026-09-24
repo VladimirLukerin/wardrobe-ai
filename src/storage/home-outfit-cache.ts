@@ -8,6 +8,7 @@ const HOME_OUTFIT_CACHE_KEY = '@wardrobe-ai/cache/home-outfit';
 export type CachedHomeOutfitEntry = {
   outfit: OutfitSuggestion;
   inputSignature: string;
+  recommendationKey?: string;
   fetchedAt: number;
 };
 
@@ -56,6 +57,10 @@ function parseCachedHomeOutfitEntry(raw: unknown): CachedHomeOutfitEntry | null 
   return {
     outfit,
     inputSignature: entry.inputSignature,
+    recommendationKey:
+      typeof entry.recommendationKey === 'string' && entry.recommendationKey.length > 0
+        ? entry.recommendationKey
+        : undefined,
     fetchedAt: entry.fetchedAt,
   };
 }

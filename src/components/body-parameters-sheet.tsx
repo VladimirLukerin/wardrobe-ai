@@ -35,6 +35,7 @@ import {
 } from '@/constants/body-parameters';
 import { Colors, Spacing } from '@/constants/theme';
 import { useBodyParameters } from '@/contexts/body-parameters-context';
+import { usePreferencesSync } from '@/contexts/preferences-sync-context';
 import { useUserLocation, type AutoLocationStatus } from '@/hooks/use-user-location';
 import {
   CITY_SEARCH_MIN_QUERY_LENGTH,
@@ -45,6 +46,7 @@ import {
 type BodyParametersSheetProps = {
   visible: boolean;
   onClose: () => void;
+  initialScreen?: SheetScreen;
 };
 
 type SheetScreen = 'main' | 'location';
@@ -483,7 +485,11 @@ function CityAutocompleteField({
   );
 }
 
-export default function BodyParametersSheet({ visible, onClose }: BodyParametersSheetProps) {
+export default function BodyParametersSheet({
+  visible,
+  onClose,
+  initialScreen = 'main',
+}: BodyParametersSheetProps) {
   const insets = useSafeAreaInsets();
   const {
     setBodyParameters,
@@ -498,6 +504,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
     fitPreference,
     weatherSensitivity,
   } = useBodyParameters();
+  const { queuePreferencesSync } = usePreferencesSync();
 
   const { status: autoLocationStatus, detectLocation, resetStatus, syncStatusFromLocation } =
     useUserLocation();
@@ -563,6 +570,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
     }
 
     wasVisibleRef.current = true;
+    setSheetScreen(initialScreen);
     setDraft({
       locationMode,
       manualLocation,
@@ -591,6 +599,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
     translateY,
     resetStatus,
     syncStatusFromLocation,
+    initialScreen,
   ]);
 
   const runAutoDetect = useCallback(async () => {
@@ -631,6 +640,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
 
   const handleSave = () => {
     setBodyParameters(draft);
+    queuePreferencesSync();
     onClose();
   };
 

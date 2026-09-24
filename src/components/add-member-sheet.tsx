@@ -18,10 +18,9 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { FAMILY_ROLES, type FamilyRole } from '@/constants/family';
 import { Colors, Spacing } from '@/constants/theme';
 import { useFamily } from '@/contexts/family-context';
-import { findUserById } from '@/services/family-user-search';
+import { AccountApiError } from '@/services/account';
 
 type AddMemberMode = 'id' | 'manual';
 
@@ -29,26 +28,6 @@ type AddMemberSheetProps = {
   visible: boolean;
   onClose: () => void;
 };
-
-type ChipProps = {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-};
-
-function Chip({ label, selected, onPress }: ChipProps) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        selected && styles.chipSelected,
-        pressed && styles.pressed,
-      ]}>
-      <ThemedText style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</ThemedText>
-    </Pressable>
-  );
-}
 
 function SegmentButton({
   label,
@@ -72,14 +51,12 @@ function SegmentButton({
 
 export default function AddMemberSheet({ visible, onClose }: AddMemberSheetProps) {
   const insets = useSafeAreaInsets();
-  const { addMember } = useFamily();
+  const { inviteMember } = useFamily();
 
-  const [mode, setMode] = useState<AddMemberMode>('manual');
-  const [manualName, setManualName] = useState('');
-  const [manualRole, setManualRole] = useState<FamilyRole>('Партнёр');
+  const [mode, setMode] = useState<AddMemberMode>('id');
   const [userId, setUserId] = useState('');
   const [idMessage, setIdMessage] = useState<string | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const translateY = useSharedValue(0);
 
@@ -111,46 +88,38 @@ export default function AddMemberSheet({ visible, onClose }: AddMemberSheetProps
 
   useEffect(() => {
     if (!visible) {
-      setMode('manual');
-      setManualName('');
-      setManualRole('Партнёр');
+      setMode('id');
       setUserId('');
       setIdMessage(null);
-      setIsSearching(false);
+      setIsSubmitting(false);
       translateY.value = 0;
     }
   }, [visible, translateY]);
 
-  const handleFindUser = async () => {
-    const trimmedId = userId.trim();
+  const handleSendInvite = async () => {
+    const trimmedId = userId.trim().toUpperCase();
 
     if (!trimmedId) {
       return;
     }
 
-    setIsSearching(true);
+    setIsSubmitting(true);
     setIdMessage(null);
 
     try {
-      const user = await findUserById(trimmedId);
+      await inviteMember(trimmedId);
+      setIdMessage('Приглашение отправлено');
+      setUserId('');
+    } catch (error) {
+      const message =
+        error instanceof AccountApiError
+          ? error.message
+          : 'Не удалось отправить приглашение';
 
-      if (!user) {
-        setIdMessage('Поиск по ID будет доступен после подключения аккаунтов.');
-      }
+      setIdMessage(message);
     } finally {
-      setIsSearching(false);
+      setIsSubmitting(false);
     }
-  };
-
-  const handleAddManual = () => {
-    const trimmedName = manualName.trim();
-
-    if (!trimmedName) {
-      return;
-    }
-
-    addMember({ name: trimmedName, role: manualRole });
-    onClose();
   };
 
   return (
@@ -209,9 +178,9 @@ export default function AddMemberSheet({ visible, onClose }: AddMemberSheetProps
                       value={userId}
                       onChangeText={setUserId}
                       style={styles.textInput}
-                      placeholder="Введите ID"
+                      placeholder="WA-XXXXXXXX"
                       placeholderTextColor={Colors.light.textSecondary}
-                      autoCapitalize="none"
+                      autoCapitalize="characters"
                       autoCorrect={false}
                     />
                   </View>
@@ -223,48 +192,28 @@ export default function AddMemberSheet({ visible, onClose }: AddMemberSheetProps
                   )}
 
                   <Pressable
-                    onPress={handleFindUser}
-                    disabled={isSearching}
+                    onPress={() => {
+                      void handleSendInvite();
+                    }}
+                    disabled={isSubmitting}
                     style={({ pressed }) => [
                       styles.primaryButton,
-                      isSearching && styles.primaryButtonDisabled,
-                      pressed && !isSearching && styles.pressed,
+                      isSubmitting && styles.primaryButtonDisabled,
+                      pressed && !isSubmitting && styles.pressed,
                     ]}>
-                    <ThemedText style={styles.primaryButtonText}>Найти пользователя</ThemedText>
+                    <ThemedText style={styles.primaryButtonText}>
+                      {isSubmitting ? 'Отправка…' : 'Отправить приглашение'}
+                    </ThemedText>
                   </Pressable>
                 </View>
               ) : (
                 <View style={styles.modeContent}>
-                  <View style={styles.field}>
-                    <ThemedText style={styles.fieldLabel}>Имя</ThemedText>
-                    <TextInput
-                      value={manualName}
-                      onChangeText={setManualName}
-                      style={styles.textInput}
-                      placeholder="Введите имя"
-                      placeholderTextColor={Colors.light.textSecondary}
-                    />
+                  <View style={styles.infoMessage}>
+                    <ThemedText style={styles.infoMessageText}>
+                      Реальная семейная связь создаётся только по ID пользователя вида WA-XXXXXXXX.
+                      Перейдите на вкладку «По ID», чтобы отправить приглашение.
+                    </ThemedText>
                   </View>
-
-                  <View style={styles.section}>
-                    <ThemedText style={styles.sectionTitle}>Роль в семье</ThemedText>
-                    <View style={styles.chipGroup}>
-                      {FAMILY_ROLES.map((option) => (
-                        <Chip
-                          key={option}
-                          label={option}
-                          selected={manualRole === option}
-                          onPress={() => setManualRole(option)}
-                        />
-                      ))}
-                    </View>
-                  </View>
-
-                  <Pressable
-                    onPress={handleAddManual}
-                    style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
-                    <ThemedText style={styles.primaryButtonText}>Добавить</ThemedText>
-                  </Pressable>
                 </View>
               )}
             </Animated.ScrollView>
@@ -388,36 +337,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: Colors.light.textSecondary,
     textAlign: 'center',
-  },
-  section: {
-    gap: Spacing.three,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.text,
-  },
-  chipGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  chip: {
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: 20,
-    backgroundColor: Colors.light.backgroundElement,
-  },
-  chipSelected: {
-    backgroundColor: Colors.light.text,
-  },
-  chipText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.light.text,
-  },
-  chipTextSelected: {
-    color: Colors.light.background,
   },
   primaryButton: {
     backgroundColor: Colors.light.text,

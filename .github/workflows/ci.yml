@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck frontend
+        run: npm run typecheck
+
+      - name: Lint frontend
+        run: npm run lint
+
+  admin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install admin dependencies
+        run: npm ci
+
+      - name: Typecheck admin
+        run: npm run typecheck
+
+      - name: Lint admin
+        run: npm run lint
+
+      - name: Test admin
+        run: npm test
+
+      - name: Build admin
+        run: npm run build
+
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: server/.nvmrc
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Typecheck server
+        run: npm run typecheck
+
+      - name: Run processing cost guard test
+        run: npm run test:processing-cost-guard
+
+      - name: Run daily stylist reminder plan test
+        run: npm run test:daily-stylist-reminder-plan
+
+      - name: Run home daily preferences sync test
+        run: npm run test:home-daily-preferences-sync
+
+      - name: Run AI rate limit test
+        run: npm run test:ai-rate-limit
+
+      - name: Run worn outfit feed test
+        run: npm run test:worn-outfit-feed
+
+      - name: Run account capabilities test
+        run: npm run test:account-capabilities
+
+      - name: Run password auth test
+        run: npm run test:password-auth
+
+      - name: Run email lookup test
+        run: npm run test:email-lookup
+
+      - name: Run OTP request budgets test
+        run: npm run test:otp-request-budgets
+
+      - name: Run outfit AI prompt test
+        run: npm run test:outfit-ai-prompt
+
+      - name: Run paired outfit prompt test
+        run: npm run test:paired-outfit-prompt
+
+      - name: Run daily outfit AI test
+        run: npm run test:daily-outfit-ai
+
+      - name: Run daily suggest fallback test
+        run: npm run test:daily-suggest-fallback
+
+      - name: Run photo AI path test
+        run: npm run test:photo-ai-path
+
+      - name: Run outfit candidate selection test
+        run: npm run test:outfit-candidate-selection
+
+      - name: Run guest weather advisor test
+        run: npm run test:guest-weather-advisor
+
+      - name: Run auth entry flow test
+        run: npm run test:auth-entry-flow
+
+      - name: Run rate limit placement test
+        run: npm run test:rate-limit-placement
+
+      - name: Run admin backend test
+        run: npm run test:admin-backend
+
+      - name: Run AI usage and settings test
+        run: npm run test:ai-usage-settings

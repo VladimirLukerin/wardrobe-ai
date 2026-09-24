@@ -4,33 +4,102 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
+import { FamilyMemberPickerSheet } from '@/components/family-member-picker-sheet';
 import { OutfitReplacementSheet } from '@/components/outfit-replacement-sheet';
+import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
+import { PRIKIN_OUTFITS_EMPTY_CLOTHES_SVG } from '@/components/prikin/illustrations';
+import {
+  PrikinBrandHeader,
+  PrikinHandwritten,
+} from '@/components/prikin/prikin-brand-header';
+import { PrikinPrimaryButton } from '@/components/prikin/prikin-primary-button';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import type { SavedOutfit } from '@/constants/saved-outfit';
 import type { WearEvent } from '@/constants/wear-event';
 import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
-import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
+import {
+  PrikinColors,
+  PrikinRadii,
+  PrikinSpacing,
+  PrikinTypography,
+} from '@/constants/prikin-tokens';
+import { MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useOutfits } from '@/contexts/outfits-context';
+import { useAccount } from '@/contexts/account-context';
+import { useFamily } from '@/contexts/family-context';
 import { useWearHistory } from '@/contexts/wear-history-context';
 import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
+import { canUseFamilyFeatures } from '@/utils/account-capabilities';
+import { buildPairedOutfitEntryParams } from '@/utils/paired-outfit-route';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { formatWearEventDate } from '@/utils/wear-date';
+
+function formatSavedOutfitCountLabel(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+
+  let word = 'образов';
+  if (mod10 === 1 && mod100 !== 11) {
+    word = 'образ';
+  } else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+    word = 'образа';
+  }
+
+  return `${count} ${word}`;
+}
+
+function OutfitsEmptyPrompt({
+  variant,
+}: {
+  variant: 'no-wardrobe' | 'no-outfits';
+}) {
+  const isNoWardrobe = variant === 'no-wardrobe';
+
+  return (
+    <View style={styles.emptyPrompt}>
+      <View style={styles.emptyHeroRow}>
+        <PrikinIllustration
+          xml={PRIKIN_OUTFITS_EMPTY_CLOTHES_SVG}
+          width={172}
+          aspectRatio={190 / 180}
+          accessibilityLabel="Иллюстрация футболки и брюк на бумаге"
+        />
+        <PrikinHandwritten style={styles.emptyHeroHandwritten}>Всё сложится</PrikinHandwritten>
+      </View>
+
+      <Text style={styles.emptyTitle}>Твои сочетания — здесь</Text>
+      <Text style={styles.emptySubtitle}>
+        {isNoWardrobe
+          ? 'Добавь вещи в гардероб — и мы соберём первые образы. Любимые можно будет сохранить.'
+          : 'Собери образ из вещей в гардеробе и сохрани понравившийся вариант.'}
+      </Text>
+
+      <PrikinPrimaryButton
+        label={isNoWardrobe ? 'Добавить вещи' : 'Создать образ'}
+        onPress={() => router.push(isNoWardrobe ? '/garderob' : '/create-outfit/build')}
+        style={styles.emptyCtaButton}
+      />
+    </View>
+  );
+}
 
 function SavedOutfitCard({
   outfit,
   wardrobeById,
   isWornToday,
   duplicateHintVisible,
+  onOpenDetail,
   onOpenMenu,
   onWearToday,
 }: {
@@ -38,6 +107,7 @@ function SavedOutfitCard({
   wardrobeById: Map<string, WardrobeItem>;
   isWornToday: boolean;
   duplicateHintVisible: boolean;
+  onOpenDetail: () => void;
   onOpenMenu: () => void;
   onWearToday: () => void;
 }) {
@@ -53,32 +123,42 @@ function SavedOutfitCard({
   return (
     <View style={styles.outfitCard}>
       <View style={styles.outfitCardHeader}>
-        <ThemedText style={styles.outfitTitle} numberOfLines={2}>
-          {outfit.title}
-        </ThemedText>
+        <Pressable
+          onPress={onOpenDetail}
+          style={({ pressed }) => [styles.outfitTitlePressable, pressed && styles.buttonPressed]}>
+          <Text style={styles.outfitTitle} numberOfLines={2}>
+            {outfit.title}
+          </Text>
+        </Pressable>
         <Pressable
           onPress={onOpenMenu}
           style={({ pressed }) => [styles.menuButton, pressed && styles.buttonPressed]}
-          hitSlop={8}>
-          <ThemedText style={styles.menuButtonText}>•••</ThemedText>
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Меню образа">
+          <Text style={styles.menuButtonText}>•••</Text>
         </Pressable>
       </View>
 
-      <HomeOutfitPreview items={outfitItems} onReplace={setReplacementTarget} compact />
-      <OutfitReplacementSheet targetId={replacementTarget} itemIds={outfit.itemIds} wardrobe={items} updateExisting
-        onClose={() => setReplacementTarget(null)} onSelect={(target, replacement) => {
+      <Pressable onPress={onOpenDetail} style={({ pressed }) => pressed && styles.buttonPressed}>
+        <HomeOutfitPreview items={outfitItems} onReplace={setReplacementTarget} compact />
+      </Pressable>
+      <OutfitReplacementSheet
+        targetId={replacementTarget}
+        itemIds={outfit.itemIds}
+        wardrobe={items}
+        updateExisting
+        onClose={() => setReplacementTarget(null)}
+        onSelect={(target, replacement) => {
           replaceSavedItem(outfit.id, target, replacement);
           setReplacementTarget(null);
-        }} />
+        }}
+      />
 
       {outfitItems.length > 0 && (
-        <ThemedText
-          themeColor="textSecondary"
-          style={styles.outfitDescription}
-          numberOfLines={2}
-          ellipsizeMode="tail">
+        <Text style={styles.outfitDescription} numberOfLines={2} ellipsizeMode="tail">
           {getOutfitDescription(outfit.description, outfitItems, outfit.source)}
-        </ThemedText>
+        </Text>
       )}
 
       <View style={styles.wearActionRow}>
@@ -88,16 +168,16 @@ function SavedOutfitCard({
             styles.wearButton,
             isWornToday && styles.wearButtonActive,
             pressed && styles.buttonPressed,
-          ]}>
-          <ThemedText
-            style={[styles.wearButtonText, isWornToday && styles.wearButtonTextActive]}>
+          ]}
+          accessibilityRole="button">
+          <Text style={[styles.wearButtonText, isWornToday && styles.wearButtonTextActive]}>
             {isWornToday ? '✓ Надето сегодня' : 'Надеть сегодня'}
-          </ThemedText>
+          </Text>
         </Pressable>
         {duplicateHintVisible && (
-          <ThemedText themeColor="textSecondary" style={styles.duplicateHint}>
+          <Text style={styles.duplicateHint}>
             Этот образ уже отмечен как надетый сегодня
-          </ThemedText>
+          </Text>
         )}
       </View>
     </View>
@@ -133,12 +213,58 @@ function RecentWearEventRow({
         <View style={styles.recentWearThumbPlaceholder} />
       )}
       <View style={styles.recentWearMeta}>
-        <ThemedText style={styles.recentWearTitle} numberOfLines={2}>
+        <Text style={styles.recentWearTitle} numberOfLines={2}>
           {title}
-        </ThemedText>
-        <ThemedText themeColor="textSecondary" style={styles.recentWearDate}>
-          {formatWearEventDate(event.wornAt)}
-        </ThemedText>
+        </Text>
+        <Text style={styles.recentWearDate}>{formatWearEventDate(event.wornAt)}</Text>
+      </View>
+    </View>
+  );
+}
+
+function RecentWearEmptySection() {
+  return (
+    <View style={styles.recentWearSection}>
+      <Text style={styles.recentWearSectionTitle}>Недавно надевала</Text>
+      <View style={styles.sectionHairline} />
+      <Text style={styles.recentWearEmptyText}>
+        Здесь появятся образы, которые ты отметишь кнопкой «Надеть сегодня».
+      </Text>
+    </View>
+  );
+}
+
+function RecentWearSection({
+  events,
+  savedOutfitsById,
+  wardrobeById,
+}: {
+  events: WearEvent[];
+  savedOutfitsById: Map<string, SavedOutfit>;
+  wardrobeById: Map<string, WardrobeItem>;
+}) {
+  if (events.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.recentWearSection}>
+      <Text style={styles.recentWearSectionTitle}>Недавно носили</Text>
+      <View style={styles.sectionHairline} />
+      <View style={styles.recentWearList}>
+        {events.map((event) => {
+          const savedOutfit = savedOutfitsById.get(event.outfitId);
+          const title = savedOutfit?.title ?? 'Удалённый образ';
+
+          return (
+            <RecentWearEventRow
+              key={event.id}
+              event={event}
+              title={title}
+              wardrobeById={wardrobeById}
+            />
+          );
+        })}
       </View>
     </View>
   );
@@ -150,6 +276,8 @@ const DUPLICATE_HINT_DURATION_MS = 2500;
 export default function CreateOutfitScreen() {
   const insets = useSafeAreaInsets();
   const { items, isHydrated: isWardrobeHydrated } = useWardrobe();
+  const { user } = useAccount();
+  const { members } = useFamily();
   const { savedOutfits, isHydrated: isOutfitsHydrated, removeOutfit } = useOutfits();
   const {
     wearEvents,
@@ -159,6 +287,7 @@ export default function CreateOutfitScreen() {
   } = useWearHistory();
   const [menuOutfitId, setMenuOutfitId] = useState<string | null>(null);
   const [duplicateHintOutfitId, setDuplicateHintOutfitId] = useState<string | null>(null);
+  const [isFamilyPickerVisible, setIsFamilyPickerVisible] = useState(false);
 
   const wardrobeById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const savedOutfitsById = useMemo(
@@ -174,11 +303,19 @@ export default function CreateOutfitScreen() {
     [savedOutfits, wardrobeById],
   );
 
+  const savedOutfitCountLabel = useMemo(
+    () => formatSavedOutfitCountLabel(visibleOutfits.length),
+    [visibleOutfits.length],
+  );
+
   const menuOutfit = menuOutfitId
     ? visibleOutfits.find((outfit) => outfit.id === menuOutfitId) ?? null
     : null;
 
   const recentWearEvents = useMemo(() => wearEvents.slice(0, RECENT_WEAR_PREVIEW_COUNT), [wearEvents]);
+
+  const emptyVariant =
+    items.length === 0 ? 'no-wardrobe' : visibleOutfits.length === 0 ? 'no-outfits' : null;
 
   useEffect(() => {
     if (!duplicateHintOutfitId) {
@@ -209,83 +346,114 @@ export default function CreateOutfitScreen() {
     }
   };
 
+  const handleCreatePairedOutfit = () => {
+    if (!canUseFamilyFeatures(user)) {
+      Alert.alert(
+        'Нужен сохранённый аккаунт',
+        'Подключите email или телефон, чтобы создавать совместные образы.',
+      );
+      return;
+    }
+
+    if (members.length === 0) {
+      Alert.alert('Добавьте члена семьи', 'Сначала добавьте близкого в профиле.');
+      return;
+    }
+
+    setIsFamilyPickerVisible(true);
+  };
+
+  const handleFamilyMemberSelected = (memberPublicId: string) => {
+    router.push({
+      pathname: '/profile/family/[publicId]/paired-outfit',
+      params: buildPairedOutfitEntryParams({ memberPublicId }),
+    });
+  };
+
   if (!isWardrobeHydrated || !isOutfitsHydrated || !isWearHistoryHydrated) {
     return (
-      <ThemedView style={styles.container}>
+      <View style={styles.container}>
         <SafeAreaView style={styles.centeredState}>
-          <ActivityIndicator color={Colors.light.text} />
+          <ActivityIndicator color={PrikinColors.textPrimary} />
         </SafeAreaView>
-      </ThemedView>
+      </View>
     );
   }
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ThemedText type="subtitle" style={styles.title}>
-          Мои образы
-        </ThemedText>
+        <PrikinBrandHeader />
 
-        <Pressable
-          onPress={() => router.push('/create-outfit/build')}
-          style={({ pressed }) => [styles.createButton, pressed && styles.buttonPressed]}>
-          <ThemedText style={styles.createButtonText}>+ Создать образ</ThemedText>
-        </Pressable>
+        <View style={styles.titleBlock}>
+          <Text style={styles.screenTitle}>Мои образы</Text>
+          <Text style={styles.outfitCount}>{savedOutfitCountLabel}</Text>
+        </View>
 
-        {visibleOutfits.length === 0 ? (
-          <View style={styles.emptyState}>
-            <ThemedText style={styles.emptyTitle}>Пока нет сохранённых образов</ThemedText>
-            <ThemedText themeColor="textSecondary" style={styles.emptySubtitle}>
-              Подберите образ для вещи в гардеробе и сохраните понравившийся вариант.
-            </ThemedText>
-            <Pressable
-              onPress={() => router.push('/garderob')}
-              style={({ pressed }) => [styles.emptyButton, pressed && styles.buttonPressed]}>
-              <ThemedText style={styles.emptyButtonText}>Перейти в гардероб</ThemedText>
-            </Pressable>
+        {items.length > 0 && (
+          <View style={styles.topActions}>
+            <PrikinPrimaryButton
+              label="+ Создать образ"
+              onPress={() => router.push('/create-outfit/build')}
+              style={styles.topActionButton}
+            />
+            <PrikinPrimaryButton
+              label="Вместе с членом семьи"
+              variant="outline"
+              onPress={handleCreatePairedOutfit}
+              style={styles.topActionButton}
+            />
           </View>
-        ) : (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={[
-              styles.scrollContent,
-              { paddingBottom: TabScreenScrollPadding },
-            ]}
-            showsVerticalScrollIndicator={false}>
-            {recentWearEvents.length > 0 && (
-              <View style={styles.recentWearSection}>
-                <ThemedText style={styles.recentWearSectionTitle}>Недавно носили</ThemedText>
-                <View style={styles.recentWearList}>
-                  {recentWearEvents.map((event) => {
-                    const savedOutfit = savedOutfitsById.get(event.outfitId);
-                    const title = savedOutfit?.title ?? 'Удалённый образ';
+        )}
 
-                    return (
-                      <RecentWearEventRow
-                        key={event.id}
-                        event={event}
-                        title={title}
-                        wardrobeById={wardrobeById}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
-            )}
-
-            {visibleOutfits.map((outfit) => (
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.scrollContent,
+            emptyVariant !== null && styles.scrollContentEmpty,
+            { paddingBottom: TabScreenScrollPadding },
+          ]}
+          showsVerticalScrollIndicator={false}>
+          {emptyVariant !== null ? (
+            <>
+              <OutfitsEmptyPrompt variant={emptyVariant} />
+              {recentWearEvents.length === 0 ? (
+                <RecentWearEmptySection />
+              ) : (
+                <RecentWearSection
+                  events={recentWearEvents}
+                  savedOutfitsById={savedOutfitsById}
+                  wardrobeById={wardrobeById}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <RecentWearSection
+                events={recentWearEvents}
+                savedOutfitsById={savedOutfitsById}
+                wardrobeById={wardrobeById}
+              />
+              {visibleOutfits.map((outfit) => (
               <SavedOutfitCard
                 key={outfit.id}
                 outfit={outfit}
                 wardrobeById={wardrobeById}
                 isWornToday={isOutfitWornToday(outfit.id)}
                 duplicateHintVisible={duplicateHintOutfitId === outfit.id}
+                onOpenDetail={() =>
+                  router.push({
+                    pathname: '/create-outfit/[id]',
+                    params: { id: outfit.id },
+                  })
+                }
                 onOpenMenu={() => setMenuOutfitId(outfit.id)}
                 onWearToday={() => handleWearToday(outfit)}
               />
-            ))}
-          </ScrollView>
-        )}
+              ))}
+            </>
+          )}
+        </ScrollView>
       </SafeAreaView>
 
       <Modal
@@ -294,7 +462,7 @@ export default function CreateOutfitScreen() {
         animationType="fade"
         onRequestClose={() => setMenuOutfitId(null)}>
         <Pressable style={styles.menuOverlay} onPress={() => setMenuOutfitId(null)}>
-          <View style={[styles.menuSheet, { top: insets.top + Spacing.five }]}>
+          <View style={[styles.menuSheet, { top: insets.top + PrikinSpacing.sectionGap / 2 }]}>
             <Pressable
               onPress={handleDeleteFromMenu}
               style={({ pressed }) => [styles.menuOption, pressed && styles.buttonPressed]}>
@@ -303,18 +471,24 @@ export default function CreateOutfitScreen() {
           </View>
         </Pressable>
       </Modal>
-    </ThemedView>
+
+      <FamilyMemberPickerSheet
+        visible={isFamilyPickerVisible}
+        onClose={() => setIsFamilyPickerVisible(false)}
+        onSelect={handleFamilyMemberSelected}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+    backgroundColor: PrikinColors.background,
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
+    paddingHorizontal: PrikinSpacing.screenHorizontal,
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     width: '100%',
@@ -324,132 +498,143 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: {
-    marginTop: Spacing.three,
-    marginBottom: Spacing.three,
+  titleBlock: {
+    gap: 4,
+    marginBottom: PrikinSpacing.sectionGap / 2,
   },
-  createButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.light.text,
-    paddingVertical: Spacing.two + 2,
-    paddingHorizontal: Spacing.three + 2,
-    borderRadius: 14,
-    marginBottom: Spacing.four,
+  screenTitle: {
+    ...PrikinTypography.screenTitle,
   },
-  createButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.light.background,
+  outfitCount: {
+    ...PrikinTypography.bodySecondary,
+  },
+  topActions: {
+    gap: PrikinSpacing.welcomeActionsGap / 2,
+    marginBottom: PrikinSpacing.sectionGap / 2,
+  },
+  topActionButton: {
+    alignSelf: 'stretch',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    gap: Spacing.three,
-    paddingBottom: Spacing.four,
+    gap: PrikinSpacing.sectionGap,
+    paddingBottom: PrikinSpacing.sectionGap,
   },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
+  scrollContentEmpty: {
+    flexGrow: 1,
+  },
+  emptyPrompt: {
+    alignItems: 'stretch',
+    gap: PrikinSpacing.sectionGap,
+    paddingTop: PrikinSpacing.sectionGap / 4,
+  },
+  emptyHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
     justifyContent: 'center',
     gap: Spacing.three,
-    paddingHorizontal: Spacing.two,
-    paddingBottom: Spacing.four,
+    flexWrap: 'wrap',
+  },
+  emptyHeroHandwritten: {
+    flexShrink: 1,
+    maxWidth: 150,
+    transform: [{ rotate: '-12deg' }],
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.light.text,
+    ...PrikinTypography.sectionTitle,
     textAlign: 'center',
   },
   emptySubtitle: {
-    fontSize: 15,
-    lineHeight: 22,
+    ...PrikinTypography.body,
+    color: PrikinColors.textSecondary,
     textAlign: 'center',
   },
-  emptyButton: {
-    marginTop: Spacing.two,
-    backgroundColor: Colors.light.text,
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    borderRadius: 14,
-  },
-  emptyButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.background,
+  emptyCtaButton: {
+    alignSelf: 'stretch',
   },
   outfitCard: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 20,
-    padding: Spacing.three,
-    gap: Spacing.three,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.card,
+    padding: PrikinSpacing.cardPadding,
+    gap: PrikinSpacing.sectionGap / 2,
     width: '100%',
     alignSelf: 'stretch',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   outfitCardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: Spacing.two,
+    gap: 12,
+  },
+  outfitTitlePressable: {
+    flex: 1,
   },
   outfitTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.light.text,
+    ...PrikinTypography.sectionTitle,
   },
   outfitDescription: {
-    fontSize: 14,
-    lineHeight: 20,
+    ...PrikinTypography.bodySecondary,
     flexShrink: 1,
     width: '100%',
   },
   wearActionRow: {
-    gap: Spacing.one,
+    gap: 4,
   },
   wearButton: {
     alignSelf: 'flex-start',
     borderWidth: 1.5,
-    borderColor: Colors.light.text,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    borderRadius: 12,
+    borderColor: PrikinColors.buttonPrimary,
+    paddingVertical: 10,
+    paddingHorizontal: PrikinSpacing.cardPadding,
+    borderRadius: PrikinRadii.input,
   },
   wearButtonActive: {
-    borderColor: Colors.light.textSecondary,
-    backgroundColor: Colors.light.backgroundSelected,
+    borderColor: PrikinColors.textSecondary,
+    backgroundColor: PrikinColors.paper,
   },
   wearButtonText: {
-    fontSize: 14,
+    ...PrikinTypography.caption,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: PrikinColors.textPrimary,
   },
   wearButtonTextActive: {
-    color: Colors.light.textSecondary,
+    color: PrikinColors.textSecondary,
   },
   duplicateHint: {
+    ...PrikinTypography.bodySecondary,
     fontSize: 13,
     lineHeight: 18,
   },
   recentWearSection: {
-    gap: Spacing.two,
-    marginBottom: Spacing.one,
+    gap: PrikinSpacing.welcomeActionsGap / 2,
   },
   recentWearSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.text,
+    ...PrikinTypography.sectionTitle,
+  },
+  recentWearEmptyText: {
+    ...PrikinTypography.bodySecondary,
+    lineHeight: 22,
+  },
+  sectionHairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: PrikinColors.divider,
+    alignSelf: 'stretch',
   },
   recentWearList: {
-    gap: Spacing.two,
+    gap: PrikinSpacing.welcomeActionsGap / 2,
   },
   recentWearRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two + 2,
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 14,
-    padding: Spacing.two,
+    gap: 14,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.input,
+    padding: PrikinSpacing.cardPadding - 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   recentWearThumbGrid: {
     flexDirection: 'row',
@@ -461,7 +646,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 6,
-    backgroundColor: Colors.light.background,
+    backgroundColor: PrikinColors.background,
     overflow: 'hidden',
   },
   recentWearThumb: {
@@ -472,7 +657,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 10,
-    backgroundColor: Colors.light.backgroundSelected,
+    backgroundColor: PrikinColors.paper,
   },
   recentWearMeta: {
     flex: 1,
@@ -482,42 +667,45 @@ const styles = StyleSheet.create({
   recentWearTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: PrikinColors.textPrimary,
   },
   recentWearDate: {
+    ...PrikinTypography.bodySecondary,
     fontSize: 13,
     lineHeight: 18,
   },
   menuButton: {
-    paddingHorizontal: Spacing.one,
+    paddingHorizontal: 4,
     paddingVertical: 2,
   },
   menuButtonText: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.light.textSecondary,
+    color: PrikinColors.textSecondary,
     letterSpacing: 1,
   },
   menuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    backgroundColor: PrikinColors.scrim,
   },
   menuSheet: {
     position: 'absolute',
-    right: Spacing.four,
+    right: PrikinSpacing.screenHorizontal,
     minWidth: 220,
-    backgroundColor: Colors.light.background,
-    borderRadius: 14,
-    paddingVertical: Spacing.one,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.input,
+    paddingVertical: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
     elevation: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   menuOption: {
-    paddingVertical: Spacing.two + 2,
-    paddingHorizontal: Spacing.three,
+    paddingVertical: 14,
+    paddingHorizontal: PrikinSpacing.cardPadding,
   },
   menuOptionDelete: {
     fontSize: 16,

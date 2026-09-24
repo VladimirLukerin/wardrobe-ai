@@ -8,8 +8,47 @@ export function getLocalCalendarDateKey(isoOrDate: string | Date): string {
   return `${year}-${month}-${day}`;
 }
 
+export function getLocalCalendarDateKeyForTimezone(
+  timezone: string,
+  isoOrDate: string | Date = new Date(),
+): string {
+  const date = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  } catch {
+    return getLocalCalendarDateKey(date);
+  }
+}
+
 export function isSameLocalCalendarDay(a: string | Date, b: string | Date): boolean {
   return getLocalCalendarDateKey(a) === getLocalCalendarDateKey(b);
+}
+
+export function formatFeedCreatedAt(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+
+  if (isSameLocalCalendarDay(date, now)) {
+    return 'Сегодня';
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (isSameLocalCalendarDay(date, yesterday)) {
+    return 'Вчера';
+  }
+
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+  });
 }
 
 export function formatWearEventDate(iso: string): string {

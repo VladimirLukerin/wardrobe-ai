@@ -1,7 +1,7 @@
 import { getOutfitDescription } from '@/utils/outfit-description';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,58 +12,45 @@ import {
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import AccountSaveSheet from '@/components/account-save-sheet';
+import BodyParametersSheet from '@/components/body-parameters-sheet';
+import { HomeAccountReminderCard } from '@/components/home-account-reminder-card';
 import { HomeBrandHeader } from '@/components/home-brand-header';
+import { EmptyDailyOutfitCard } from '@/components/home/empty-daily-outfit-card';
+import { FirstWardrobeItemCard } from '@/components/home/first-wardrobe-item-card';
+import { HomeGreeting } from '@/components/home/home-greeting';
+import { HomeWeatherHeader } from '@/components/home/home-weather-header';
+import { HomeWornNowSection } from '@/components/home/home-worn-now-section';
+import { HomeOutfitFeedback } from '@/components/home-outfit-feedback';
 import { HomeOutfitPreview } from '@/components/home-outfit-preview';
+import { HomeWardrobeSummary } from '@/components/home-wardrobe-summary';
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
+import { PrikinColors, PrikinHomeRadii, PrikinSpacing } from '@/constants/prikin-tokens';
+import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
+import { useBodyParameters } from '@/contexts/body-parameters-context';
+import { useAccount } from '@/contexts/account-context';
+import { useAccountProfile } from '@/contexts/account-profile-context';
+import { useOutfits } from '@/contexts/outfits-context';
+import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
+import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
+import { NetworkErrorState } from '@/components/network-error-state';
+import type { OutfitSuggestion } from '@/services/outfit-suggestions';
+import { useHomeDailyData } from '@/contexts/home-daily-content-context';
+import { isAccountProtected } from '@/utils/account-is-protected';
+import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
 import type { SavedOutfit } from '@/constants/saved-outfit';
-import { Colors, OutfitColors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
-import { useBodyParameters } from '@/contexts/body-parameters-context';
-import { useOutfits } from '@/contexts/outfits-context';
-import { useStylistPreferences } from '@/contexts/stylist-preferences-context';
-import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
-import type { OutfitSuggestion, OutfitWeather } from '@/services/outfit-suggestions';
-import { useHomeDailyData } from '@/contexts/home-daily-content-context';
-import { getActiveLocation } from '@/utils/get-active-location';
-import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
-import { formatWeatherTemperature, getWeatherCodeLabel } from '@/utils/weather-code';
+import type { OutfitFeedback, OutfitFeedbackReason } from '@/constants/outfit-feedback';
+import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
+import { useHomeLocationPresentation } from '@/hooks/use-home-location-presentation';
 
 const SAVED_OUTFITS_PREVIEW_COUNT = 3;
 const WARDROBE_PREVIEW_COUNT = 4;
+const HOME_ACCOUNT_REMINDER_MIN_ITEMS = 5;
 
-function HomeWeatherBlock({
-  locationName,
-  weather,
-  isLoading,
-}: {
-  locationName: string;
-  weather: OutfitWeather | null;
-  isLoading: boolean;
-}) {
-  return (
-    <View style={styles.weatherBlock}>
-      <ThemedText style={styles.weatherLocation}>{locationName}</ThemedText>
-      {weather ? (
-        <>
-          <ThemedText style={styles.weatherTemperature}>
-            {formatWeatherTemperature(weather.temperatureC)}
-          </ThemedText>
-          <ThemedText themeColor="textSecondary" style={styles.weatherFeelsLike}>
-            Ощущается как {formatWeatherTemperature(weather.apparentTemperatureC)}
-          </ThemedText>
-          <ThemedText themeColor="textSecondary" style={styles.weatherDetails}>
-            {getWeatherCodeLabel(weather.weatherCode)} · ветер {Math.round(weather.windSpeedKmh)} км/ч
-          </ThemedText>
-        </>
-      ) : isLoading ? (
-        <ThemedText themeColor="textSecondary" style={styles.weatherLoading}>
-          Загружаем погоду…
-        </ThemedText>
-      ) : null}
-    </View>
-  );
-}
+let homeAccountReminderDismissed = false;
 
 function HomeOutfitCard({
   outfit,
@@ -73,6 +60,16 @@ function HomeOutfitCard({
   regenerateError,
   onToggleSave,
   onRegenerate,
+  feedbackEnabled,
+  outfitFeedback,
+  isFeedbackLoading,
+  isFeedbackSubmitting,
+  feedbackLoadError,
+  feedbackSubmitError,
+  onLikeFeedback,
+  onDislikeFeedback,
+  onRetryFeedbackLoad,
+  onRetryFeedbackSubmit,
 }: {
   outfit: OutfitSuggestion;
   wardrobeById: Map<string, WardrobeItem>;
@@ -81,6 +78,16 @@ function HomeOutfitCard({
   regenerateError: string | null;
   onToggleSave: () => void;
   onRegenerate: () => void;
+  feedbackEnabled: boolean;
+  outfitFeedback: OutfitFeedback | null;
+  isFeedbackLoading: boolean;
+  isFeedbackSubmitting: boolean;
+  feedbackLoadError: boolean;
+  feedbackSubmitError: boolean;
+  onLikeFeedback: () => void;
+  onDislikeFeedback: (reason: OutfitFeedbackReason | null, targetItemId?: string) => void;
+  onRetryFeedbackLoad: () => void;
+  onRetryFeedbackSubmit: () => void;
 }) {
   const outfitItems = resolveWardrobeItemsFromIds(outfit.itemIds, wardrobeById);
   const outfitSignature = outfit.itemIds.join(',');
@@ -108,6 +115,7 @@ function HomeOutfitCard({
 
   return (
     <View style={styles.outfitCard}>
+      <ThemedText style={styles.dailyCardHeading}>Твой образ на сегодня</ThemedText>
       <ThemedText style={styles.outfitTitle}>{outfit.title}</ThemedText>
       <View style={styles.previewWrap}>
         <Animated.View style={previewAnimatedStyle}>
@@ -164,6 +172,19 @@ function HomeOutfitCard({
           )}
         </Pressable>
       </View>
+      <HomeOutfitFeedback
+        enabled={feedbackEnabled}
+        feedback={outfitFeedback}
+        outfitItems={outfitItems}
+        isLoading={isFeedbackLoading}
+        isSubmitting={isFeedbackSubmitting}
+        loadError={feedbackLoadError}
+        submitError={feedbackSubmitError}
+        onLike={onLikeFeedback}
+        onDislike={onDislikeFeedback}
+        onRetryLoad={onRetryFeedbackLoad}
+        onRetrySubmit={onRetryFeedbackSubmit}
+      />
     </View>
   );
 }
@@ -182,7 +203,14 @@ function CompactSavedOutfitCard({
   }
 
   return (
-    <View style={styles.compactOutfitCard}>
+    <Pressable
+      onPress={() =>
+        router.push({
+          pathname: '/create-outfit/[id]',
+          params: { id: outfit.id },
+        })
+      }
+      style={({ pressed }) => [styles.compactOutfitCard, pressed && styles.buttonPressed]}>
       <View style={styles.compactThumbGrid}>
         {outfitItems.map((item) => (
           <View key={item.id} style={styles.compactThumbWrap}>
@@ -197,41 +225,62 @@ function CompactSavedOutfitCard({
       <ThemedText style={styles.compactOutfitTitle} numberOfLines={2}>
         {outfit.title}
       </ThemedText>
-    </View>
+    </Pressable>
   );
 }
 
 export default function HomeScreen() {
+  const { user } = useAccount();
+  const { displayName, isHydrated: isProfileHydrated } = useAccountProfile();
   const { items, isHydrated: isWardrobeHydrated } = useWardrobe();
+  const { takePhoto } = useAddWardrobeItem();
+  const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
+  const [isBodyParametersSheetVisible, setIsBodyParametersSheetVisible] = useState(false);
+  const [bodyParametersInitialScreen, setBodyParametersInitialScreen] = useState<
+    'main' | 'location'
+  >('main');
+  const [isReminderDismissed, setIsReminderDismissed] = useState(homeAccountReminderDismissed);
   const { savedOutfits, isHydrated: isOutfitsHydrated, isOutfitSaved, toggleSavedOutfit } =
     useOutfits();
   const { considerWeather, isHydrated: isStylistHydrated } =
     useStylistPreferences();
-  const {
-    locationMode,
-    manualLocation,
-    autoLocation,
-    isHydrated: isBodyHydrated,
-  } = useBodyParameters();
+  const { isHydrated: isBodyHydrated } = useBodyParameters();
 
   const isFullyHydrated =
     isWardrobeHydrated && isOutfitsHydrated && isStylistHydrated && isBodyHydrated;
 
-  const activeLocation = useMemo(
-    () => getActiveLocation({ locationMode, manualLocation, autoLocation }),
-    [autoLocation, locationMode, manualLocation],
-  );
+  const {
+    phase: homeLocationPhase,
+    displayLocationName,
+    isDetectingLocation,
+    requestLocationAccess,
+    retryAutoLocation,
+  } = useHomeLocationPresentation();
 
   const wardrobeById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
 
   const {
     loadState,
     homeOutfit,
+    guestWeatherAdvice,
+    guestHomeCta,
     weather,
+    weatherError,
     isWeatherLoading,
     isRegenerating,
     regenerateError,
+    outfitErrorKind,
     regenerateOutfit,
+    refreshWeather,
+    feedbackEnabled,
+    outfitFeedback,
+    isFeedbackLoading,
+    isFeedbackSubmitting,
+    feedbackLoadError,
+    feedbackSubmitError,
+    submitOutfitFeedback,
+    retryOutfitFeedbackLoad,
+    retryFeedbackSubmit,
   } = useHomeDailyData();
 
 
@@ -276,6 +325,17 @@ export default function HomeScreen() {
     });
   };
 
+  const showAccountReminder =
+    isFullyHydrated &&
+    items.length >= HOME_ACCOUNT_REMINDER_MIN_ITEMS &&
+    !isAccountProtected(user) &&
+    !isReminderDismissed;
+
+  const handleDismissAccountReminder = () => {
+    homeAccountReminderDismissed = true;
+    setIsReminderDismissed(true);
+  };
+
   return (
     <ThemedView style={styles.container}>
       {!isFullyHydrated ? (
@@ -292,35 +352,81 @@ export default function HomeScreen() {
               { paddingBottom: TabScreenScrollPadding },
             ]}
             showsVerticalScrollIndicator={false}>
-            <HomeBrandHeader />
+            <View style={styles.headerBlock}>
+              <HomeBrandHeader />
 
-          {considerWeather && activeLocation && (
-            <HomeWeatherBlock
-              locationName={activeLocation.name}
-              weather={weather}
-              isLoading={isWeatherLoading}
-            />
-          )}
+              <HomeWeatherHeader
+                locationName={displayLocationName}
+                locationPhase={homeLocationPhase}
+                isDetectingLocation={isDetectingLocation}
+                considerWeather={considerWeather}
+                weather={weather}
+                isWeatherLoading={isWeatherLoading}
+                weatherError={weatherError}
+                onRetryWeather={() => {
+                  void refreshWeather();
+                }}
+                onRequestLocationAccess={() => {
+                  void requestLocationAccess();
+                }}
+                onRetryLocation={() => {
+                  retryAutoLocation();
+                }}
+                onLocationPress={() => {
+                  setBodyParametersInitialScreen('location');
+                  setIsBodyParametersSheetVisible(true);
+                }}
+              />
 
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>Что надеть сегодня</ThemedText>
+              <HomeGreeting displayName={displayName} profileHydrated={isProfileHydrated} />
+            </View>
 
+          {showAccountReminder ? (
+            <View style={styles.section}>
+              <HomeAccountReminderCard
+                onSaveAccount={() => setIsSaveAccountVisible(true)}
+                onDismiss={handleDismissAccountReminder}
+              />
+            </View>
+          ) : null}
+
+          <View style={styles.dailySection}>
             {loadState === 'empty-wardrobe' && (
+              <View style={styles.emptyOutfitBlock}>
+                <EmptyDailyOutfitCard />
+                <FirstWardrobeItemCard
+                  onAddFirstItem={() => {
+                    void takePhoto();
+                  }}
+                />
+              </View>
+            )}
+
+            {(loadState === 'guest-weather' && guestWeatherAdvice) ? (
+              <View style={styles.guestDailyCard}>
+                <ThemedText style={styles.dailyCardHeading}>Твой образ на сегодня</ThemedText>
+                <ThemedText style={styles.guestAdviceText}>{guestWeatherAdvice}</ThemedText>
+                {guestHomeCta ? (
+                  <ThemedText themeColor="textSecondary" style={styles.guestAdviceCta}>
+                    {guestHomeCta}
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : null}
+
+            {loadState === 'guest-weather' && !guestWeatherAdvice ? (
               <View style={styles.emptyBlock}>
-                <ThemedText style={styles.emptyTitle}>Добавьте вещи в гардероб</ThemedText>
-                <ThemedText themeColor="textSecondary" style={styles.emptySubtitle}>
-                  Когда в гардеробе появится несколько вещей, я смогу подобрать образ на сегодня.
-                </ThemedText>
                 <Pressable
                   onPress={() => router.push('/garderob')}
                   style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}>
                   <ThemedText style={styles.primaryButtonText}>Открыть гардероб</ThemedText>
                 </Pressable>
               </View>
-            )}
+            ) : null}
 
             {loadState === 'loading' && (
-              <View style={styles.loadingBlock}>
+              <View style={styles.guestDailyCard}>
+                <ThemedText style={styles.dailyCardHeading}>Твой образ на сегодня</ThemedText>
                 <ActivityIndicator color={Colors.light.text} />
                 <ThemedText themeColor="textSecondary" style={styles.loadingText}>
                   Подбираем образ на сегодня…
@@ -328,7 +434,11 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {loadState === 'error' && (
+            {loadState === 'error' && outfitErrorKind === 'network' && (
+              <NetworkErrorState onRetry={regenerateOutfit} isRetrying={isRegenerating} />
+            )}
+
+            {loadState === 'error' && outfitErrorKind !== 'network' && (
               <View style={styles.emptyBlock}>
                 <ThemedText style={styles.emptyTitle}>Не удалось подобрать образ</ThemedText>
                 <Pressable
@@ -348,11 +458,31 @@ export default function HomeScreen() {
                 regenerateError={regenerateError}
                 onToggleSave={handleToggleSaveHomeOutfit}
                 onRegenerate={regenerateOutfit}
+                feedbackEnabled={feedbackEnabled}
+                outfitFeedback={outfitFeedback}
+                isFeedbackLoading={isFeedbackLoading}
+                isFeedbackSubmitting={isFeedbackSubmitting}
+                feedbackLoadError={feedbackLoadError}
+                feedbackSubmitError={feedbackSubmitError}
+                onLikeFeedback={() => {
+                  void submitOutfitFeedback('like');
+                }}
+                onDislikeFeedback={(reason, targetItemId) => {
+                  void submitOutfitFeedback('dislike', reason, targetItemId);
+                }}
+                onRetryFeedbackLoad={() => {
+                  void retryOutfitFeedbackLoad();
+                }}
+                onRetryFeedbackSubmit={() => {
+                  retryFeedbackSubmit();
+                }}
               />
             )}
           </View>
 
+          <HomeWornNowSection />
 
+          {loadState !== 'empty-wardrobe' && items.length > 0 ? <HomeWardrobeSummary /> : null}
 
           {visibleSavedOutfits.length > 0 && (
             <View style={styles.section}>
@@ -379,6 +509,7 @@ export default function HomeScreen() {
             </View>
           )}
 
+          {items.length > 0 ? (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Гардероб</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.wardrobeCount}>
@@ -406,10 +537,23 @@ export default function HomeScreen() {
               <ThemedText style={styles.secondaryButtonText}>Открыть гардероб</ThemedText>
             </Pressable>
           </View>
+          ) : null}
           </ScrollView>
         </Animated.View>
       </SafeAreaView>
       )}
+      <AccountSaveSheet
+        visible={isSaveAccountVisible}
+        onClose={() => setIsSaveAccountVisible(false)}
+      />
+      <BodyParametersSheet
+        visible={isBodyParametersSheetVisible}
+        initialScreen={bodyParametersInitialScreen}
+        onClose={() => {
+          setIsBodyParametersSheetVisible(false);
+          setBodyParametersInitialScreen('main');
+        }}
+      />
     </ThemedView>
   );
 }
@@ -437,40 +581,39 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    paddingHorizontal: PrikinHomeLayout.cardHorizontalMargin,
+    gap: PrikinHomeLayout.headerToCardsGap,
   },
-  weatherBlock: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 16,
-    padding: Spacing.three,
-    gap: Spacing.one,
+  headerBlock: {
+    gap: PrikinHomeLayout.headerBlockGap,
+    paddingHorizontal: PrikinHomeLayout.headerExtraHorizontalInset,
   },
-  weatherLocation: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.light.text,
+  dailySection: {
+    gap: PrikinHomeLayout.cardStackGap,
+    alignItems: 'center',
   },
-  weatherTemperature: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: Colors.light.text,
-    lineHeight: 34,
+  dailyCardHeading: {
+    fontSize: PrikinHomeLayout.sectionCardTitleFontSize,
+    fontWeight: '700',
+    lineHeight: PrikinHomeLayout.sectionCardTitleLineHeight,
+    color: PrikinColors.textPrimary,
   },
-  weatherFeelsLike: {
-    fontSize: 14,
-    lineHeight: 20,
+  guestDailyCard: {
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinHomeLayout.cardRadius,
+    paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
+    paddingTop: PrikinHomeLayout.cardPaddingTop,
+    paddingBottom: PrikinHomeLayout.cardPaddingBottom,
+    gap: PrikinHomeLayout.cardInnerGap,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
-  weatherDetails: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  weatherLoading: {
-    fontSize: 14,
-    lineHeight: 20,
+  emptyOutfitBlock: {
+    alignItems: 'stretch',
+    gap: PrikinHomeLayout.cardStackGap,
   },
   section: {
-    gap: Spacing.three,
+    gap: PrikinHomeLayout.cardStackGap,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -479,7 +622,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: Colors.light.text,
   },
@@ -491,25 +634,28 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: Colors.light.textSecondary,
   },
-  loadingBlock: {
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingVertical: Spacing.four,
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 16,
-  },
   loadingText: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  guestAdviceText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.light.text,
+  },
+  guestAdviceCta: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   emptyBlock: {
     alignItems: 'center',
     gap: Spacing.two,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.two,
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 16,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   emptyTitle: {
     fontSize: 17,
@@ -523,13 +669,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   outfitCard: {
-    backgroundColor: OutfitColors.surface,
-    borderRadius: 24,
-    padding: Spacing.three,
-    gap: Spacing.three,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinHomeRadii.card,
+    padding: PrikinSpacing.homeCardPadding,
+    gap: PrikinSpacing.homeCardGap,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   outfitTitle: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: '600',
     color: Colors.light.text,
   },

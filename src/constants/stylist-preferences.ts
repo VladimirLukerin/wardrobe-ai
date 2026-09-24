@@ -11,6 +11,9 @@ export type StylistPreferences = {
   styleExperiment: StyleExperiment;
   wardrobeMode: WardrobeMode;
   avoidRepeatedOutfits: boolean;
+  dailyStylistEnabled: boolean;
+  dailyStylistTime: string;
+  timezone: string;
 };
 
 export const DEFAULT_STYLIST_PREFERENCES: StylistPreferences = {
@@ -18,6 +21,9 @@ export const DEFAULT_STYLIST_PREFERENCES: StylistPreferences = {
   styleExperiment: 'balanced',
   wardrobeMode: 'owned-only',
   avoidRepeatedOutfits: true,
+  dailyStylistEnabled: false,
+  dailyStylistTime: '09:00',
+  timezone: 'Europe/Moscow',
 };
 
 export const STYLE_EXPERIMENT_LABELS: Record<StyleExperiment, string> = {

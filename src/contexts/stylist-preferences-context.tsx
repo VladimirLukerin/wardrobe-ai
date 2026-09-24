@@ -16,9 +16,11 @@ import {
   loadProfileStylistPreferences,
   saveProfileStylistPreferences,
 } from '@/storage/profile-storage';
+import { markLocalPreferencesUpdated } from '@/storage/preferences-sync-storage';
 
 type StylistPreferencesContextValue = StylistPreferences & {
   setStylistPreferences: (preferences: StylistPreferences) => void;
+  applySyncedStylistPreferences: (preferences: StylistPreferences) => void;
   isHydrated: boolean;
 };
 
@@ -43,18 +45,25 @@ export function StylistPreferencesProvider({ children }: { children: ReactNode }
     };
   }, []);
 
+  const applySyncedStylistPreferences = useCallback((next: StylistPreferences) => {
+    setPreferences(next);
+    void saveProfileStylistPreferences(next);
+  }, []);
+
   const setStylistPreferences = useCallback((next: StylistPreferences) => {
     setPreferences(next);
     void saveProfileStylistPreferences(next);
+    void markLocalPreferencesUpdated();
   }, []);
 
   const value = useMemo(
     () => ({
       ...preferences,
       setStylistPreferences,
+      applySyncedStylistPreferences,
       isHydrated,
     }),
-    [preferences, setStylistPreferences, isHydrated],
+    [preferences, setStylistPreferences, applySyncedStylistPreferences, isHydrated],
   );
 
   return (
