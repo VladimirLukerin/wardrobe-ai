@@ -1,6 +1,6 @@
 # Wardrobe AI Admin API (MVP)
 
-Backend-only admin foundation for operational support. There is no admin web UI in this phase.
+Backend admin API for operational support, plus a separate read-only web panel in `admin/`.
 
 ## Purpose
 
