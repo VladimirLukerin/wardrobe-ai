@@ -5,8 +5,8 @@ import { useAuth } from '../auth/auth-context';
 const navItems = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/users', label: 'Users' },
-  { to: '/ai', label: 'AI Usage', soon: true },
-  { to: '/settings', label: 'Settings', soon: true },
+  { to: '/ai', label: 'AI Usage' },
+  { to: '/settings', label: 'Settings' },
 ] as const;
 
 export function AdminLayout() {
@@ -28,7 +28,6 @@ export function AdminLayout() {
               end={'end' in item ? item.end : false}
               className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
               {item.label}
-              {'soon' in item && item.soon ? <span className="soon-badge">скоро</span> : null}
             </NavLink>
           ))}
         </nav>

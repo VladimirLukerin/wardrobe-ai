@@ -129,3 +129,6 @@ jobs:
 
       - name: Run admin backend test
         run: npm run test:admin-backend
+
+      - name: Run AI usage and settings test
+        run: npm run test:ai-usage-settings

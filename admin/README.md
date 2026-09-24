@@ -66,7 +66,8 @@ Open `http://localhost:5173` and sign in.
 - `/` dashboard metrics
 - `/users` searchable user list
 - `/users/:id` read-only detail tabs
-- `/ai`, `/settings` placeholders ("скоро")
+- `/ai` OpenAI usage summary and recent events
+- `/settings` feature flags (admin/owner can save)
 
 ## Security notes
 
@@ -76,6 +77,6 @@ Open `http://localhost:5173` and sign in.
 
 ## Limitations
 
-- Read-only only
+- Read-only user inspection; settings mutations require admin/owner role
 - No image CDN integration (wardrobe shows metadata placeholders)
 - AI usage and settings pages are placeholders until backend endpoints exist

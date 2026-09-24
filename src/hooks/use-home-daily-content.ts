@@ -44,6 +44,7 @@ import {
   shouldUseDailySuggestFallback,
 } from '@/utils/daily-ai-fallback-policy';
 import type { PreferencesSyncStatus } from '@/contexts/preferences-sync-context';
+import { useAppConfig } from '@/contexts/app-config-context';
 import { fetchOutfitFeedback, saveOutfitFeedback } from '@/services/outfit-feedback';
 import { getAuthToken } from '@/storage/auth-token-storage';
 import {
@@ -173,6 +174,7 @@ export function useHomeDailyContent(params: Params) {
     requestLocation,
     wearHistory,
   } = params;
+  const { config: appConfig } = useAppConfig();
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [homeOutfit, setHomeOutfit] = useState<OutfitSuggestion | null>(null);
   const [weather, setWeather] = useState<OutfitWeather | null>(null);
@@ -250,6 +252,8 @@ export function useHomeDailyContent(params: Params) {
 
   const sync = useCallback(async (manual = false) => {
     const p = paramsRef.current;
+    const dailyStylistEnabled =
+      p.stylistPreferences.dailyStylistEnabled && appConfig.dailyStylistEnabled;
     if (!p.isHydrated || busy.current) return;
     busy.current = true;
     const run = ++generation.current;
@@ -420,7 +424,7 @@ export function useHomeDailyContent(params: Params) {
         Boolean(freshWeatherEntry);
 
       const canMutateDaily = shouldAttemptDailyCreateOrRegenerate(
-        p.stylistPreferences.dailyStylistEnabled,
+        dailyStylistEnabled,
         p.isServerAccount,
         p.preferencesSyncStatus,
       );
@@ -588,14 +592,14 @@ export function useHomeDailyContent(params: Params) {
                 return;
               }
 
-              if (sanitizedItemIds && daily.isStale && !p.stylistPreferences.dailyStylistEnabled) {
+              if (sanitizedItemIds && daily.isStale && !dailyStylistEnabled) {
                 devDailyHomeLog('[DAILY HOME] server hit');
                 applyServerDailyOutfit({ ...applyParams, sanitizedItemIds });
                 devDailyHomeLog('[DAILY HOME] suggest skipped');
                 return;
               }
 
-              if (sanitizedItemIds && daily.isStale && p.stylistPreferences.dailyStylistEnabled) {
+              if (sanitizedItemIds && daily.isStale && dailyStylistEnabled) {
                 devDailyHomeLog('[DAILY HOME] server hit');
                 applyServerDailyOutfit({ ...applyParams, sanitizedItemIds });
                 devDailyHomeLog('[DAILY HOME] stale interim');
@@ -645,7 +649,7 @@ export function useHomeDailyContent(params: Params) {
                 return;
               }
 
-              if (!sanitizedItemIds && p.stylistPreferences.dailyStylistEnabled && canMutateDaily) {
+              if (!sanitizedItemIds && dailyStylistEnabled && canMutateDaily) {
                 devDailyHomeLog('[DAILY HOME] invalid itemIds fallback');
 
                 try {
@@ -747,7 +751,7 @@ export function useHomeDailyContent(params: Params) {
                     console.error('Unexpected missing daily creation error:', createMissingError);
                   }
                 }
-              } else if (p.stylistPreferences.dailyStylistEnabled) {
+              } else if (dailyStylistEnabled) {
                 devDailyHomeLog('[DAILY HOME] waiting for preferences sync');
               }
             }
@@ -815,14 +819,14 @@ export function useHomeDailyContent(params: Params) {
 
       const fallbackSkipReason = getDailySuggestFallbackSkipReason({
         isServerAccount: p.isServerAccount,
-        dailyStylistEnabled: p.stylistPreferences.dailyStylistEnabled,
+        dailyStylistEnabled,
         dailyProviderAttempted,
       });
 
       if (
         !shouldUseDailySuggestFallback({
           isServerAccount: p.isServerAccount,
-          dailyStylistEnabled: p.stylistPreferences.dailyStylistEnabled,
+          dailyStylistEnabled,
           dailyProviderAttempted,
         })
       ) {
@@ -927,7 +931,7 @@ export function useHomeDailyContent(params: Params) {
         void weatherTask;
       }
     }
-  }, [persist]);
+  }, [appConfig.dailyStylistEnabled, persist]);
 
   const loadOutfitFeedback = useCallback(async () => {
     if (!isServerAccount || !recommendationKey) {

@@ -7,6 +7,7 @@ import { createCorsOptions } from './cors-config';
 import { currentWeatherHandler } from './current-weather';
 import { requireAuth } from './middleware/auth';
 import { handleProcessClothingImage } from './photo-processing/process-clothing-image';
+import { appConfigRouter } from './routes/app-config';
 import { authRouter, meHandler, patchMeHandler } from './routes/auth';
 import { dailyOutfitsRouter } from './routes/daily-outfits';
 import { devDailyOutfitRouter } from './routes/dev-daily-outfit';
@@ -57,6 +58,8 @@ export function createApp(): express.Express {
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
+
+  app.use(appConfigRouter);
 
   app.use('/auth', authRouter);
   app.use('/auth', emailLookupRouter);

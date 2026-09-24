@@ -1,3 +1,4 @@
+import { isDailyStylistFeatureEnabled } from '../app-settings/app-settings-service';
 import {
   getDailyOutfitForDate,
   upsertDailyOutfit,
@@ -96,7 +97,9 @@ async function generateAndStoreDailyOutfitInternal({
   manual: boolean;
 }): Promise<DailyOutfitResponse> {
   const preferences = getPreferencesResponse(userId);
-  const dailyStylistEnabled = preferences.stylistPreferences?.dailyStylistEnabled ?? false;
+  const dailyStylistEnabled =
+    isDailyStylistFeatureEnabled() &&
+    (preferences.stylistPreferences?.dailyStylistEnabled ?? false);
   const existingOutfit = getDailyOutfitForDate(userId, localDate);
   const isStale = existingOutfit
     ? isDailyOutfitInputSignatureStale(userId, localDate, existingOutfit.inputSignature)

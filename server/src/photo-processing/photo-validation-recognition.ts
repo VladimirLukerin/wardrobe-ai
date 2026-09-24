@@ -11,6 +11,7 @@ import {
   type PhotoValidationRecognitionResult,
 } from './photo-decision';
 import { logPhotoValidationStarted, logPhotoAiUsage, PHOTO_VISION_DETAIL } from './photo-processing-error';
+import { trackOpenAiResponsesCall } from '../ai-usage/record-ai-usage';
 
 const MODEL = 'gpt-4o';
 
@@ -157,6 +158,7 @@ function parseRecognitionSignals(payload: unknown): PhotoRecognitionSignals {
 export async function validateAndRecognizeClothingPhoto(
   imageBuffer: Buffer,
   mimeType: string,
+  userId: string | null = null,
 ): Promise<PhotoValidationRecognitionResult> {
   const apiKey = process.env.OPENAI_API_KEY;
 
@@ -169,9 +171,13 @@ export async function validateAndRecognizeClothingPhoto(
   const openai = new OpenAI({ apiKey });
   const imageDataUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
 
-  const response = await openai.responses.create({
-    model: MODEL,
-    input: [
+  const response = await trackOpenAiResponsesCall({
+    userId,
+    requestType: 'photo',
+    call: () =>
+      openai.responses.create({
+        model: MODEL,
+        input: [
       {
         role: 'user',
         content: [
@@ -283,6 +289,7 @@ export async function validateAndRecognizeClothingPhoto(
         },
       },
     },
+      }),
   });
 
   if (process.env.NODE_ENV !== 'production' && response.usage) {

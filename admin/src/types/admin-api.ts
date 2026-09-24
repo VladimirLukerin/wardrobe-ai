@@ -74,6 +74,70 @@ export type AdminDashboardMetrics = {
   totalFamilyRelationships: number;
 };
 
+export type AdminAiSummary = {
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  rateLimitedCalls: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  avgDurationMs: number | null;
+  estimatedInputCostUsd: number | null;
+  estimatedOutputCostUsd: number | null;
+  estimatedTotalCostUsd: number | null;
+  byType: Array<{
+    requestType: 'photo' | 'suggest' | 'daily' | 'paired';
+    totalCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    rateLimitedCalls: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+    avgDurationMs: number | null;
+  }>;
+};
+
+export type AdminAiEventItem = {
+  id: string;
+  requestType: 'photo' | 'suggest' | 'daily' | 'paired';
+  status: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  durationMs: number;
+  createdAt: string;
+  userPublicId: string | null;
+};
+
+export type AdminAiEventsResponse = {
+  items: AdminAiEventItem[];
+  nextCursor: string | null;
+};
+
+export type AppSettingKey =
+  | 'daily_stylist_enabled'
+  | 'paired_outfits_enabled'
+  | 'photo_onboarding_enabled'
+  | 'guest_ai_enabled'
+  | 'guest_ai_daily_limit'
+  | 'maintenance_message';
+
+export type AdminAppSettingEntry = {
+  key: AppSettingKey;
+  value: boolean | number | string;
+  valueType: 'boolean' | 'integer' | 'string';
+  description: string;
+  clientSafe: boolean;
+  updatedAt: string | null;
+  updatedByAdminId: string | null;
+};
+
+export type AdminSettingsResponse = {
+  settings: AdminAppSettingEntry[];
+};
+
 export type AdminWardrobeItem = {
   id: string;
   category: string;

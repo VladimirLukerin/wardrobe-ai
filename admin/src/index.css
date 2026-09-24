@@ -397,6 +397,59 @@ select {
   margin-bottom: 10px;
 }
 
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.data-table-wrap {
+  overflow-x: auto;
+}
+
+.settings-list {
+  display: grid;
+  gap: 16px;
+}
+
+.setting-row {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(32, 37, 31, 0.08);
+}
+
+.setting-name {
+  font-weight: 600;
+}
+
+.setting-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.text-input {
+  min-width: 120px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(32, 37, 31, 0.15);
+}
+
+.toggle-row {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.field-error {
+  color: #8b3a2b;
+  font-size: 13px;
+}
+
 @media (max-width: 900px) {
   .admin-shell {
     grid-template-columns: 1fr;

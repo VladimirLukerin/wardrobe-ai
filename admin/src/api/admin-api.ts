@@ -1,8 +1,13 @@
 import {
   ApiError,
+  type AdminAiEventsResponse,
+  type AdminAiSummary,
+  type AdminAppSettingEntry,
   type AdminDashboardMetrics,
   type AdminLoginResponse,
   type AdminMeResponse,
+  type AdminSettingsResponse,
+  type AppSettingKey,
   type AdminUserDetailResponse,
   type AdminUsersListResponse,
   type PaginatedResponse,
@@ -237,6 +242,71 @@ export async function fetchUserFamily(
   return adminFetch<PaginatedResponse<AdminFamilyMemberItem>>(
     `/admin/users/${encodeURIComponent(userId)}/family${search}`,
   );
+}
+
+export async function fetchAiSummary(params?: {
+  from?: string;
+  to?: string;
+  type?: 'photo' | 'suggest' | 'daily' | 'paired';
+}): Promise<AdminAiSummary> {
+  const search = new URLSearchParams();
+
+  if (params?.from) {
+    search.set('from', params.from);
+  }
+
+  if (params?.to) {
+    search.set('to', params.to);
+  }
+
+  if (params?.type) {
+    search.set('type', params.type);
+  }
+
+  const query = search.toString();
+  return adminFetch<AdminAiSummary>(`/admin/ai/summary${query ? `?${query}` : ''}`);
+}
+
+export async function fetchAiEvents(params?: {
+  limit?: number;
+  cursor?: string | null;
+  type?: 'photo' | 'suggest' | 'daily' | 'paired';
+  status?: string;
+}): Promise<AdminAiEventsResponse> {
+  const search = new URLSearchParams();
+
+  if (params?.limit) {
+    search.set('limit', String(params.limit));
+  }
+
+  if (params?.cursor) {
+    search.set('cursor', params.cursor);
+  }
+
+  if (params?.type) {
+    search.set('type', params.type);
+  }
+
+  if (params?.status) {
+    search.set('status', params.status);
+  }
+
+  const query = search.toString();
+  return adminFetch<AdminAiEventsResponse>(`/admin/ai/events${query ? `?${query}` : ''}`);
+}
+
+export async function fetchAdminSettings(): Promise<AdminSettingsResponse> {
+  return adminFetch<AdminSettingsResponse>('/admin/settings');
+}
+
+export async function updateAdminSetting(
+  key: AppSettingKey,
+  value: boolean | number | string,
+): Promise<{ setting: AdminAppSettingEntry }> {
+  return adminFetch<{ setting: AdminAppSettingEntry }>(`/admin/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: { value },
+  });
 }
 
 export { clearStoredAdminToken, getStoredAdminToken };

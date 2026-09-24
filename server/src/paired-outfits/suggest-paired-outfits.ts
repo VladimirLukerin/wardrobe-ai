@@ -2,6 +2,9 @@ import type { Request, Response } from 'express';
 import OpenAI from 'openai';
 
 import { enforceAiRateLimit } from '../ai-request-rate-limit';
+import { trackOpenAiResponsesCall } from '../ai-usage/record-ai-usage';
+import { respondIfGuestAiDisabled } from '../app-settings/guest-ai-access';
+import { respondIfPairedOutfitsDisabled } from '../app-settings/paired-outfits-access';
 import {
   buildPairedOutfitPromptText,
   capBehavioralContext,
@@ -239,6 +242,14 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
       return;
     }
 
+    if (respondIfPairedOutfitsDisabled(res)) {
+      return;
+    }
+
+    if (respondIfGuestAiDisabled(res, req.authUser)) {
+      return;
+    }
+
     const memberPublicId = getRouteParam(req.params.memberPublicId);
 
     if (!memberPublicId) {
@@ -360,7 +371,11 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
     let response;
 
     try {
-      response = await openai.responses.create({
+      response = await trackOpenAiResponsesCall({
+        userId: req.authUser.id,
+        requestType: 'paired',
+        call: () =>
+          openai.responses.create({
       model: MODEL,
       input: [
         {
@@ -410,7 +425,8 @@ export async function suggestPairedOutfitsHandler(req: Request, res: Response): 
           },
         },
       },
-    });
+    }),
+      });
     } catch (providerError) {
       if (isOpenAiProviderRateLimitError(providerError)) {
         throw toAiProviderRateLimitError(providerError);

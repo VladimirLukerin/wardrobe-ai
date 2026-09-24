@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 
 import { consumeAiRateLimit, AiRateLimitExceededError } from '../ai-request-rate-limit';
+import { trackOpenAiResponsesCall } from '../ai-usage/record-ai-usage';
 import {
   buildDailyOutfitPromptText,
   capBehavioralContext,
@@ -100,7 +101,11 @@ export async function generateDailyOutfitWithAi({
   let response;
 
   try {
-    response = await openai.responses.create({
+    response = await trackOpenAiResponsesCall({
+      userId,
+      requestType: 'daily',
+      call: () =>
+        openai.responses.create({
       model: MODEL,
       input: [
         {
@@ -132,6 +137,7 @@ export async function generateDailyOutfitWithAi({
           },
         },
       },
+    }),
     });
   } catch (error) {
     if (isOpenAiProviderRateLimitError(error)) {

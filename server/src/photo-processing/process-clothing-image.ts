@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 
 import { enforceAiRateLimit } from '../ai-request-rate-limit';
+import { respondIfGuestAiDisabled } from '../app-settings/guest-ai-access';
 import { normalizeProcessedClothingImage } from '../normalize-processed-image';
 import {
   BackgroundRemovalError,
@@ -38,7 +39,10 @@ class PhotoProcessingRateLimitedError extends Error {
   }
 }
 
-async function runProcessingPipeline(prepared: PreparedUploadedImage): Promise<PhotoProcessingResult> {
+async function runProcessingPipeline(
+  prepared: PreparedUploadedImage,
+  userId: string | null,
+): Promise<PhotoProcessingResult> {
   const totalStartedAt = Date.now();
 
   const analysisResizeStartedAt = Date.now();
@@ -54,7 +58,11 @@ async function runProcessingPipeline(prepared: PreparedUploadedImage): Promise<P
   });
 
   const openAiStartedAt = Date.now();
-  const recognition = await validateAndRecognizeClothingPhoto(analysis.buffer, analysis.mimeType);
+  const recognition = await validateAndRecognizeClothingPhoto(
+    analysis.buffer,
+    analysis.mimeType,
+    userId,
+  );
   logPhotoTiming('openai', Date.now() - openAiStartedAt);
 
   if (!recognition.accepted || !recognition.item || recognition.rejectReason) {
@@ -137,6 +145,10 @@ export async function handleProcessClothingImage(req: Request, res: Response): P
       return;
     }
 
+    if (respondIfGuestAiDisabled(res, req.authUser)) {
+      return;
+    }
+
     const prepareStartedAt = Date.now();
     const prepared = await prepareUploadedImage(req.file.buffer, req.file.mimetype);
     logPhotoTiming('prepare', Date.now() - prepareStartedAt);
@@ -147,7 +159,7 @@ export async function handleProcessClothingImage(req: Request, res: Response): P
         throw new PhotoProcessingRateLimitedError();
       }
 
-      return runProcessingPipeline(prepared);
+      return runProcessingPipeline(prepared, req.authUser!.id);
     }, {
       onCacheHit: () => {
         logPhotoAiRequest({

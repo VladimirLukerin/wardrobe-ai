@@ -104,6 +104,8 @@ function runMigrations(db: Database.Database): void {
   migrateOutfitFeedbackTable(db);
   migratePasswordCredentials(db);
   migrateAdminTables(db);
+  migrateAiUsageEvents(db);
+  migrateAppSettings(db);
 }
 
 function migrateSavedPairedOutfitsTable(db: Database.Database): void {
@@ -187,6 +189,41 @@ function migrateAdminTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_admin_audit_log_admin_user_id ON admin_audit_log(admin_user_id);
     CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON admin_audit_log(created_at);
+  `);
+}
+
+function migrateAiUsageEvents(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_usage_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NULL,
+      request_type TEXT NOT NULL CHECK (request_type IN ('photo', 'suggest', 'daily', 'paired')),
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK (status IN ('success', 'provider_rate_limited', 'provider_error', 'invalid_response')),
+      provider_error_code TEXT NULL,
+      provider_request_id TEXT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_events_created_at ON ai_usage_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_events_request_type ON ai_usage_events(request_type);
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_events_user_id ON ai_usage_events(user_id);
+  `);
+}
+
+function migrateAppSettings(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by_admin_id TEXT NULL,
+      FOREIGN KEY (updated_by_admin_id) REFERENCES admin_users(id)
+    );
   `);
 }
 

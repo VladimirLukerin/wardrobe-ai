@@ -29,6 +29,7 @@
     "test:auth-entry-flow": "tsx scripts/test-auth-entry-flow.ts",
     "test:rate-limit-placement": "tsx scripts/test-rate-limit-placement.ts",
     "test:admin-backend": "tsx scripts/test-admin-backend.ts",
+    "test:ai-usage-settings": "tsx scripts/test-ai-usage-and-settings.ts",
     "admin:create": "tsx scripts/admin-create.ts",
     "test:local-background-removal": "tsx scripts/test-local-background-removal.ts",
     "test:photo-pipeline-timings": "tsx scripts/test-photo-pipeline-timings.ts",

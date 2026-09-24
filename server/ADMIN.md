@@ -94,6 +94,44 @@ Inactive admins cannot log in.
 
 List responses use cursor pagination (`nextCursor`).
 
+## AI usage analytics (read-only)
+
+- `GET /admin/ai/summary?from=&to=&type=photo|suggest|daily|paired`
+- `GET /admin/ai/timeseries?from=&to=&granularity=day|hour&type=`
+- `GET /admin/ai/events?limit=&cursor=&type=&status=`
+
+Each real OpenAI provider attempt writes one row to `ai_usage_events` (no prompts, images, or secrets). Cache hits and skipped daily generations do not create rows.
+
+Optional cost hints on summary (not stored on events):
+
+- `AI_COST_INPUT_PER_MILLION`
+- `AI_COST_OUTPUT_PER_MILLION`
+
+## App settings / feature flags
+
+Read (viewer+):
+
+- `GET /admin/settings`
+
+Update (admin or owner only, audited as `admin.setting.update`):
+
+- `PUT /admin/settings/:key` with JSON `{ "value": ... }`
+
+Known keys (defaults apply when DB row missing):
+
+| Key | Type | Default | Client `/app-config` |
+| --- | --- | --- | --- |
+| `daily_stylist_enabled` | boolean | `true` | yes |
+| `paired_outfits_enabled` | boolean | `true` | yes |
+| `photo_onboarding_enabled` | boolean | `true` | yes |
+| `guest_ai_enabled` | boolean | `true` | yes |
+| `guest_ai_daily_limit` | integer 0–1000 | `20` | yes |
+| `maintenance_message` | string ≤500 | `""` | no |
+
+Public mobile config:
+
+- `GET /app-config` — client-safe fields only, no secrets.
+
 ## Security notes
 
 - Admin sessions are stored separately from user `sessions`.
@@ -127,4 +165,5 @@ Then call `GET /admin/users` with the returned bearer token.
 
 ```bash
 npm run test:admin-backend
+npm run test:ai-usage-settings
 ```

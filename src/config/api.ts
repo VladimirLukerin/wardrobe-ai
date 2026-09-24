@@ -14,6 +14,7 @@ console.log('[API] API_BASE_URL:', API_BASE_URL);
 export const PROCESS_CLOTHING_IMAGE_ENDPOINT = `${API_BASE_URL}/process-clothing-image`;
 export const SUGGEST_OUTFITS_ENDPOINT = `${API_BASE_URL}/suggest-outfits`;
 export const CURRENT_WEATHER_ENDPOINT = `${API_BASE_URL}/current-weather`;
+export const APP_CONFIG_ENDPOINT = `${API_BASE_URL}/app-config`;
 export const ANONYMOUS_AUTH_ENDPOINT = `${API_BASE_URL}/auth/anonymous`;
 export const LOGOUT_ENDPOINT = `${API_BASE_URL}/auth/logout`;
 export const CURRENT_USER_ENDPOINT = `${API_BASE_URL}/me`;

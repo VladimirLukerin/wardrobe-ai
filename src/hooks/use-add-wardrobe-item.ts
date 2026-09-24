@@ -7,10 +7,12 @@ import {
   setPhotoCaptureOnboardingSkipped,
   shouldShowPhotoCaptureOnboarding,
 } from '@/storage/photo-onboarding-storage';
+import { useAppConfig } from '@/contexts/app-config-context';
 
 type PendingPhotoAction = 'camera' | 'gallery' | null;
 
 export function useAddWardrobeItem() {
+  const { config: appConfig } = useAppConfig();
   const [isOnboardingVisible, setIsOnboardingVisible] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingPhotoAction>(null);
 
@@ -87,7 +89,8 @@ export function useAddWardrobeItem() {
   }, [capturePhotoUri, openAddItemScreen, pendingAction, pickGalleryPhotoUri]);
 
   const beginPhotoAction = useCallback(async (action: Exclude<PendingPhotoAction, null>) => {
-    const shouldShowOnboarding = await shouldShowPhotoCaptureOnboarding();
+    const shouldShowOnboarding =
+      appConfig.photoOnboardingEnabled && (await shouldShowPhotoCaptureOnboarding());
 
     if (shouldShowOnboarding) {
       setPendingAction(action);
@@ -110,7 +113,7 @@ export function useAddWardrobeItem() {
     if (uri) {
       openAddItemScreen(uri);
     }
-  }, [capturePhotoUri, openAddItemScreen, pickGalleryPhotoUri]);
+  }, [appConfig.photoOnboardingEnabled, capturePhotoUri, openAddItemScreen, pickGalleryPhotoUri]);
 
   const takePhoto = useCallback(async () => {
     await beginPhotoAction('camera');

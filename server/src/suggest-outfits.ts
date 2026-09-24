@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import OpenAI from 'openai';
 import type { OutfitFeedbackReason } from './db/outfit-feedback-reasons';
 import { mergeOutfitFeedbackIntoBehavioralContext } from './outfit-feedback/build-outfit-feedback-context';
 import {
@@ -20,7 +21,8 @@ import {
   respondAiProviderRateLimited,
   toAiProviderRateLimitError,
 } from './outfit-ai/provider-rate-limit';
-import OpenAI from 'openai';
+import { trackOpenAiResponsesCall } from './ai-usage/record-ai-usage';
+import { respondIfGuestAiDisabled } from './app-settings/guest-ai-access';
 
 import { getCurrentWeather, type CurrentWeather } from './providers/weather';
 
@@ -917,7 +919,11 @@ export async function generateOutfitSuggestionsFromBody(
   let response;
 
   try {
-    response = await openai.responses.create({
+    response = await trackOpenAiResponsesCall({
+      userId: options?.userId ?? null,
+      requestType: 'suggest',
+      call: () =>
+        openai.responses.create({
       model: MODEL,
       input: [
         {
@@ -961,6 +967,7 @@ export async function generateOutfitSuggestionsFromBody(
           },
         },
       },
+    }),
     });
   } catch (error) {
     if (isOpenAiProviderRateLimitError(error)) {
@@ -1002,6 +1009,10 @@ export async function suggestOutfitsHandler(req: Request, res: Response): Promis
   try {
     if (!req.authUser) {
       res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    if (respondIfGuestAiDisabled(res, req.authUser)) {
       return;
     }
 

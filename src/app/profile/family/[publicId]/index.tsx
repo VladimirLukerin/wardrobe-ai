@@ -9,6 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useFamily } from '@/contexts/family-context';
+import { useAppConfig } from '@/contexts/app-config-context';
 import { useFamilyMemberRoute } from '@/hooks/use-family-member-route';
 import { AccountApiError } from '@/services/account';
 
@@ -23,6 +24,7 @@ function getInitial(name: string) {
 export default function FamilyMemberScreen() {
   const { publicId, member, label, isResolving, familyStatus } = useFamilyMemberRoute();
   const { removeMember } = useFamily();
+  const { config: appConfig } = useAppConfig();
 
   const [isRemoving, setIsRemoving] = useState(false);
   const [hasRemoved, setHasRemoved] = useState(false);
@@ -148,16 +150,18 @@ export default function FamilyMemberScreen() {
                 <ThemedText style={styles.primaryButtonText}>Гардероб</ThemedText>
               </Pressable>
 
-              <Pressable
-                onPress={handleCreatePairedOutfit}
-                disabled={isRemoving}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  isRemoving && styles.buttonDisabled,
-                  pressed && !isRemoving && styles.pressed,
-                ]}>
-                <ThemedText style={styles.secondaryButtonText}>Создать совместный образ</ThemedText>
-              </Pressable>
+              {appConfig.pairedOutfitsEnabled ? (
+                <Pressable
+                  onPress={handleCreatePairedOutfit}
+                  disabled={isRemoving}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    isRemoving && styles.buttonDisabled,
+                    pressed && !isRemoving && styles.pressed,
+                  ]}>
+                  <ThemedText style={styles.secondaryButtonText}>Создать совместный образ</ThemedText>
+                </Pressable>
+              ) : null}
 
               {removeError?.kind === 'network' ? (
                 <NetworkErrorState
