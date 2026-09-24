@@ -352,32 +352,34 @@ export default function HomeScreen() {
               { paddingBottom: TabScreenScrollPadding },
             ]}
             showsVerticalScrollIndicator={false}>
-            <HomeBrandHeader />
+            <View style={styles.headerBlock}>
+              <HomeBrandHeader />
 
-            <HomeWeatherHeader
-              locationName={displayLocationName}
-              locationPhase={homeLocationPhase}
-              isDetectingLocation={isDetectingLocation}
-              considerWeather={considerWeather}
-              weather={weather}
-              isWeatherLoading={isWeatherLoading}
-              weatherError={weatherError}
-              onRetryWeather={() => {
-                void refreshWeather();
-              }}
-              onRequestLocationAccess={() => {
-                void requestLocationAccess();
-              }}
-              onRetryLocation={() => {
-                retryAutoLocation();
-              }}
-              onLocationPress={() => {
-                setBodyParametersInitialScreen('location');
-                setIsBodyParametersSheetVisible(true);
-              }}
-            />
+              <HomeWeatherHeader
+                locationName={displayLocationName}
+                locationPhase={homeLocationPhase}
+                isDetectingLocation={isDetectingLocation}
+                considerWeather={considerWeather}
+                weather={weather}
+                isWeatherLoading={isWeatherLoading}
+                weatherError={weatherError}
+                onRetryWeather={() => {
+                  void refreshWeather();
+                }}
+                onRequestLocationAccess={() => {
+                  void requestLocationAccess();
+                }}
+                onRetryLocation={() => {
+                  retryAutoLocation();
+                }}
+                onLocationPress={() => {
+                  setBodyParametersInitialScreen('location');
+                  setIsBodyParametersSheetVisible(true);
+                }}
+              />
 
-            <HomeGreeting displayName={displayName} profileHydrated={isProfileHydrated} />
+              <HomeGreeting displayName={displayName} profileHydrated={isProfileHydrated} />
+            </View>
 
           {showAccountReminder ? (
             <View style={styles.section}>
@@ -581,6 +583,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: PrikinHomeLayout.contentHorizontalPadding,
     gap: PrikinHomeLayout.sectionGap,
+  },
+  headerBlock: {
+    gap: PrikinHomeLayout.headerBlockGap,
   },
   dailySection: {
     gap: PrikinHomeLayout.cardStackGap,

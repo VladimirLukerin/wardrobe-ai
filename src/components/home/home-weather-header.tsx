@@ -64,7 +64,7 @@ export function HomeWeatherHeader({
             android: 'location_on',
             web: 'location_on',
           }}
-          size={15}
+          size={14}
           tintColor={PrikinColors.textPrimary}
         />
         <Text style={styles.location}>{locationLabel}</Text>
@@ -92,17 +92,17 @@ export function HomeWeatherHeader({
         <View style={styles.leftColumn}>
           {locationPhase === 'need_permission' ? (
             <Pressable
-              onPress={onRequestLocationAccess}
+              onPress={onLocationPress ?? onRequestLocationAccess}
               accessibilityRole="button"
               accessibilityLabel="Разрешить геолокацию"
               style={({ pressed }) => [styles.permissionCta, pressed && styles.pressed]}>
               <SymbolView
                 name={{
-                  ios: 'location.fill',
+                  ios: 'location',
                   android: 'location_on',
                   web: 'location_on',
                 }}
-                size={16}
+                size={14}
                 tintColor={PrikinColors.textPrimary}
               />
               <View style={styles.permissionCopy}>
@@ -140,7 +140,7 @@ export function HomeWeatherHeader({
                   android: symbol.android as 'cloud',
                   web: symbol.web as 'cloud',
                 }}
-                size={22}
+                size={20}
                 tintColor={PrikinColors.textPrimary}
               />
               <View style={styles.tempColumn}>
@@ -194,8 +194,8 @@ const styles = StyleSheet.create({
   },
   rightColumn: {
     flex: PrikinHomeLayout.headerRightColumnFlex,
-    minWidth: 120,
-    maxWidth: 168,
+    minWidth: 100,
+    maxWidth: 148,
     alignItems: 'flex-end',
     justifyContent: 'flex-start',
     paddingTop: 0,
@@ -234,30 +234,30 @@ const styles = StyleSheet.create({
   permissionCta: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: 6,
     alignSelf: 'flex-start',
   },
   permissionCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 1,
   },
   permissionTitle: {
-    fontSize: PrikinHomeLayout.locationFontSize,
+    fontSize: PrikinHomeLayout.permissionTitleFontSize,
     fontWeight: '600',
-    lineHeight: PrikinHomeLayout.locationLineHeight,
+    lineHeight: PrikinHomeLayout.permissionTitleLineHeight,
     color: PrikinColors.textPrimary,
   },
   permissionHint: {
-    fontSize: PrikinHomeLayout.feelsLikeFontSize,
-    lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
+    fontSize: PrikinHomeLayout.permissionHintFontSize,
+    lineHeight: PrikinHomeLayout.permissionHintLineHeight,
     color: PrikinColors.textSecondary,
   },
   weatherRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 2,
+    gap: 6,
+    marginTop: 0,
   },
   tempColumn: {
     gap: 0,

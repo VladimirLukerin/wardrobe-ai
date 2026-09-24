@@ -41,7 +41,11 @@ export function PrikinPrimaryButton({
         state.pressed && styles.pressed,
         typeof style === 'function' ? style(state) : style,
       ]}>
-      <View style={styles.content}>
+      <View
+        style={[
+          styles.content,
+          isHome && { gap: PrikinHomeLayout.homePrimaryButtonContentGap },
+        ]}>
         {showPlusIcon ? (
           <SymbolView
             name={{ ios: 'plus', android: 'add', web: 'add' }}
@@ -78,6 +82,7 @@ const styles = StyleSheet.create({
   homeHeight: {
     minHeight: PrikinHomeLayout.homePrimaryButtonMinHeight,
     paddingVertical: PrikinHomeLayout.homePrimaryButtonPaddingVertical,
+    paddingHorizontal: PrikinHomeLayout.homePrimaryButtonPaddingHorizontal,
   },
   homeRadius: {
     borderRadius: PrikinHomeLayout.homePrimaryButtonRadius,
