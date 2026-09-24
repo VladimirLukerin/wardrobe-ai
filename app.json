@@ -29,6 +29,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "expo-dev-client",
       "expo-router",
       [
         "expo-splash-screen",
@@ -53,7 +54,8 @@
           "locationAlwaysAndWhenInUsePermission": "Wardrobe AI использует ваше местоположение, чтобы учитывать погоду при подборе одежды."
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
