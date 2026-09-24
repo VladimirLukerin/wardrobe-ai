@@ -46,6 +46,7 @@ import {
 type BodyParametersSheetProps = {
   visible: boolean;
   onClose: () => void;
+  initialScreen?: SheetScreen;
 };
 
 type SheetScreen = 'main' | 'location';
@@ -484,7 +485,11 @@ function CityAutocompleteField({
   );
 }
 
-export default function BodyParametersSheet({ visible, onClose }: BodyParametersSheetProps) {
+export default function BodyParametersSheet({
+  visible,
+  onClose,
+  initialScreen = 'main',
+}: BodyParametersSheetProps) {
   const insets = useSafeAreaInsets();
   const {
     setBodyParameters,
@@ -565,6 +570,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
     }
 
     wasVisibleRef.current = true;
+    setSheetScreen(initialScreen);
     setDraft({
       locationMode,
       manualLocation,
@@ -593,6 +599,7 @@ export default function BodyParametersSheet({ visible, onClose }: BodyParameters
     translateY,
     resetStatus,
     syncStatusFromLocation,
+    initialScreen,
   ]);
 
   const runAutoDetect = useCallback(async () => {

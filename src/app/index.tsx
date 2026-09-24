@@ -13,6 +13,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AccountSaveSheet from '@/components/account-save-sheet';
+import BodyParametersSheet from '@/components/body-parameters-sheet';
 import { HomeAccountReminderCard } from '@/components/home-account-reminder-card';
 import { HomeBrandHeader } from '@/components/home-brand-header';
 import { EmptyDailyOutfitCard } from '@/components/home/empty-daily-outfit-card';
@@ -234,6 +235,10 @@ export default function HomeScreen() {
   const { items, isHydrated: isWardrobeHydrated } = useWardrobe();
   const { takePhoto } = useAddWardrobeItem();
   const [isSaveAccountVisible, setIsSaveAccountVisible] = useState(false);
+  const [isBodyParametersSheetVisible, setIsBodyParametersSheetVisible] = useState(false);
+  const [bodyParametersInitialScreen, setBodyParametersInitialScreen] = useState<
+    'main' | 'location'
+  >('main');
   const [isReminderDismissed, setIsReminderDismissed] = useState(homeAccountReminderDismissed);
   const { savedOutfits, isHydrated: isOutfitsHydrated, isOutfitSaved, toggleSavedOutfit } =
     useOutfits();
@@ -365,6 +370,10 @@ export default function HomeScreen() {
               }}
               onRetryLocation={() => {
                 retryAutoLocation();
+              }}
+              onLocationPress={() => {
+                setBodyParametersInitialScreen('location');
+                setIsBodyParametersSheetVisible(true);
               }}
             />
 
@@ -535,6 +544,14 @@ export default function HomeScreen() {
         visible={isSaveAccountVisible}
         onClose={() => setIsSaveAccountVisible(false)}
       />
+      <BodyParametersSheet
+        visible={isBodyParametersSheetVisible}
+        initialScreen={bodyParametersInitialScreen}
+        onClose={() => {
+          setIsBodyParametersSheetVisible(false);
+          setBodyParametersInitialScreen('main');
+        }}
+      />
     </ThemedView>
   );
 }
@@ -569,9 +586,9 @@ const styles = StyleSheet.create({
     gap: PrikinHomeLayout.sectionGap,
   },
   dailyCardHeading: {
-    fontSize: PrikinHomeLayout.cardHeadingFontSize,
-    fontWeight: '600',
-    lineHeight: PrikinHomeLayout.cardHeadingLineHeight,
+    fontSize: PrikinHomeLayout.sectionCardTitleFontSize,
+    fontWeight: '700',
+    lineHeight: PrikinHomeLayout.sectionCardTitleLineHeight,
     color: PrikinColors.textPrimary,
   },
   guestDailyCard: {

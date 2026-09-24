@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
-import { PRIKIN_HOME_FIRST_ITEM_HANGER_SVG } from '@/components/prikin/illustrations';
+import { PRIKIN_WARDROBE_EMPTY_HANGER_SVG } from '@/components/prikin/illustrations';
 import { PrikinPrimaryButton } from '@/components/prikin/prikin-primary-button';
 import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors } from '@/constants/prikin-tokens';
@@ -16,10 +16,10 @@ export function FirstWardrobeItemCard({ onAddFirstItem }: FirstWardrobeItemCardP
       <Text style={styles.cardHeading}>Начнём с первой вещи</Text>
       <View style={styles.row}>
         <PrikinIllustration
-          xml={PRIKIN_HOME_FIRST_ITEM_HANGER_SVG}
+          xml={PRIKIN_WARDROBE_EMPTY_HANGER_SVG}
           width={PrikinHomeLayout.hangerIllustrationWidth}
-          aspectRatio={130 / 80}
-          accessibilityLabel="Иллюстрация вешалки"
+          aspectRatio={PrikinHomeLayout.hangerIllustrationAspectRatio}
+          accessibilityLabel="Иллюстрация вешалки на бумаге"
           style={styles.illustration}
         />
         <Text style={styles.hint}>Сфотографируй то, что любишь носить.</Text>
@@ -46,16 +46,15 @@ const styles = StyleSheet.create({
     borderColor: PrikinColors.borderSubtle,
   },
   cardHeading: {
-    fontSize: PrikinHomeLayout.firstItemCardHeadingFontSize,
-    fontWeight: '600',
-    lineHeight: PrikinHomeLayout.firstItemCardHeadingLineHeight,
+    fontSize: PrikinHomeLayout.sectionCardTitleFontSize,
+    fontWeight: '700',
+    lineHeight: PrikinHomeLayout.sectionCardTitleLineHeight,
     color: PrikinColors.textPrimary,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: PrikinHomeLayout.cardInnerGap,
-    marginTop: 0,
+    gap: 10,
   },
   illustration: {
     flexShrink: 0,
@@ -69,6 +68,6 @@ const styles = StyleSheet.create({
   },
   button: {
     alignSelf: 'stretch',
-    marginTop: 2,
+    marginTop: 0,
   },
 });

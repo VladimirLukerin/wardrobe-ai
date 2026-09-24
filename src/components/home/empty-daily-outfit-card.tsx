@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { PrikinIllustration } from '@/components/prikin/prikin-illustration';
-import { PRIKIN_HOME_OUTFIT_EMPTY_SVG } from '@/components/prikin/illustrations';
+import { PRIKIN_OUTFITS_EMPTY_CLOTHES_SVG } from '@/components/prikin/illustrations';
 import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors } from '@/constants/prikin-tokens';
 
@@ -11,11 +11,10 @@ export function EmptyDailyOutfitCard() {
       <Text style={styles.cardHeading}>Твой образ на сегодня</Text>
       <View style={styles.row}>
         <PrikinIllustration
-          xml={PRIKIN_HOME_OUTFIT_EMPTY_SVG}
+          xml={PRIKIN_OUTFITS_EMPTY_CLOTHES_SVG}
           width={PrikinHomeLayout.outfitIllustrationWidth}
-          aspectRatio={130 / 118}
-          contentScale={PrikinHomeLayout.outfitIllustrationContentScale}
-          accessibilityLabel="Иллюстрация рубашки и брюк"
+          aspectRatio={PrikinHomeLayout.outfitIllustrationAspectRatio}
+          accessibilityLabel="Иллюстрация рубашки и брюк на бумаге"
           style={styles.illustration}
         />
         <View style={styles.copy}>
@@ -42,15 +41,15 @@ const styles = StyleSheet.create({
     borderColor: PrikinColors.borderSubtle,
   },
   cardHeading: {
-    fontSize: PrikinHomeLayout.cardHeadingFontSize,
-    fontWeight: '600',
-    lineHeight: PrikinHomeLayout.cardHeadingLineHeight,
+    fontSize: PrikinHomeLayout.sectionCardTitleFontSize,
+    fontWeight: '700',
+    lineHeight: PrikinHomeLayout.sectionCardTitleLineHeight,
     color: PrikinColors.textPrimary,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: PrikinHomeLayout.cardInnerGap,
+    gap: 10,
   },
   illustration: {
     flexShrink: 0,
@@ -62,7 +61,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: PrikinHomeLayout.cardMessageFontSize,
-    fontWeight: '600',
+    fontWeight: '700',
     lineHeight: PrikinHomeLayout.cardMessageLineHeight,
     color: PrikinColors.textPrimary,
   },

@@ -6,7 +6,8 @@ export type AccountProfile = {
   serverUserId?: string;
 };
 
-export const DEFAULT_DISPLAY_NAME = 'Владимир';
+/** Empty until the user or server sets a real display name. */
+export const DEFAULT_DISPLAY_NAME = '';
 
 export const DISPLAY_NAME_MAX_LENGTH = 50;
 

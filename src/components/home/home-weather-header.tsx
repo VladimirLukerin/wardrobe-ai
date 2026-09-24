@@ -1,7 +1,7 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 
-import { PrikinHandwritten } from '@/components/prikin/prikin-brand-header';
+import { HomeDayMessage } from '@/components/home/home-day-message';
 import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors } from '@/constants/prikin-tokens';
 import type { HomeLocationPresentationPhase } from '@/hooks/use-home-location-presentation';
@@ -51,6 +51,41 @@ export function HomeWeatherHeader({
 
   const locationLabel = locationName ? `${locationName} ›` : null;
 
+  const renderCityRow = (pressable: boolean) => {
+    if (!locationLabel) {
+      return null;
+    }
+
+    const content = (
+      <>
+        <SymbolView
+          name={{
+            ios: 'location',
+            android: 'location_on',
+            web: 'location_on',
+          }}
+          size={15}
+          tintColor={PrikinColors.textPrimary}
+        />
+        <Text style={styles.location}>{locationLabel}</Text>
+      </>
+    );
+
+    if (pressable && onLocationPress) {
+      return (
+        <Pressable
+          onPress={onLocationPress}
+          accessibilityRole="button"
+          accessibilityLabel={`Город: ${locationName}`}
+          style={({ pressed }) => [styles.cityRow, pressed && styles.pressed]}>
+          {content}
+        </Pressable>
+      );
+    }
+
+    return <View style={styles.cityRow}>{content}</View>;
+  };
+
   return (
     <View style={styles.wrap}>
       <View style={styles.mainRow}>
@@ -83,17 +118,7 @@ export function HomeWeatherHeader({
               <Text style={styles.locationPending}>Определяем город…</Text>
             </View>
           ) : locationLabel ? (
-            onLocationPress ? (
-              <Pressable
-                onPress={onLocationPress}
-                accessibilityRole="button"
-                accessibilityLabel={`Город: ${locationName}`}
-                style={({ pressed }) => [styles.locationRow, pressed && styles.pressed]}>
-                <Text style={styles.location}>{locationLabel}</Text>
-              </Pressable>
-            ) : (
-              <Text style={styles.location}>{locationLabel}</Text>
-            )
+            renderCityRow(Boolean(onLocationPress))
           ) : locationPhase === 'location_unavailable' ? (
             <Pressable
               onPress={onRetryLocation}
@@ -144,7 +169,9 @@ export function HomeWeatherHeader({
           ) : null}
         </View>
 
-        <PrikinHandwritten style={styles.handwritten}>Удачного дня</PrikinHandwritten>
+        <View style={styles.rightColumn}>
+          <HomeDayMessage />
+        </View>
       </View>
     </View>
   );
@@ -158,12 +185,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 6,
   },
   leftColumn: {
-    flex: 1,
+    flex: PrikinHomeLayout.headerLeftColumnFlex,
     gap: 4,
     minWidth: 0,
+  },
+  rightColumn: {
+    flex: PrikinHomeLayout.headerRightColumnFlex,
+    minWidth: 120,
+    maxWidth: 168,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    paddingTop: 2,
+  },
+  cityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
   },
   locationRow: {
     alignSelf: 'flex-start',
@@ -260,15 +301,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: PrikinHomeLayout.locationLineHeight,
     color: PrikinColors.textPrimary,
-  },
-  handwritten: {
-    flexShrink: 0,
-    maxWidth: 108,
-    fontSize: 15,
-    lineHeight: 19,
-    textAlign: 'right',
-    transform: [{ rotate: '-10deg' }],
-    marginTop: 4,
   },
   pressed: {
     opacity: 0.85,

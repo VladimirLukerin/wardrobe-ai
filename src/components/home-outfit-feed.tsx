@@ -48,10 +48,13 @@ export function HomeOutfitFeed() {
       ) : null}
 
       {status === 'empty' ? (
-        <Text style={styles.emptyText}>
-          Здесь пока тихо. Никто ещё не отметил свой образ. Будь первой — нажми «Надеть сегодня» на
-          своём образе.
-        </Text>
+        <View style={styles.emptyRow}>
+          <Text style={styles.emptyText}>
+            Здесь пока тихо. Никто ещё не отметил свой образ. Будь первой — нажми «Надеть сегодня» на
+            своём образе.
+          </Text>
+          <View style={styles.emptyAccentSlot} accessibilityElementsHidden />
+        </View>
       ) : null}
 
       {entries.length > 0 ? (
@@ -78,8 +81,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: PrikinHomeLayout.wornSectionTitleFontSize,
-    fontWeight: '600',
-    lineHeight: 22,
+    fontWeight: '700',
+    lineHeight: PrikinHomeLayout.sectionCardTitleLineHeight,
     color: PrikinColors.textPrimary,
   },
   bodySecondary: {
@@ -87,10 +90,23 @@ const styles = StyleSheet.create({
     lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
     color: PrikinColors.textSecondary,
   },
+  emptyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
   emptyText: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: '82%',
     fontSize: PrikinHomeLayout.wornSectionBodyFontSize,
-    lineHeight: 18,
+    lineHeight: PrikinHomeLayout.cardBodyLineHeight,
     color: PrikinColors.textSecondary,
+  },
+  emptyAccentSlot: {
+    width: 44,
+    minHeight: 44,
+    flexShrink: 0,
   },
   feedRow: {
     gap: 8,
