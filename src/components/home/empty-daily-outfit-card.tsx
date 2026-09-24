@@ -14,6 +14,7 @@ export function EmptyDailyOutfitCard() {
           xml={PRIKIN_HOME_OUTFIT_EMPTY_SVG}
           width={PrikinHomeLayout.outfitIllustrationWidth}
           aspectRatio={130 / 118}
+          contentScale={PrikinHomeLayout.outfitIllustrationContentScale}
           accessibilityLabel="Иллюстрация рубашки и брюк"
           style={styles.illustration}
         />
@@ -36,7 +37,7 @@ const styles = StyleSheet.create({
     borderRadius: PrikinHomeLayout.cardRadius,
     paddingHorizontal: PrikinHomeLayout.cardPaddingHorizontal,
     paddingVertical: PrikinHomeLayout.cardPaddingVertical,
-    gap: PrikinHomeLayout.cardInnerGap,
+    gap: PrikinHomeLayout.cardTitleToContentGap,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PrikinColors.borderSubtle,
   },

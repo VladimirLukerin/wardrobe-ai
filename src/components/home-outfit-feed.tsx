@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: PrikinHomeLayout.wornSectionTitleFontSize,
     fontWeight: '600',
-    lineHeight: PrikinHomeLayout.cardHeadingLineHeight,
+    lineHeight: 22,
     color: PrikinColors.textPrimary,
   },
   bodySecondary: {
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: PrikinHomeLayout.wornSectionBodyFontSize,
-    lineHeight: PrikinHomeLayout.cardBodyLineHeight,
+    lineHeight: 18,
     color: PrikinColors.textSecondary,
   },
   feedRow: {

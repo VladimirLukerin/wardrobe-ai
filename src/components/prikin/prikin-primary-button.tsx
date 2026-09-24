@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View, type PressableProps } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 
-import { PrikinButton, PrikinColors, PrikinHomeRadii, PrikinRadii, PrikinTypography } from '@/constants/prikin-tokens';
+import { PrikinButton, PrikinColors, PrikinRadii, PrikinTypography } from '@/constants/prikin-tokens';
 import type { PressableStateCallbackType, StyleProp, ViewStyle } from 'react-native';
 
 type PrikinPrimaryButtonProps = PressableProps & {

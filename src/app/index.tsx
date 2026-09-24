@@ -35,7 +35,6 @@ import { useWardrobe, type WardrobeItem } from '@/contexts/wardrobe-context';
 import { NetworkErrorState } from '@/components/network-error-state';
 import type { OutfitSuggestion } from '@/services/outfit-suggestions';
 import { useHomeDailyData } from '@/contexts/home-daily-content-context';
-import { getActiveLocation } from '@/utils/get-active-location';
 import { isAccountProtected } from '@/utils/account-is-protected';
 import { resolveWardrobeItemsFromIds } from '@/utils/resolve-wardrobe-items';
 import { ThemedText } from '@/components/themed-text';
@@ -44,6 +43,7 @@ import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
 import type { SavedOutfit } from '@/constants/saved-outfit';
 import type { OutfitFeedback, OutfitFeedbackReason } from '@/constants/outfit-feedback';
 import { useAddWardrobeItem } from '@/hooks/use-add-wardrobe-item';
+import { useHomeLocationPresentation } from '@/hooks/use-home-location-presentation';
 
 const SAVED_OUTFITS_PREVIEW_COUNT = 3;
 const WARDROBE_PREVIEW_COUNT = 4;
@@ -239,20 +239,18 @@ export default function HomeScreen() {
     useOutfits();
   const { considerWeather, isHydrated: isStylistHydrated } =
     useStylistPreferences();
-  const {
-    locationMode,
-    manualLocation,
-    autoLocation,
-    isHydrated: isBodyHydrated,
-  } = useBodyParameters();
+  const { isHydrated: isBodyHydrated } = useBodyParameters();
 
   const isFullyHydrated =
     isWardrobeHydrated && isOutfitsHydrated && isStylistHydrated && isBodyHydrated;
 
-  const activeLocation = useMemo(
-    () => getActiveLocation({ locationMode, manualLocation, autoLocation }),
-    [autoLocation, locationMode, manualLocation],
-  );
+  const {
+    phase: homeLocationPhase,
+    displayLocationName,
+    isDetectingLocation,
+    requestLocationAccess,
+    retryAutoLocation,
+  } = useHomeLocationPresentation();
 
   const wardrobeById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
 
@@ -352,14 +350,21 @@ export default function HomeScreen() {
             <HomeBrandHeader />
 
             <HomeWeatherHeader
-              locationName={activeLocation?.name ?? null}
-              isLocationPending={locationMode === 'auto' && !activeLocation}
+              locationName={displayLocationName}
+              locationPhase={homeLocationPhase}
+              isDetectingLocation={isDetectingLocation}
               considerWeather={considerWeather}
               weather={weather}
-              isLoading={isWeatherLoading}
-              error={weatherError}
-              onRetry={() => {
+              isWeatherLoading={isWeatherLoading}
+              weatherError={weatherError}
+              onRetryWeather={() => {
                 void refreshWeather();
+              }}
+              onRequestLocationAccess={() => {
+                void requestLocationAccess();
+              }}
+              onRetryLocation={() => {
+                retryAutoLocation();
               }}
             />
 

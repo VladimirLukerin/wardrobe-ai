@@ -1,41 +1,53 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 
-import { NetworkErrorState } from '@/components/network-error-state';
 import { PrikinHandwritten } from '@/components/prikin/prikin-brand-header';
 import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import { PrikinColors } from '@/constants/prikin-tokens';
+import type { HomeLocationPresentationPhase } from '@/hooks/use-home-location-presentation';
 import type { CurrentWeatherErrorCode } from '@/services/current-weather';
 import type { OutfitWeather } from '@/services/outfit-suggestions';
-import { NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import { formatWeatherTemperature } from '@/utils/weather-code';
 import { getWeatherSymbolName } from '@/utils/weather-symbol';
 
 type HomeWeatherHeaderProps = {
   locationName: string | null;
-  isLocationPending: boolean;
+  locationPhase: HomeLocationPresentationPhase;
+  isDetectingLocation: boolean;
   considerWeather: boolean;
   weather: OutfitWeather | null;
-  isLoading: boolean;
-  error: CurrentWeatherErrorCode | null;
-  onRetry: () => void;
+  isWeatherLoading: boolean;
+  weatherError: CurrentWeatherErrorCode | null;
+  onRetryWeather: () => void;
+  onRequestLocationAccess: () => void;
+  onRetryLocation: () => void;
   onLocationPress?: () => void;
 };
 
 export function HomeWeatherHeader({
   locationName,
-  isLocationPending,
+  locationPhase,
+  isDetectingLocation,
   considerWeather,
   weather,
-  isLoading,
-  error,
-  onRetry,
+  isWeatherLoading,
+  weatherError,
+  onRetryWeather,
+  onRequestLocationAccess,
+  onRetryLocation,
   onLocationPress,
 }: HomeWeatherHeaderProps) {
   const symbol = weather ? getWeatherSymbolName(weather.weatherCode) : null;
+  const showWeatherBlock = locationPhase === 'ready' && considerWeather;
   const showWeatherLoading =
-    considerWeather && !weather && (isLoading || (Boolean(locationName) && !error));
-  const showWeatherError = considerWeather && !weather && Boolean(error) && Boolean(locationName);
+    showWeatherBlock && !weather && isWeatherLoading && Boolean(locationName) && !weatherError;
+  const showWeatherError =
+    showWeatherBlock &&
+    Boolean(weatherError) &&
+    Boolean(locationName) &&
+    !weather &&
+    !isWeatherLoading;
+  const showWeatherData = showWeatherBlock && weather && symbol;
 
   const locationLabel = locationName ? `${locationName} ›` : null;
 
@@ -43,7 +55,34 @@ export function HomeWeatherHeader({
     <View style={styles.wrap}>
       <View style={styles.mainRow}>
         <View style={styles.leftColumn}>
-          {locationLabel ? (
+          {locationPhase === 'need_permission' ? (
+            <Pressable
+              onPress={onRequestLocationAccess}
+              accessibilityRole="button"
+              accessibilityLabel="Разрешить геолокацию"
+              style={({ pressed }) => [styles.permissionCta, pressed && styles.pressed]}>
+              <SymbolView
+                name={{
+                  ios: 'location.fill',
+                  android: 'location_on',
+                  web: 'location_on',
+                }}
+                size={16}
+                tintColor={PrikinColors.textPrimary}
+              />
+              <View style={styles.permissionCopy}>
+                <Text style={styles.permissionTitle}>Разрешить геолокацию</Text>
+                <Text style={styles.permissionHint}>
+                  Чтобы показывать погоду для вашего города
+                </Text>
+              </View>
+            </Pressable>
+          ) : isDetectingLocation ? (
+            <View style={styles.locationPendingRow}>
+              <ActivityIndicator size="small" color={PrikinColors.textSecondary} />
+              <Text style={styles.locationPending}>Определяем город…</Text>
+            </View>
+          ) : locationLabel ? (
             onLocationPress ? (
               <Pressable
                 onPress={onLocationPress}
@@ -55,16 +94,20 @@ export function HomeWeatherHeader({
             ) : (
               <Text style={styles.location}>{locationLabel}</Text>
             )
-          ) : isLocationPending ? (
-            <View style={styles.locationPendingRow}>
-              <ActivityIndicator size="small" color={PrikinColors.textSecondary} />
-              <Text style={styles.locationPending}>Определяем город…</Text>
-            </View>
-          ) : (
+          ) : locationPhase === 'location_unavailable' ? (
+            <Pressable
+              onPress={onRetryLocation}
+              accessibilityRole="button"
+              accessibilityLabel="Повторить определение города"
+              style={({ pressed }) => [styles.compactRetry, pressed && styles.pressed]}>
+              <Text style={styles.compactRetryTitle}>Не удалось определить город</Text>
+              <Text style={styles.compactRetryAction}>Повторить</Text>
+            </Pressable>
+          ) : locationPhase === 'ready' ? (
             <Text style={styles.locationMuted}>Город не указан</Text>
-          )}
+          ) : null}
 
-          {considerWeather && weather && symbol ? (
+          {showWeatherData ? (
             <View style={styles.weatherRow}>
               <SymbolView
                 name={{
@@ -72,7 +115,7 @@ export function HomeWeatherHeader({
                   android: symbol.android as 'cloud',
                   web: symbol.web as 'cloud',
                 }}
-                size={24}
+                size={22}
                 tintColor={PrikinColors.textPrimary}
               />
               <View style={styles.tempColumn}>
@@ -85,20 +128,19 @@ export function HomeWeatherHeader({
               </View>
             </View>
           ) : showWeatherLoading ? (
-            <View style={styles.weatherPlaceholder}>
+            <View style={styles.weatherLoadingRow}>
               <ActivityIndicator size="small" color={PrikinColors.textSecondary} />
               <Text style={styles.loadingText}>Погода…</Text>
             </View>
           ) : showWeatherError ? (
-            <NetworkErrorState
-              compact
-              title={error === 'network' ? NETWORK_ERROR_TITLE : 'Не удалось загрузить погоду'}
-              hint={error === 'network' ? NETWORK_ERROR_HINT : 'Попробуйте ещё раз.'}
-              onRetry={onRetry}
-              style={styles.weatherError}
-            />
-          ) : considerWeather ? (
-            <View style={styles.weatherPlaceholder} />
+            <Pressable
+              onPress={onRetryWeather}
+              accessibilityRole="button"
+              accessibilityLabel="Повторить загрузку погоды"
+              style={({ pressed }) => [styles.compactRetry, pressed && styles.pressed]}>
+              <Text style={styles.compactRetryTitle}>Не удалось обновить погоду</Text>
+              <Text style={styles.compactRetryAction}>Повторить</Text>
+            </Pressable>
           ) : null}
         </View>
 
@@ -110,7 +152,6 @@ export function HomeWeatherHeader({
 
 const styles = StyleSheet.create({
   wrap: {
-    minHeight: 72,
     marginTop: PrikinHomeLayout.logoToLocationGap,
   },
   mainRow: {
@@ -143,11 +184,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    minHeight: PrikinHomeLayout.locationLineHeight,
   },
   locationPending: {
     fontSize: 14,
     lineHeight: PrikinHomeLayout.locationLineHeight,
+    color: PrikinColors.textSecondary,
+  },
+  permissionCta: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    alignSelf: 'flex-start',
+  },
+  permissionCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  permissionTitle: {
+    fontSize: PrikinHomeLayout.locationFontSize,
+    fontWeight: '600',
+    lineHeight: PrikinHomeLayout.locationLineHeight,
+    color: PrikinColors.textPrimary,
+  },
+  permissionHint: {
+    fontSize: PrikinHomeLayout.feelsLikeFontSize,
+    lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
     color: PrikinColors.textSecondary,
   },
   weatherRow: {
@@ -159,7 +221,7 @@ const styles = StyleSheet.create({
   tempColumn: {
     gap: 0,
     flexShrink: 1,
-    paddingTop: 2,
+    paddingTop: 1,
   },
   temperature: {
     fontSize: PrikinHomeLayout.temperatureFontSize,
@@ -172,27 +234,41 @@ const styles = StyleSheet.create({
     lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
     color: PrikinColors.textSecondary,
   },
-  weatherPlaceholder: {
-    minHeight: 36,
-    justifyContent: 'center',
+  weatherLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
   },
   loadingText: {
     fontSize: PrikinHomeLayout.feelsLikeFontSize,
     lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
     color: PrikinColors.textSecondary,
   },
-  weatherError: {
+  compactRetry: {
+    alignSelf: 'flex-start',
+    gap: 2,
     marginTop: 2,
-    alignSelf: 'stretch',
+  },
+  compactRetryTitle: {
+    fontSize: PrikinHomeLayout.feelsLikeFontSize,
+    lineHeight: PrikinHomeLayout.feelsLikeLineHeight,
+    color: PrikinColors.textSecondary,
+  },
+  compactRetryAction: {
+    fontSize: PrikinHomeLayout.locationFontSize,
+    fontWeight: '600',
+    lineHeight: PrikinHomeLayout.locationLineHeight,
+    color: PrikinColors.textPrimary,
   },
   handwritten: {
     flexShrink: 0,
-    maxWidth: 112,
-    fontSize: 16,
-    lineHeight: 20,
+    maxWidth: 108,
+    fontSize: 15,
+    lineHeight: 19,
     textAlign: 'right',
     transform: [{ rotate: '-10deg' }],
-    marginTop: 8,
+    marginTop: 4,
   },
   pressed: {
     opacity: 0.85,
