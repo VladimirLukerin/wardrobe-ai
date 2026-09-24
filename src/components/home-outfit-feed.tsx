@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { WornOutfitFeedCard } from '@/components/worn-outfit-feed-card';
 import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
-import { PrikinColors, PrikinSpacing } from '@/constants/prikin-tokens';
+import { PrikinColors } from '@/constants/prikin-tokens';
 import { useHomeWornOutfitFeed } from '@/hooks/use-home-worn-outfit-feed';
 import type { WornOutfitFeedDisplayEntry } from '@/services/home-worn-outfit-feed';
 
@@ -77,7 +77,7 @@ export function HomeOutfitFeed() {
 
 const styles = StyleSheet.create({
   section: {
-    gap: PrikinHomeLayout.cardInnerGap,
+    gap: PrikinHomeLayout.wornSectionTitleBodyGap,
   },
   sectionTitle: {
     fontSize: PrikinHomeLayout.wornSectionTitleFontSize,
@@ -93,19 +93,19 @@ const styles = StyleSheet.create({
   emptyRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: PrikinHomeLayout.todayCardRowGap,
   },
   emptyText: {
     flex: 1,
     minWidth: 0,
-    maxWidth: '82%',
+    maxWidth: `${PrikinHomeLayout.wornEmptyTextMaxWidthRatio * 100}%`,
     fontSize: PrikinHomeLayout.wornSectionBodyFontSize,
     lineHeight: PrikinHomeLayout.cardBodyLineHeight,
     color: PrikinColors.textSecondary,
   },
   emptyAccentSlot: {
-    width: 44,
-    minHeight: 44,
+    width: PrikinHomeLayout.wornEmptyAccentWidth,
+    minHeight: PrikinHomeLayout.wornEmptyAccentWidth,
     flexShrink: 0,
   },
   feedRow: {

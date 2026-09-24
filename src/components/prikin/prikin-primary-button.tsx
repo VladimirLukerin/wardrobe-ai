@@ -2,12 +2,13 @@ import { Pressable, StyleSheet, Text, View, type PressableProps } from 'react-na
 import { SymbolView } from 'expo-symbols';
 
 import { PrikinButton, PrikinColors, PrikinRadii, PrikinTypography } from '@/constants/prikin-tokens';
+import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
 import type { PressableStateCallbackType, StyleProp, ViewStyle } from 'react-native';
 
 type PrikinPrimaryButtonProps = PressableProps & {
   label: string;
   variant?: 'filled' | 'outline';
-  size?: 'default' | 'compact';
+  size?: 'default' | 'compact' | 'home';
   showPlusIcon?: boolean;
   style?: StyleProp<ViewStyle> | ((state: PressableStateCallbackType) => StyleProp<ViewStyle>);
 };
@@ -22,6 +23,7 @@ export function PrikinPrimaryButton({
 }: PrikinPrimaryButtonProps) {
   const isOutline = variant === 'outline';
   const isCompact = size === 'compact';
+  const isHome = size === 'home';
 
   return (
     <Pressable
@@ -29,8 +31,12 @@ export function PrikinPrimaryButton({
       accessibilityRole="button"
       style={(state) => [
         styles.base,
-        isCompact ? styles.compact : styles.defaultHeight,
-        isCompact ? styles.compactRadius : styles.defaultRadius,
+        isHome
+          ? styles.homeHeight
+          : isCompact
+            ? styles.compact
+            : styles.defaultHeight,
+        isHome ? styles.homeRadius : isCompact ? styles.compactRadius : styles.defaultRadius,
         isOutline ? styles.outline : styles.filled,
         state.pressed && styles.pressed,
         typeof style === 'function' ? style(state) : style,
@@ -39,14 +45,15 @@ export function PrikinPrimaryButton({
         {showPlusIcon ? (
           <SymbolView
             name={{ ios: 'plus', android: 'add', web: 'add' }}
-            size={isCompact ? 20 : 18}
+            size={isHome ? PrikinHomeLayout.homePrimaryButtonIconSize : isCompact ? 20 : 18}
             tintColor={isOutline ? PrikinColors.buttonPrimary : PrikinColors.buttonPrimaryText}
           />
         ) : null}
         <Text
           style={[
             styles.label,
-            isCompact && styles.labelCompact,
+            isHome && styles.labelHome,
+            isCompact && !isHome && styles.labelCompact,
             isOutline ? styles.labelOutline : styles.labelFilled,
           ]}>
           {label}
@@ -67,6 +74,13 @@ const styles = StyleSheet.create({
   },
   compact: {
     minHeight: PrikinButton.compactMinHeight,
+  },
+  homeHeight: {
+    minHeight: PrikinHomeLayout.homePrimaryButtonMinHeight,
+    paddingVertical: PrikinHomeLayout.homePrimaryButtonPaddingVertical,
+  },
+  homeRadius: {
+    borderRadius: PrikinHomeLayout.homePrimaryButtonRadius,
   },
   defaultRadius: {
     borderRadius: PrikinRadii.button,
@@ -94,6 +108,10 @@ const styles = StyleSheet.create({
   labelCompact: {
     fontSize: 16,
     lineHeight: 20,
+  },
+  labelHome: {
+    fontSize: PrikinHomeLayout.homePrimaryButtonLabelFontSize,
+    lineHeight: PrikinHomeLayout.homePrimaryButtonLabelLineHeight,
   },
   labelFilled: {
     color: PrikinColors.buttonPrimaryText,

@@ -2,7 +2,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { HomeOutfitFeed } from '@/components/home-outfit-feed';
 import { PrikinHomeLayout } from '@/constants/prikin-home-tokens';
-import { PrikinColors, PrikinSpacing } from '@/constants/prikin-tokens';
+import { PrikinColors } from '@/constants/prikin-tokens';
 
 export function HomeWornNowSection() {
   return (
@@ -15,8 +15,8 @@ export function HomeWornNowSection() {
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: PrikinHomeLayout.sectionGap,
-    marginTop: 2,
+    gap: PrikinHomeLayout.communitySectionTopGap,
+    marginTop: 0,
   },
   divider: {
     height: StyleSheet.hairlineWidth,

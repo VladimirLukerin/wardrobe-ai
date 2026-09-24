@@ -579,11 +579,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: PrikinSpacing.screenHorizontal,
+    paddingHorizontal: PrikinHomeLayout.contentHorizontalPadding,
     gap: PrikinHomeLayout.sectionGap,
   },
   dailySection: {
-    gap: PrikinHomeLayout.sectionGap,
+    gap: PrikinHomeLayout.cardStackGap,
   },
   dailyCardHeading: {
     fontSize: PrikinHomeLayout.sectionCardTitleFontSize,
@@ -602,7 +602,7 @@ const styles = StyleSheet.create({
   },
   emptyOutfitBlock: {
     alignItems: 'stretch',
-    gap: PrikinHomeLayout.sectionGap,
+    gap: PrikinHomeLayout.cardStackGap,
   },
   section: {
     gap: PrikinHomeLayout.sectionGap,

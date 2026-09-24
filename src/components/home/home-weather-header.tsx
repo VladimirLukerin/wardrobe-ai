@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
   },
   leftColumn: {
     flex: PrikinHomeLayout.headerLeftColumnFlex,
-    gap: 4,
+    gap: PrikinHomeLayout.headerWeatherBlockGap,
     minWidth: 0,
   },
   rightColumn: {
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     maxWidth: 168,
     alignItems: 'flex-end',
     justifyContent: 'flex-start',
-    paddingTop: 2,
+    paddingTop: 0,
   },
   cityRow: {
     flexDirection: 'row',

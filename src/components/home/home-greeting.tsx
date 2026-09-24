@@ -26,7 +26,8 @@ export function HomeGreeting({ displayName, profileHydrated }: HomeGreetingProps
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingTop: 2,
+    paddingTop: PrikinHomeLayout.greetingTopPadding,
+    paddingBottom: PrikinHomeLayout.greetingBottomPadding,
   },
   greeting: {
     fontSize: PrikinHomeLayout.greetingFontSize,

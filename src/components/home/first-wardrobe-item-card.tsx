@@ -27,7 +27,7 @@ export function FirstWardrobeItemCard({ onAddFirstItem }: FirstWardrobeItemCardP
       <PrikinPrimaryButton
         label="Добавить первую вещь"
         showPlusIcon
-        size="compact"
+        size="home"
         onPress={onAddFirstItem}
         style={styles.button}
       />
@@ -54,7 +54,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: PrikinHomeLayout.firstItemCardRowGap,
   },
   illustration: {
     flexShrink: 0,
@@ -68,6 +68,6 @@ const styles = StyleSheet.create({
   },
   button: {
     alignSelf: 'stretch',
-    marginTop: 0,
+    marginTop: PrikinHomeLayout.cardTitleToButtonGap,
   },
 });

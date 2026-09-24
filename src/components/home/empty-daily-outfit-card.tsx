@@ -49,15 +49,16 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: PrikinHomeLayout.todayCardRowGap,
   },
   illustration: {
     flexShrink: 0,
   },
   copy: {
     flex: 1,
+    flexShrink: 1,
     minWidth: 0,
-    gap: 4,
+    gap: PrikinHomeLayout.cardCopyInnerGap,
   },
   title: {
     fontSize: PrikinHomeLayout.cardMessageFontSize,
