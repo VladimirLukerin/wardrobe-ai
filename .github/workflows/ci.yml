@@ -97,3 +97,6 @@ jobs:
 
       - name: Run rate limit placement test
         run: npm run test:rate-limit-placement
+
+      - name: Run admin backend test
+        run: npm run test:admin-backend

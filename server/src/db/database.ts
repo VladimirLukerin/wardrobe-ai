@@ -103,6 +103,7 @@ function runMigrations(db: Database.Database): void {
   migrateDailyOutfitsTable(db);
   migrateOutfitFeedbackTable(db);
   migratePasswordCredentials(db);
+  migrateAdminTables(db);
 }
 
 function migrateSavedPairedOutfitsTable(db: Database.Database): void {
@@ -141,6 +142,51 @@ function migratePasswordCredentials(db: Database.Database): void {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
+  `);
+}
+
+function migrateAdminTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS admin_users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'viewer')),
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_login_at TEXT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users(email);
+
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      id TEXT PRIMARY KEY,
+      admin_user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      FOREIGN KEY (admin_user_id) REFERENCES admin_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_admin_sessions_token_hash ON admin_sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin_user_id ON admin_sessions(admin_user_id);
+
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id TEXT PRIMARY KEY,
+      admin_user_id TEXT NULL,
+      action TEXT NOT NULL,
+      target_type TEXT NULL,
+      target_id TEXT NULL,
+      metadata_json TEXT NULL,
+      created_at TEXT NOT NULL,
+      ip TEXT NULL,
+      FOREIGN KEY (admin_user_id) REFERENCES admin_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_log_admin_user_id ON admin_audit_log(admin_user_id);
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON admin_audit_log(created_at);
   `);
 }
 
