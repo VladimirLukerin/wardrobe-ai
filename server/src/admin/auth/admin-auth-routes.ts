@@ -72,7 +72,10 @@ adminAuthRouter.post('/login', async (req: Request, res: Response) => {
   }
 
   try {
-    const isValid = await verifyAdminPassword(passwordValidated.password, adminUser.password_hash);
+    const isValid = await verifyAdminPassword(passwordValidated.password, {
+      password_hash: adminUser.password_hash,
+      password_salt: adminUser.password_salt,
+    });
 
     if (!isValid) {
       recordAdminLoginFailure(normalized.email, ip);

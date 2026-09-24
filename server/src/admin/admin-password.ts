@@ -1,37 +1,83 @@
-import { hashPassword, verifyPassword, type StoredPasswordCredential } from '../auth/password';
+import { hashPassword, verifyPassword } from '../auth/password';
 
-type SerializedAdminPassword = {
+export type AdminPasswordMaterial = {
   passwordHash: string;
   passwordSalt: string;
 };
 
-export async function serializeAdminPasswordHash(password: string): Promise<string> {
+export async function createAdminPasswordMaterial(password: string): Promise<AdminPasswordMaterial> {
   const material = await hashPassword(password);
-  const payload: SerializedAdminPassword = {
+
+  return {
     passwordHash: material.passwordHash,
     passwordSalt: material.passwordSalt,
   };
-
-  return JSON.stringify(payload);
 }
 
-export async function verifyAdminPassword(password: string, stored: string): Promise<boolean> {
-  let parsed: SerializedAdminPassword;
+export type AdminPasswordCredential = {
+  password_hash: string;
+  password_salt: string | null;
+};
+
+function parseLegacyJsonCredential(storedHash: string): AdminPasswordMaterial | null {
+  const trimmed = storedHash.trim();
+
+  if (!trimmed.startsWith('{')) {
+    return null;
+  }
 
   try {
-    parsed = JSON.parse(stored) as SerializedAdminPassword;
+    const parsed = JSON.parse(trimmed) as {
+      passwordHash?: string;
+      passwordSalt?: string;
+    };
+
+    if (
+      typeof parsed.passwordHash === 'string' &&
+      parsed.passwordHash.length > 0 &&
+      typeof parsed.passwordSalt === 'string' &&
+      parsed.passwordSalt.length > 0
+    ) {
+      return {
+        passwordHash: parsed.passwordHash,
+        passwordSalt: parsed.passwordSalt,
+      };
+    }
   } catch {
-    return false;
+    return null;
   }
 
-  if (!parsed.passwordHash || !parsed.passwordSalt) {
-    return false;
+  return null;
+}
+
+export async function verifyAdminPassword(
+  password: string,
+  credential: AdminPasswordCredential,
+): Promise<boolean> {
+  if (credential.password_salt) {
+    return verifyPassword(password, {
+      password_hash: credential.password_hash,
+      password_salt: credential.password_salt,
+    });
   }
 
-  const credential: StoredPasswordCredential = {
-    password_hash: parsed.passwordHash,
-    password_salt: parsed.passwordSalt,
-  };
+  const legacy = parseLegacyJsonCredential(credential.password_hash);
 
-  return verifyPassword(password, credential);
+  if (legacy) {
+    return verifyPassword(password, {
+      password_hash: legacy.passwordHash,
+      password_salt: legacy.passwordSalt,
+    });
+  }
+
+  return false;
+}
+
+/** @deprecated Use createAdminPasswordMaterial instead. */
+export async function serializeAdminPasswordHash(password: string): Promise<string> {
+  const material = await createAdminPasswordMaterial(password);
+  return JSON.stringify({
+    passwordHash: material.passwordHash,
+    passwordSalt: material.passwordSalt,
+  });
 }

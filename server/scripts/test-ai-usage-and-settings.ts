@@ -14,6 +14,7 @@ import { closeDatabase, getDatabase } from '../src/db/database';
 import { createSessionForUser } from '../src/db/sessions-repository';
 import { createAnonymousUser } from '../src/db/users-repository';
 import { resetProcessingCacheForTests } from '../src/photo-processing/processing-cost-guard';
+import { assertAdminTestsUseIsolatedDatabase, useIsolatedTestDatabase } from './test-db-isolation';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -84,7 +85,11 @@ async function withTestServer(run: (baseUrl: string) => Promise<void>): Promise<
 }
 
 async function main(): Promise<void> {
-  getDatabase();
+  const isolated = useIsolatedTestDatabase();
+
+  try {
+    getDatabase();
+    assertAdminTestsUseIsolatedDatabase(isolated.dbPath);
   clearAiUsageEventsForTests();
   clearAppSettingsForTests();
   resetProcessingCacheForTests();
@@ -245,13 +250,13 @@ async function main(): Promise<void> {
   });
 
   console.log('All AI usage and settings tests passed.');
+  } finally {
+    closeDatabase();
+    isolated.cleanup();
+  }
 }
 
-main()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(() => {
-    closeDatabase();
-  });
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

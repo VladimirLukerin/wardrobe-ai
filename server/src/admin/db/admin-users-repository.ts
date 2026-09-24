@@ -4,12 +4,13 @@ import { normalizeEmail } from '../../auth/normalize-email';
 import { getDatabase } from '../../db/database';
 import type { AdminRole } from '../admin-config';
 import { isAdminRole } from '../admin-config';
-import { serializeAdminPasswordHash } from '../admin-password';
+import { createAdminPasswordMaterial } from '../admin-password';
 
 export type DbAdminUser = {
   id: string;
   email: string;
   password_hash: string;
+  password_salt: string | null;
   role: AdminRole;
   is_active: number;
   created_at: string;
@@ -71,14 +72,22 @@ export async function createAdminUser({
   const db = getDatabase();
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-  const passwordHash = await serializeAdminPasswordHash(password);
+  const passwordMaterial = await createAdminPasswordMaterial(password);
 
   try {
     db.prepare(
       `INSERT INTO admin_users (
-        id, email, password_hash, role, is_active, created_at, updated_at, last_login_at
-      ) VALUES (?, ?, ?, ?, 1, ?, ?, NULL)`,
-    ).run(id, normalized.email, passwordHash, role, now, now);
+        id, email, password_hash, password_salt, role, is_active, created_at, updated_at, last_login_at
+      ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, NULL)`,
+    ).run(
+      id,
+      normalized.email,
+      passwordMaterial.passwordHash,
+      passwordMaterial.passwordSalt,
+      role,
+      now,
+      now,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 

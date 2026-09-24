@@ -28,6 +28,9 @@ import {
   createAnonymousUser,
   linkVerifiedEmailToUser,
 } from '../src/db/users-repository';
+import { assertAdminTestsUseIsolatedDatabase, useIsolatedTestDatabase } from './test-db-isolation';
+import { migrateAdminPasswordCredentialColumns } from '../src/admin/db/admin-password-migration';
+import { serializeAdminPasswordHash } from '../src/admin/admin-password';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -115,7 +118,8 @@ async function testBootstrapAndPasswordStorage(): Promise<void> {
   const admin = await createAdminUser({ email, password, role: 'owner' });
   assert(admin.email === email, 'Admin email should be normalized/stored');
   assert(admin.password_hash !== password, 'Password must not be stored plaintext');
-  assert(admin.password_hash.includes('passwordHash'), 'Password hash should be serialized scrypt material');
+  assert(admin.password_salt !== null && admin.password_salt.length > 0, 'Password salt should be stored separately');
+  assert(!admin.password_hash.trim().startsWith('{'), 'Password hash must not store JSON credentials');
 
   let duplicateFailed = false;
 
@@ -126,7 +130,13 @@ async function testBootstrapAndPasswordStorage(): Promise<void> {
   }
 
   assert(duplicateFailed, 'Duplicate admin email should be rejected');
-  assert(await verifyAdminPassword(password, admin.password_hash), 'Stored admin password should verify');
+  assert(
+    await verifyAdminPassword(password, {
+      password_hash: admin.password_hash,
+      password_salt: admin.password_salt,
+    }),
+    'Stored admin password should verify',
+  );
 
   console.log('OK admin bootstrap and password storage');
 }
@@ -478,28 +488,77 @@ async function testAdminRoleManagement(): Promise<void> {
   console.log('OK admin role management');
 }
 
+async function testLegacyAdminPasswordMigration(): Promise<void> {
+  const db = getDatabase();
+  const suffix = crypto.randomUUID();
+  const email = `legacy-admin-${suffix}@example.com`;
+  const password = 'LegacyAdmin123!';
+  const legacyJson = await serializeAdminPasswordHash(password);
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+
+  db.prepare(
+    `INSERT INTO admin_users (
+      id, email, password_hash, password_salt, role, is_active, created_at, updated_at, last_login_at
+    ) VALUES (?, ?, ?, NULL, 'viewer', 1, ?, ?, NULL)`,
+  ).run(id, email, legacyJson, now, now);
+
+  migrateAdminPasswordCredentialColumns(db);
+
+  const row = findAdminUserByEmail(email);
+  assert(row !== null, 'Legacy admin row should exist');
+  assert(row!.password_salt !== null, 'Migration should populate password_salt');
+  assert(!row!.password_hash.trim().startsWith('{'), 'Migration should normalize password_hash');
+
+  assert(
+    await verifyAdminPassword(password, {
+      password_hash: row!.password_hash,
+      password_salt: row!.password_salt,
+    }),
+    'Migrated legacy admin password should verify',
+  );
+
+  assert(
+    await verifyAdminPassword(password, {
+      password_hash: legacyJson,
+      password_salt: null,
+    }),
+    'Legacy JSON credential format should remain verifiable before migration',
+  );
+
+  console.log('OK admin password credential migration');
+}
+
 async function main(): Promise<void> {
-  getDatabase();
-  process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
+  const isolated = useIsolatedTestDatabase();
 
-  testRoleHelper();
-  await testBootstrapAndPasswordStorage();
-  await testAdminRoleManagement();
-  testListPaginationUnit();
+  try {
+    getDatabase();
+    assertAdminTestsUseIsolatedDatabase(isolated.dbPath);
+    process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
 
-  await withTestServer(async (baseUrl) => {
-    await testAdminAuthFlow(baseUrl);
-    await testInactiveAdminRejected(baseUrl);
-    await testExpiredAdminSessionRejected(baseUrl);
-    await testUserSessionCannotAccessAdmin(baseUrl);
-    await testUsersListSearchAndDetail(baseUrl);
-    await testAuditRecords(baseUrl);
-    await testAdminLoginRateLimit(baseUrl);
-    await testDashboardEndpoint(baseUrl);
-  });
+    testRoleHelper();
+    await testBootstrapAndPasswordStorage();
+    await testAdminRoleManagement();
+    await testLegacyAdminPasswordMigration();
+    testListPaginationUnit();
 
-  closeDatabase();
-  console.log('All admin backend tests passed.');
+    await withTestServer(async (baseUrl) => {
+      await testAdminAuthFlow(baseUrl);
+      await testInactiveAdminRejected(baseUrl);
+      await testExpiredAdminSessionRejected(baseUrl);
+      await testUserSessionCannotAccessAdmin(baseUrl);
+      await testUsersListSearchAndDetail(baseUrl);
+      await testAuditRecords(baseUrl);
+      await testAdminLoginRateLimit(baseUrl);
+      await testDashboardEndpoint(baseUrl);
+    });
+
+    closeDatabase();
+    console.log('All admin backend tests passed.');
+  } finally {
+    isolated.cleanup();
+  }
 }
 
 void main();

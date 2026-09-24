@@ -3,10 +3,27 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
+import { migrateAdminPasswordCredentialColumns } from '../admin/db/admin-password-migration';
+
 const DATA_DIR = path.join(__dirname, '../../data');
-const DB_PATH = path.join(DATA_DIR, 'wardrobe-ai.sqlite');
+const DEFAULT_DB_PATH = path.join(DATA_DIR, 'wardrobe-ai.sqlite');
 
 let database: Database.Database | null = null;
+let activeDatabasePath: string | null = null;
+
+export function resolveDatabasePath(): string {
+  const override = process.env.WARDROBE_DB_PATH?.trim();
+
+  if (override) {
+    return path.isAbsolute(override) ? override : path.resolve(process.cwd(), override);
+  }
+
+  return DEFAULT_DB_PATH;
+}
+
+export function getActiveDatabasePath(): string | null {
+  return activeDatabasePath;
+}
 
 function runMigrations(db: Database.Database): void {
   db.exec(`
@@ -106,6 +123,7 @@ function runMigrations(db: Database.Database): void {
   migrateAdminTables(db);
   migrateAiUsageEvents(db);
   migrateAppSettings(db);
+  migrateAdminPasswordCredentialColumns(db);
 }
 
 function migrateSavedPairedOutfitsTable(db: Database.Database): void {
@@ -384,13 +402,22 @@ function migrateWardrobeImageColumns(db: Database.Database): void {
 }
 
 export function getDatabase(): Database.Database {
-  if (database) {
+  const dbPath = resolveDatabasePath();
+
+  if (database && activeDatabasePath === dbPath) {
     return database;
   }
 
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (database) {
+    database.close();
+    database = null;
+    activeDatabasePath = null;
+  }
 
-  database = new Database(DB_PATH);
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+  database = new Database(dbPath);
+  activeDatabasePath = dbPath;
   database.pragma('journal_mode = WAL');
   database.pragma('foreign_keys = ON');
   runMigrations(database);
@@ -402,5 +429,6 @@ export function closeDatabase(): void {
   if (database) {
     database.close();
     database = null;
+    activeDatabasePath = null;
   }
 }

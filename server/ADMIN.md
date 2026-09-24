@@ -4,10 +4,25 @@ Backend admin API for operational support, plus a separate read-only web panel i
 
 ## Purpose
 
-- Separate admin authentication from normal user sessions
+- Separate admin authentication from normal user sessions (`admin_users` is independent from `users`)
 - Role-based access control (`owner`, `admin`, `viewer`)
 - Audit trail for admin actions
 - Read-only user inspection APIs
+
+Admin operators are **not** mobile app users. Admin credentials live only in `admin_users` with dedicated sessions in `admin_sessions`.
+
+## Admin password storage
+
+`admin_users` stores scrypt material in two columns:
+
+| Column | Content |
+| --- | --- |
+| `password_hash` | Base64-encoded password hash |
+| `password_salt` | Base64-encoded salt |
+
+Older databases may temporarily store a JSON blob in `password_hash` until migration runs. On startup, the server detects `{ "passwordHash", "passwordSalt" }` JSON, splits it into the two columns, and login continues to work without a password reset.
+
+New admins always write separate hash and salt columns (never JSON).
 
 ## Create the first admin
 
@@ -43,6 +58,22 @@ npm run admin:set-role -- --email you@example.com --role owner
 ```
 
 Roles: `viewer`, `admin`, `owner`. Updates `updated_at` only; password and sessions are unchanged. Safe output example: `Updated you@example.com role to owner`.
+
+## Cleanup test-generated admin rows (dev)
+
+If admin backend tests were previously run against the dev database, you may have leftover `@example.com` test admins. Safe cleanup:
+
+```bash
+npm run admin:cleanup-test-data
+# or non-interactive:
+npm run admin:cleanup-test-data -- --yes
+```
+
+Only deletes admins whose emails match known test prefixes/patterns (for example `auth-admin-*@example.com`). Real operator emails are never matched.
+
+## Admin backend tests and database isolation
+
+`npm run test:admin-backend` and `npm run test:ai-usage-settings` use a temporary SQLite file via `WARDROBE_DB_PATH`. They do **not** write to `server/data/wardrobe-ai.sqlite`.
 
 ## Login
 
