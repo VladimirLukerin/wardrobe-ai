@@ -6,18 +6,11 @@ import { canMutateAdminSettings } from '../auth/admin-settings-permissions';
 import { ErrorBanner, LoadingState } from '../components/state-panels';
 import type { AdminAppSettingEntry, AppSettingKey } from '../types/admin-api';
 
-function canMutateSettings(role: string | undefined): boolean {
-  return role === 'admin' || role === 'owner';
-}
-
-export function canMutateAdminSettings(role: string | undefined): boolean {
-  return canMutateSettings(role);
-}
 
 export function SettingsPage() {
   const { state } = useAuth();
   const role = state.status === 'authenticated' ? state.admin.role : undefined;
-  const canEdit = canMutateSettings(role);
+  const canEdit = canMutateAdminSettings(role);
 
   const [settings, setSettings] = useState<AdminAppSettingEntry[]>([]);
   const [draft, setDraft] = useState<Record<string, boolean | number | string>>({});
