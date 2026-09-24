@@ -82,6 +82,7 @@ Inactive admins cannot log in.
 
 ## Read-only endpoints
 
+- `GET /admin/dashboard` — aggregate read-only metrics
 - `GET /admin/users?q=&accountType=guest|protected&limit=&cursor=`
 - `GET /admin/users/:userId`
 - `GET /admin/users/:userId/wardrobe`
@@ -106,6 +107,7 @@ List responses use cursor pagination (`nextCursor`).
 `.env` (names only):
 
 - `ADMIN_SESSION_TTL_HOURS` — admin session lifetime in hours (default `24`)
+- `ADMIN_WEB_ORIGIN` — allowed browser origin(s) for admin panel (comma-separated), e.g. `http://localhost:5173`
 
 ## Local development example
 

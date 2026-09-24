@@ -17,6 +17,7 @@ import {
   findAdminUserByEmail,
   setAdminUserActive,
 } from '../src/admin/db/admin-users-repository';
+import { getAdminDashboardMetrics } from '../src/admin/dashboard/admin-dashboard-service';
 import { listAdminUsers } from '../src/admin/users/admin-users-service';
 import { createApp } from '../src/app';
 import { closeDatabase, getDatabase } from '../src/db/database';
@@ -386,6 +387,32 @@ async function testAdminLoginRateLimit(baseUrl: string): Promise<void> {
   console.log('OK admin login rate limit');
 }
 
+async function testDashboardEndpoint(baseUrl: string): Promise<void> {
+  const suffix = crypto.randomUUID();
+  const admin = await createAdminUser({
+    email: `dashboard-admin-${suffix}@example.com`,
+    password: 'DashboardAdmin123!',
+    role: 'viewer',
+  });
+
+  const login = await requestJson(baseUrl, '/admin/auth/login', {
+    method: 'POST',
+    body: { email: admin.email, password: 'DashboardAdmin123!' },
+  });
+  const token = (login.body as { token: string }).token;
+
+  const response = await requestJson(baseUrl, '/admin/dashboard', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  assert(response.status === 200, 'Dashboard endpoint should succeed');
+  const body = response.body as { totalUsers: number };
+  assert(typeof body.totalUsers === 'number', 'Dashboard should return totalUsers');
+  assert(getAdminDashboardMetrics().totalUsers >= body.totalUsers, 'Dashboard count should match service');
+
+  console.log('OK admin dashboard endpoint');
+}
+
 async function main(): Promise<void> {
   getDatabase();
   process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
@@ -402,6 +429,7 @@ async function main(): Promise<void> {
     await testUsersListSearchAndDetail(baseUrl);
     await testAuditRecords(baseUrl);
     await testAdminLoginRateLimit(baseUrl);
+    await testDashboardEndpoint(baseUrl);
   });
 
   closeDatabase();

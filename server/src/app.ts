@@ -3,6 +3,7 @@ import express from 'express';
 import multer from 'multer';
 
 import { adminRouter } from './admin/routes';
+import { createCorsOptions } from './cors-config';
 import { currentWeatherHandler } from './current-weather';
 import { requireAuth } from './middleware/auth';
 import { handleProcessClothingImage } from './photo-processing/process-clothing-image';
@@ -29,7 +30,7 @@ import { suggestOutfitsHandler } from './suggest-outfits';
 export function createApp(): express.Express {
   const app = express();
 
-  app.use(cors());
+  app.use(cors(createCorsOptions()));
   app.use(express.json());
 
   if (process.env.NODE_ENV !== 'production') {

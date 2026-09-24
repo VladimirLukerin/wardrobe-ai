@@ -24,6 +24,35 @@ jobs:
       - name: Lint frontend
         run: npm run lint
 
+  admin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install admin dependencies
+        run: npm ci
+
+      - name: Typecheck admin
+        run: npm run typecheck
+
+      - name: Lint admin
+        run: npm run lint
+
+      - name: Test admin
+        run: npm test
+
+      - name: Build admin
+        run: npm run build
+
   server:
     runs-on: ubuntu-latest
     defaults:
