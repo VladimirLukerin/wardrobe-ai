@@ -50,3 +50,7 @@ server/data/*.sqlite
 server/data/*.sqlite-*
 server/data/wardrobe-images/*
 !server/data/wardrobe-images/.gitkeep
+server/data/benchmark-*/
+server/data/dev-seed-records/
+server/data/benchmark-warmup.png
+server/data/test-*-background-removal.png
