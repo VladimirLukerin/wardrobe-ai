@@ -4,60 +4,66 @@ Backend admin API for operational support, plus a separate read-only web panel i
 
 ## Purpose
 
-- Separate admin authentication from normal user sessions (`admin_users` is independent from `users`)
-- Role-based access control (`owner`, `admin`, `viewer`)
+- **One identity:** admin operators are normal `users` rows (same email as the mobile app)
+- **Same password:** `user_password_credentials` (no separate admin password table)
+- **Separate admin session:** `admin_sessions` tokens never authorize mobile routes, and mobile bearer tokens never authorize `/admin/*`
+- Role-based access control (`owner`, `admin`, `viewer`) via `users.admin_role`
 - Audit trail for admin actions
 - Read-only user inspection APIs
 
-Admin operators are **not** mobile app users. Admin credentials live only in `admin_users` with dedicated sessions in `admin_sessions`.
+Admin access requires:
 
-## Admin password storage
+- verified email on `users`
+- usable password in `user_password_credentials`
+- `users.admin_role` in (`viewer`, `admin`, `owner`)
+- `users.admin_is_active = 1`
 
-`admin_users` stores scrypt material in two columns:
+## Password storage
 
-| Column | Content |
-| --- | --- |
-| `password_hash` | Base64-encoded password hash |
-| `password_salt` | Base64-encoded salt |
+Admin login uses the same scrypt material as mobile email/password login in `user_password_credentials` (`password_hash`, `password_salt`).
 
-Older databases may temporarily store a JSON blob in `password_hash` until migration runs. On startup, the server detects `{ "passwordHash", "passwordSalt" }` JSON, splits it into the two columns, and login continues to work without a password reset.
+Legacy `admin_users.password_*` columns are migrated for old databases only; new admin access is granted with `admin:set-role`, not separate admin passwords.
 
-New admins always write separate hash and salt columns (never JSON).
+## Grant admin access (CLI)
 
-## Create the first admin
+The user must already exist as a normal app user with verified email and password.
 
 From `server/` with Node 22:
 
 ```bash
 nvm use 22
-ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='your-strong-password' npm run admin:create
-```
-
-Or run interactively:
-
-```bash
-npm run admin:create
-```
-
-Optional env:
-
-- `ADMIN_ROLE` — `viewer` (default), `admin`, or `owner`
-
-New accounts created without `ADMIN_ROLE` receive the **viewer** role. Promote the first operator with `ADMIN_ROLE=owner` on create, or use `npm run admin:set-role` (see below).
-
-The script validates email/password, stores a scrypt hash, and refuses duplicate emails. It never prints the password or hash.
-
-There is **no** public HTTP endpoint for admin creation.
-
-## Change an admin role (CLI)
-
-From `server/` with Node 22:
-
-```bash
 npm run admin:set-role -- --email you@example.com --role owner
 ```
 
-Roles: `viewer`, `admin`, `owner`. Updates `updated_at` only; password and sessions are unchanged. Safe output example: `Updated you@example.com role to owner`.
+Roles: `viewer`, `admin`, `owner`. Updates `users.admin_role` and `updated_at`. Password and existing sessions are unchanged.
+
+Remove admin access:
+
+```bash
+npm run admin:set-role -- --email you@example.com --role none
+```
+
+Safe output examples:
+
+- `Updated you@example.com role to owner`
+- `Removed admin access for you@example.com`
+
+`npm run admin:create` is **deprecated** (exits with instructions). Do not create duplicate admin identities.
+
+There is **no** public HTTP endpoint for admin creation.
+
+## Legacy `admin_users` migration
+
+On startup, the server:
+
+1. Adds `users.admin_role` and `users.admin_is_active` when missing
+2. Maps legacy `admin_users` rows onto matching `users.email` (preserves highest role: viewer < admin < owner)
+3. Rebuilds `admin_sessions` to reference `users.id`
+4. Remaps audit/settings foreign keys to `users.id`
+
+Unmatched legacy admin emails are logged as warnings; no silent user creation.
+
+The `admin_users` table is kept for now and may be removed in a later cleanup migration.
 
 ## Cleanup test-generated admin rows (dev)
 
@@ -69,7 +75,7 @@ npm run admin:cleanup-test-data
 npm run admin:cleanup-test-data -- --yes
 ```
 
-Only deletes admins whose emails match known test prefixes/patterns (for example `auth-admin-*@example.com`). Real operator emails are never matched.
+Clears `admin_role` on matching test users and removes their admin sessions/audit rows. Real operator emails are never matched.
 
 ## Admin backend tests and database isolation
 
@@ -83,130 +89,55 @@ Content-Type: application/json
 
 {
   "email": "you@example.com",
-  "password": "your-strong-password"
+  "password": "your-app-password"
 }
 ```
 
-Response:
+Same credentials as `POST /auth/password/login`, but the user must have `admin_role` set. Wrong password or non-admin users receive a generic 401 (`INVALID_ADMIN_CREDENTIALS`) without leaking whether the account exists or has admin access.
+
+Success:
 
 ```json
 {
   "token": "<admin-session-token>",
   "admin": {
-    "id": "...",
+    "id": "<users.id>",
     "email": "you@example.com",
-    "role": "owner",
-    "createdAt": "...",
-    "lastLoginAt": "..."
+    "role": "owner"
   }
 }
 ```
 
-Use the token on subsequent requests:
+Use `Authorization: Bearer <admin-session-token>` on `/admin/*` routes only.
+
+## Session and `/admin/auth/me`
 
 ```http
+GET /admin/auth/me
 Authorization: Bearer <admin-session-token>
 ```
 
-Other auth routes:
+```http
+POST /admin/auth/logout
+Authorization: Bearer <admin-session-token>
+```
 
-- `GET /admin/auth/me`
-- `POST /admin/auth/logout`
+## Roles (RBAC)
 
-## Roles
+Source of truth: `users.admin_role`.
 
-| Role | Access in this phase |
+| Role | Access |
 | --- | --- |
-| `viewer` | Read-only: dashboard, users, AI usage, settings |
-| `admin` | Read access plus safe `app_settings` mutations (audited) |
-| `owner` | Highest privilege; reserved for future destructive operations |
+| `viewer` | Read-only admin APIs |
+| `admin` | Read + safe settings mutations |
+| `owner` | Highest privilege |
 
-Inactive admins cannot log in.
+## Local dev quick start
 
-## Read-only endpoints
-
-- `GET /admin/dashboard` — aggregate read-only metrics
-- `GET /admin/users?q=&accountType=guest|protected&limit=&cursor=`
-- `GET /admin/users/:userId`
-- `GET /admin/users/:userId/wardrobe`
-- `GET /admin/users/:userId/outfits`
-- `GET /admin/users/:userId/wear-history`
-- `GET /admin/users/:userId/family`
-
-`:userId` accepts internal user id or `publicId`.
-
-List responses use cursor pagination (`nextCursor`).
-
-## AI usage analytics (read-only)
-
-- `GET /admin/ai/summary?from=&to=&type=photo|suggest|daily|paired`
-- `GET /admin/ai/timeseries?from=&to=&granularity=day|hour&type=`
-- `GET /admin/ai/events?limit=&cursor=&type=&status=`
-
-Each real OpenAI provider attempt writes one row to `ai_usage_events` (no prompts, images, or secrets). Cache hits and skipped daily generations do not create rows.
-
-Optional cost hints on summary (not stored on events):
-
-- `AI_COST_INPUT_PER_MILLION`
-- `AI_COST_OUTPUT_PER_MILLION`
-
-## App settings / feature flags
-
-Read (viewer+):
-
-- `GET /admin/settings`
-
-Update (admin or owner only, audited as `admin.setting.update`):
-
-- `PUT /admin/settings/:key` with JSON `{ "value": ... }`
-
-Known keys (defaults apply when DB row missing):
-
-| Key | Type | Default | Client `/app-config` |
-| --- | --- | --- | --- |
-| `daily_stylist_enabled` | boolean | `true` | yes |
-| `paired_outfits_enabled` | boolean | `true` | yes |
-| `photo_onboarding_enabled` | boolean | `true` | yes |
-| `guest_ai_enabled` | boolean | `true` | yes |
-| `guest_ai_daily_limit` | integer 0–1000 | `20` | yes |
-| `maintenance_message` | string ≤500 | `""` | no |
-
-Public mobile config:
-
-- `GET /app-config` — client-safe fields only, no secrets.
-
-## Security notes
-
-- Admin sessions are stored separately from user `sessions`.
-- Only session token hashes are stored server-side.
-- Admin routes reject ordinary user bearer tokens.
-- Audit log records login/logout and user inspection actions without passwords, OTP codes, or session tokens.
-- Password hashes, session tokens, and OTP material are never returned by admin APIs.
-
-## Config
-
-`.env` (names only):
-
-- `ADMIN_SESSION_TTL_HOURS` — admin session lifetime in hours (default `24`)
-- `ADMIN_WEB_ORIGIN` — allowed browser origin(s) for admin panel (comma-separated), e.g. `http://localhost:5173`
-
-## Local development example
+Register/login in the app (or seed a user), then:
 
 ```bash
-cd server
-nvm use 22
-npm run dev
-ADMIN_EMAIL=admin@local.test ADMIN_PASSWORD='LocalAdmin123!' npm run admin:create
-curl -s -X POST http://127.0.0.1:3000/admin/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@local.test","password":"LocalAdmin123!"}'
+npm run admin:set-role -- --email admin@local.test --role owner
 ```
 
-Then call `GET /admin/users` with the returned bearer token.
-
-## Tests
-
-```bash
-npm run test:admin-backend
-npm run test:ai-usage-settings
-```
+Start server (`npm run dev`) and admin UI; log in with the same email/password as the app.

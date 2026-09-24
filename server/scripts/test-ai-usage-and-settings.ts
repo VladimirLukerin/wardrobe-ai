@@ -6,7 +6,7 @@ import { recordAiUsageEvent } from '../src/ai-usage/record-ai-usage';
 import { getAdminAiSummary } from '../src/admin/ai/admin-ai-service';
 import { findAdminAuditLogsForTests } from '../src/admin/audit/admin-audit-repository';
 import { createAdminSession } from '../src/admin/db/admin-sessions-repository';
-import { createAdminUser } from '../src/admin/db/admin-users-repository';
+import { createTestUserWithAdminAccess } from '../src/admin/db/admin-test-user-helper';
 import { clearAppSettingsForTests } from '../src/app-settings/app-settings-repository';
 import { getAllAppSettings, getClientAppConfig, updateAppSetting } from '../src/app-settings/app-settings-service';
 import { createApp } from '../src/app';
@@ -97,17 +97,17 @@ async function main(): Promise<void> {
   const user = createAnonymousUser();
   const userSession = createSessionForUser(user.id);
 
-  const owner = await createAdminUser({
+  const owner = await createTestUserWithAdminAccess({
     email: `owner-${crypto.randomUUID()}@example.com`,
     password: 'OwnerPass123!',
     role: 'owner',
   });
-  const viewer = await createAdminUser({
+  const viewer = await createTestUserWithAdminAccess({
     email: `viewer-${crypto.randomUUID()}@example.com`,
     password: 'ViewerPass123!',
     role: 'viewer',
   });
-  const admin = await createAdminUser({
+  const admin = await createTestUserWithAdminAccess({
     email: `admin-${crypto.randomUUID()}@example.com`,
     password: 'AdminPass123!',
     role: 'admin',

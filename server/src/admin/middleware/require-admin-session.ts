@@ -1,8 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { adminRoleMeetsRequirement } from '../admin-config';
-import { findAdminUserBySessionToken } from '../db/admin-sessions-repository';
-import { toAdminUserIdentity, type AdminUserIdentity } from '../db/admin-users-repository';
+import { findAdminIdentityBySessionToken } from '../db/admin-sessions-repository';
+import { type AdminUserIdentity } from '../db/admin-identity-repository';
 
 declare global {
   namespace Express {
@@ -31,14 +31,14 @@ export function requireAdminSession(req: Request, res: Response, next: NextFunct
     return;
   }
 
-  const adminUser = findAdminUserBySessionToken(token);
+  const adminUser = findAdminIdentityBySessionToken(token);
 
   if (!adminUser) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
 
-  req.adminUser = toAdminUserIdentity(adminUser);
+  req.adminUser = adminUser;
   req.adminSessionToken = token;
   next();
 }

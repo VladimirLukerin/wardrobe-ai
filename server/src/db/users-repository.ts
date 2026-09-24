@@ -12,6 +12,8 @@ export type DbUser = {
   phone: string | null;
   email_verified: number;
   phone_verified: number;
+  admin_role: string | null;
+  admin_is_active: number;
   created_at: string;
   updated_at: string;
 };

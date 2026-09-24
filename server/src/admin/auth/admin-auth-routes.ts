@@ -2,7 +2,9 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { normalizeEmail } from '../../auth/normalize-email';
-import { validatePasswordInput } from '../../auth/password';
+import { validatePasswordInput, verifyPassword } from '../../auth/password';
+import { getPasswordCredential } from '../../db/password-credentials-repository';
+import { findUserByVerifiedEmail } from '../../db/users-repository';
 import {
   checkAdminLoginRateLimit,
   getAdminLoginClientIp,
@@ -11,17 +13,15 @@ import {
   resetAdminLoginEmailFailures,
   respondAdminLoginRateLimited,
 } from '../auth/admin-login-rate-limit';
-import { verifyAdminPassword } from '../admin-password';
 import { recordAdminAudit } from '../audit/admin-audit';
 import {
   createAdminSession,
   deleteAdminSessionByToken,
 } from '../db/admin-sessions-repository';
 import {
-  findAdminUserByEmail,
-  markAdminUserLogin,
+  findAdminIdentityByVerifiedEmail,
   toAdminUserIdentity,
-} from '../db/admin-users-repository';
+} from '../db/admin-identity-repository';
 import { requireAdminSession } from '../middleware/require-admin-session';
 
 export const adminAuthRouter = Router();
@@ -58,29 +58,28 @@ adminAuthRouter.post('/login', async (req: Request, res: Response) => {
 
   recordAdminLoginAttempt(ip);
 
-  const adminUser = findAdminUserByEmail(normalized.email);
+  const targetUser = findUserByVerifiedEmail(normalized.email);
+  const credential = targetUser ? getPasswordCredential(targetUser.id) : null;
+  const adminIdentity = findAdminIdentityByVerifiedEmail(normalized.email);
 
-  if (!adminUser || adminUser.is_active !== 1) {
+  if (!targetUser || !credential || !adminIdentity) {
     recordAdminLoginFailure(normalized.email, ip);
     recordAdminAudit(req, {
-      adminUserId: adminUser?.id ?? null,
+      adminUserId: targetUser?.id ?? null,
       action: 'admin.login.failure',
-      metadata: { reason: adminUser && adminUser.is_active !== 1 ? 'inactive' : 'unknown_account' },
+      metadata: { reason: 'invalid_credentials' },
     });
     respondInvalidAdminCredentials(res);
     return;
   }
 
   try {
-    const isValid = await verifyAdminPassword(passwordValidated.password, {
-      password_hash: adminUser.password_hash,
-      password_salt: adminUser.password_salt,
-    });
+    const isValid = await verifyPassword(passwordValidated.password, credential);
 
     if (!isValid) {
       recordAdminLoginFailure(normalized.email, ip);
       recordAdminAudit(req, {
-        adminUserId: adminUser.id,
+        adminUserId: targetUser.id,
         action: 'admin.login.failure',
         metadata: { reason: 'invalid_password' },
       });
@@ -89,18 +88,17 @@ adminAuthRouter.post('/login', async (req: Request, res: Response) => {
     }
 
     resetAdminLoginEmailFailures(normalized.email);
-    markAdminUserLogin(adminUser.id);
 
-    const { token } = createAdminSession(adminUser.id);
+    const { token } = createAdminSession(targetUser.id);
 
     recordAdminAudit(req, {
-      adminUserId: adminUser.id,
+      adminUserId: targetUser.id,
       action: 'admin.login.success',
     });
 
     res.json({
       token,
-      admin: toAdminUserIdentity(adminUser),
+      admin: adminIdentity,
     });
   } catch {
     res.status(500).json({ error: 'Internal server error' });

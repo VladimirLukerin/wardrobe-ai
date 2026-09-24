@@ -1,5 +1,5 @@
 import { parseAdminSetRoleArgs } from '../src/admin/admin-set-role-cli';
-import { setAdminUserRoleByEmail } from '../src/admin/db/admin-users-repository';
+import { setUserAdminRoleByEmail } from '../src/admin/db/admin-identity-repository';
 import { closeDatabase, getDatabase } from '../src/db/database';
 
 async function main(): Promise<void> {
@@ -17,8 +17,13 @@ async function main(): Promise<void> {
   }
 
   try {
-    const updated = setAdminUserRoleByEmail(parsed.email, parsed.role);
-    console.log(`Updated ${updated.email} role to ${updated.role}`);
+    if (parsed.role === null) {
+      setUserAdminRoleByEmail(parsed.email, null);
+      console.log(`Removed admin access for ${parsed.email}`);
+    } else {
+      const updated = setUserAdminRoleByEmail(parsed.email, parsed.role);
+      console.log(`Updated ${updated!.email} role to ${updated!.role}`);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);

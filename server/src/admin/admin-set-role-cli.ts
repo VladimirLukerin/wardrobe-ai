@@ -2,7 +2,7 @@ import { isAdminRole, type AdminRole } from './admin-config';
 
 export type ParsedAdminSetRoleArgs = {
   email: string;
-  role: AdminRole;
+  role: AdminRole | null;
 };
 
 export function parseAdminSetRoleArgs(argv: string[]): ParsedAdminSetRoleArgs {
@@ -30,6 +30,10 @@ export function parseAdminSetRoleArgs(argv: string[]): ParsedAdminSetRoleArgs {
 
   if (!roleRaw) {
     throw new Error('Missing --role.');
+  }
+
+  if (roleRaw === 'none') {
+    return { email, role: null };
   }
 
   if (!isAdminRole(roleRaw)) {

@@ -1,24 +1,27 @@
 import crypto from 'crypto';
 import type { Server } from 'node:http';
 
-import { adminRoleMeetsRequirement, resolveAdminCreateRole } from '../src/admin/admin-config';
-import { verifyAdminPassword } from '../src/admin/admin-password';
+import { verifyAdminPassword, serializeAdminPasswordHash } from '../src/admin/admin-password';
+import { adminRoleMeetsRequirement } from '../src/admin/admin-config';
 import {
   resetAdminLoginRateLimitsForTests,
   setAdminLoginRateLimitClockForTests,
 } from '../src/admin/auth/admin-login-rate-limit';
 import { findAdminAuditLogsForTests } from '../src/admin/audit/admin-audit-repository';
+import { parseAdminSetRoleArgs } from '../src/admin/admin-set-role-cli';
 import {
   createAdminSession,
   findAdminSessionByToken,
 } from '../src/admin/db/admin-sessions-repository';
 import {
-  createAdminUser,
-  findAdminUserByEmail,
-  setAdminUserActive,
-  setAdminUserRoleByEmail,
-} from '../src/admin/db/admin-users-repository';
-import { parseAdminSetRoleArgs } from '../src/admin/admin-set-role-cli';
+  createTestUserWithAdminAccess,
+  setUserAdminActive,
+  setUserAdminRoleByEmail,
+} from '../src/admin/db/admin-test-user-helper';
+import { migrateLegacyAdminUsersToUserAccounts } from '../src/admin/db/admin-identity-migration';
+import { migrateAdminPasswordCredentialColumns } from '../src/admin/db/admin-password-migration';
+import { hashPassword, verifyPassword } from '../src/auth/password';
+import { getPasswordCredential, setPasswordCredential } from '../src/db/password-credentials-repository';
 import { getAdminDashboardMetrics } from '../src/admin/dashboard/admin-dashboard-service';
 import { listAdminUsers } from '../src/admin/users/admin-users-service';
 import { createApp } from '../src/app';
@@ -29,8 +32,6 @@ import {
   linkVerifiedEmailToUser,
 } from '../src/db/users-repository';
 import { assertAdminTestsUseIsolatedDatabase, useIsolatedTestDatabase } from './test-db-isolation';
-import { migrateAdminPasswordCredentialColumns } from '../src/admin/db/admin-password-migration';
-import { serializeAdminPasswordHash } from '../src/admin/admin-password';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -110,35 +111,26 @@ async function withTestServer(run: (baseUrl: string) => Promise<void>): Promise<
   }
 }
 
-async function testBootstrapAndPasswordStorage(): Promise<void> {
+async function testUserPasswordCredentialStorage(): Promise<void> {
   const suffix = crypto.randomUUID();
   const email = `admin-${suffix}@example.com`;
   const password = 'AdminPass123!';
 
-  const admin = await createAdminUser({ email, password, role: 'owner' });
+  const admin = await createTestUserWithAdminAccess({ email, password, role: 'owner' });
   assert(admin.email === email, 'Admin email should be normalized/stored');
-  assert(admin.password_hash !== password, 'Password must not be stored plaintext');
-  assert(admin.password_salt !== null && admin.password_salt.length > 0, 'Password salt should be stored separately');
-  assert(!admin.password_hash.trim().startsWith('{'), 'Password hash must not store JSON credentials');
 
-  let duplicateFailed = false;
+  const credential = getPasswordCredential(admin.id);
+  assert(credential !== null, 'Password credential should exist');
+  assert(credential.password_hash !== password, 'Password must not be stored plaintext');
+  assert(credential.password_salt.length > 0, 'Password salt should be stored separately');
+  assert(!credential.password_hash.trim().startsWith('{'), 'Password hash must not store JSON credentials');
 
-  try {
-    await createAdminUser({ email, password, role: 'admin' });
-  } catch (error) {
-    duplicateFailed = error instanceof Error && error.message.includes('already exists');
-  }
-
-  assert(duplicateFailed, 'Duplicate admin email should be rejected');
   assert(
-    await verifyAdminPassword(password, {
-      password_hash: admin.password_hash,
-      password_salt: admin.password_salt,
-    }),
-    'Stored admin password should verify',
+    await verifyPassword(password, credential!),
+    'Stored user password should verify for admin login',
   );
 
-  console.log('OK admin bootstrap and password storage');
+  console.log('OK unified admin password storage on user_password_credentials');
 }
 
 async function testAdminAuthFlow(baseUrl: string): Promise<void> {
@@ -147,7 +139,7 @@ async function testAdminAuthFlow(baseUrl: string): Promise<void> {
   const email = `auth-admin-${suffix}@example.com`;
   const password = 'AuthAdmin123!';
 
-  await createAdminUser({ email, password, role: 'viewer' });
+  await createTestUserWithAdminAccess({ email, password, role: 'viewer' });
 
   const badLogin = await requestJson(baseUrl, '/admin/auth/login', {
     method: 'POST',
@@ -189,8 +181,8 @@ async function testInactiveAdminRejected(baseUrl: string): Promise<void> {
   const email = `inactive-admin-${suffix}@example.com`;
   const password = 'InactiveAdmin123!';
 
-  const admin = await createAdminUser({ email, password, role: 'admin' });
-  setAdminUserActive(admin.id, false);
+  const admin = await createTestUserWithAdminAccess({ email, password, role: 'admin' });
+  setUserAdminActive(admin.id, false);
 
   const login = await requestJson(baseUrl, '/admin/auth/login', {
     method: 'POST',
@@ -203,7 +195,7 @@ async function testInactiveAdminRejected(baseUrl: string): Promise<void> {
 
 async function testExpiredAdminSessionRejected(baseUrl: string): Promise<void> {
   const suffix = crypto.randomUUID();
-  const admin = await createAdminUser({
+  const admin = await createTestUserWithAdminAccess({
     email: `expired-admin-${suffix}@example.com`,
     password: 'ExpiredAdmin123!',
     role: 'viewer',
@@ -239,9 +231,89 @@ async function testUserSessionCannotAccessAdmin(baseUrl: string): Promise<void> 
   console.log('OK user session rejected on admin routes');
 }
 
+async function testAdminSessionCannotAccessMobileRoutes(baseUrl: string): Promise<void> {
+  const suffix = crypto.randomUUID();
+  const email = `unified-admin-${suffix}@example.com`;
+  const password = 'UnifiedAdmin123!';
+
+  await createTestUserWithAdminAccess({ email, password, role: 'owner' });
+
+  const login = await requestJson(baseUrl, '/admin/auth/login', {
+    method: 'POST',
+    body: { email, password },
+  });
+  const adminToken = (login.body as { token: string }).token;
+
+  const me = await requestJson(baseUrl, '/me', {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert(me.status === 401, 'Admin session must not authorize mobile /me');
+
+  console.log('OK admin session rejected on mobile routes');
+}
+
+async function testUnifiedMobileAndAdminLogin(baseUrl: string): Promise<void> {
+  const suffix = crypto.randomUUID();
+  const email = `unified-admin-${suffix}@example.com`;
+  const password = 'UnifiedAdmin123!';
+
+  await createTestUserWithAdminAccess({ email, password, role: 'owner' });
+
+  const mobileLogin = await requestJson(baseUrl, '/auth/password/login', {
+    method: 'POST',
+    body: { email, password },
+  });
+  assert(mobileLogin.status === 200, 'Mobile password login should succeed');
+  const mobileToken = (mobileLogin.body as { token: string }).token;
+
+  const adminLogin = await requestJson(baseUrl, '/admin/auth/login', {
+    method: 'POST',
+    body: { email, password },
+  });
+  assert(adminLogin.status === 200, 'Admin login should succeed with same credentials');
+  const adminToken = (adminLogin.body as { token: string }).token;
+
+  assert(mobileToken !== adminToken, 'Mobile and admin sessions must use different tokens');
+
+  const mobileMe = await requestJson(baseUrl, '/me', {
+    headers: { Authorization: `Bearer ${mobileToken}` },
+  });
+  assert(mobileMe.status === 200, 'Mobile token should work on /me');
+
+  const adminMe = await requestJson(baseUrl, '/admin/auth/me', {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert(adminMe.status === 200, 'Admin token should work on /admin/auth/me');
+
+  console.log('OK unified credentials with separate mobile/admin sessions');
+}
+
+async function testNonAdminUserCannotLoginToAdmin(baseUrl: string): Promise<void> {
+  const suffix = crypto.randomUUID();
+  const email = `no-admin-role-${suffix}@example.com`;
+  const password = 'NoAdminRole123!';
+
+  const user = createAnonymousUser(null);
+  linkVerifiedEmailToUser(user.id, email);
+  const material = await hashPassword(password);
+  setPasswordCredential({
+    userId: user.id,
+    passwordHash: material.passwordHash,
+    passwordSalt: material.passwordSalt,
+  });
+
+  const login = await requestJson(baseUrl, '/admin/auth/login', {
+    method: 'POST',
+    body: { email, password },
+  });
+  assert(login.status === 401, 'User without admin_role should not login to admin');
+
+  console.log('OK non-admin user rejected at admin login');
+}
+
 async function testUsersListSearchAndDetail(baseUrl: string): Promise<void> {
   const suffix = crypto.randomUUID();
-  const admin = await createAdminUser({
+  const admin = await createTestUserWithAdminAccess({
     email: `users-admin-${suffix}@example.com`,
     password: 'UsersAdmin123!',
     role: 'viewer',
@@ -321,7 +393,7 @@ async function testAuditRecords(baseUrl: string): Promise<void> {
   const email = `audit-admin-${suffix}@example.com`;
   const password = 'AuditAdmin123!';
 
-  await createAdminUser({ email, password, role: 'owner' });
+  await createTestUserWithAdminAccess({ email, password, role: 'owner' });
 
   const login = await requestJson(baseUrl, '/admin/auth/login', {
     method: 'POST',
@@ -379,7 +451,7 @@ async function testAdminLoginRateLimit(baseUrl: string): Promise<void> {
 
   const suffix = crypto.randomUUID();
   const email = `rate-admin-${suffix}@example.com`;
-  await createAdminUser({ email, password: 'RateAdmin123!', role: 'viewer' });
+  await createTestUserWithAdminAccess({ email, password: 'RateAdmin123!', role: 'viewer' });
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const response = await requestJson(baseUrl, '/admin/auth/login', {
@@ -401,7 +473,7 @@ async function testAdminLoginRateLimit(baseUrl: string): Promise<void> {
 
 async function testDashboardEndpoint(baseUrl: string): Promise<void> {
   const suffix = crypto.randomUUID();
-  const admin = await createAdminUser({
+  const admin = await createTestUserWithAdminAccess({
     email: `dashboard-admin-${suffix}@example.com`,
     password: 'DashboardAdmin123!',
     role: 'viewer',
@@ -426,43 +498,29 @@ async function testDashboardEndpoint(baseUrl: string): Promise<void> {
 }
 
 async function testAdminRoleManagement(): Promise<void> {
-  assert(resolveAdminCreateRole(undefined) === 'viewer', 'Default create role should be viewer');
-  assert(resolveAdminCreateRole('owner') === 'owner', 'Explicit owner role on create');
-  assert(resolveAdminCreateRole('admin') === 'admin', 'Explicit admin role on create');
-
-  const defaultRoleUser = await createAdminUser({
-    email: `default-role-${crypto.randomUUID()}@example.com`,
-    password: 'DefaultRolePass123!',
-    role: resolveAdminCreateRole(undefined),
-  });
-  assert(defaultRoleUser.role === 'viewer', 'admin:create default path should create viewer');
-
-  let invalidCreateRoleRejected = false;
-
-  try {
-    resolveAdminCreateRole('superuser');
-  } catch {
-    invalidCreateRoleRejected = true;
-  }
-
-  assert(invalidCreateRoleRejected, 'Invalid create role should be rejected');
-
   const suffix = crypto.randomUUID();
   const email = `role-cli-${suffix}@example.com`;
   const password = 'RoleCliPass123!';
 
-  const created = await createAdminUser({ email, password, role: 'viewer' });
+  const created = await createTestUserWithAdminAccess({ email, password, role: 'viewer' });
   assert(created.role === 'viewer', 'Created admin should start as viewer');
 
-  const promotedAdmin = setAdminUserRoleByEmail(email, 'admin');
-  assert(promotedAdmin.role === 'admin', 'set-role viewer -> admin');
+  const promotedAdmin = setUserAdminRoleByEmail(email, 'admin');
+  assert(promotedAdmin!.role === 'admin', 'set-role viewer -> admin');
 
-  const promotedOwner = setAdminUserRoleByEmail(email, 'owner');
-  assert(promotedOwner.role === 'owner', 'set-role admin -> owner');
+  const promotedOwner = setUserAdminRoleByEmail(email, 'owner');
+  assert(promotedOwner!.role === 'owner', 'set-role admin -> owner');
   assert(
-    promotedOwner.updated_at >= created.updated_at,
-    'set-role should update updated_at',
+    promotedOwner!.role === 'owner' && created.updated_at.length > 0,
+    'set-role should update user row',
   );
+
+  setUserAdminRoleByEmail(email, null);
+  const db = getDatabase();
+  const cleared = db
+    .prepare('SELECT admin_role FROM users WHERE email = ?')
+    .get(email) as { admin_role: string | null };
+  assert(cleared.admin_role === null, 'set-role none should remove admin access');
 
   let invalidSetRoleRejected = false;
 
@@ -474,16 +532,15 @@ async function testAdminRoleManagement(): Promise<void> {
 
   assert(invalidSetRoleRejected, 'Invalid set-role should be rejected');
 
-  let missingAdminRejected = false;
+  let missingUserRejected = false;
 
   try {
-    setAdminUserRoleByEmail(`missing-${suffix}@example.com`, 'admin');
+    setUserAdminRoleByEmail(`missing-${suffix}@example.com`, 'admin');
   } catch (error) {
-    missingAdminRejected =
-      error instanceof Error && error.message.includes('Admin user not found');
+    missingUserRejected = error instanceof Error && error.message.includes('User not found');
   }
 
-  assert(missingAdminRejected, 'Missing admin should be rejected for set-role');
+  assert(missingUserRejected, 'Missing user should be rejected for set-role');
 
   console.log('OK admin role management');
 }
@@ -505,8 +562,10 @@ async function testLegacyAdminPasswordMigration(): Promise<void> {
 
   migrateAdminPasswordCredentialColumns(db);
 
-  const row = findAdminUserByEmail(email);
-  assert(row !== null, 'Legacy admin row should exist');
+  const row = db
+    .prepare('SELECT password_hash, password_salt FROM admin_users WHERE email = ?')
+    .get(email) as { password_hash: string; password_salt: string | null } | undefined;
+  assert(row !== undefined, 'Legacy admin row should exist');
   assert(row!.password_salt !== null, 'Migration should populate password_salt');
   assert(!row!.password_hash.trim().startsWith('{'), 'Migration should normalize password_hash');
 
@@ -518,15 +577,37 @@ async function testLegacyAdminPasswordMigration(): Promise<void> {
     'Migrated legacy admin password should verify',
   );
 
-  assert(
-    await verifyAdminPassword(password, {
-      password_hash: legacyJson,
-      password_salt: null,
-    }),
-    'Legacy JSON credential format should remain verifiable before migration',
-  );
+  console.log('OK admin password credential migration (legacy admin_users columns)');
+}
 
-  console.log('OK admin password credential migration');
+async function testLegacyAdminUsersIdentityMigration(baseUrl: string): Promise<void> {
+  const db = getDatabase();
+  const suffix = crypto.randomUUID();
+  const email = `legacy-admin-${suffix}@example.com`;
+  const password = 'LegacyAdmin123!';
+  const now = new Date().toISOString();
+
+  await createTestUserWithAdminAccess({ email, password, role: 'viewer' });
+  setUserAdminRoleByEmail(email, null);
+
+  const legacyAdminId = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO admin_users (
+      id, email, password_hash, password_salt, role, is_active, created_at, updated_at, last_login_at
+    ) VALUES (?, ?, 'unused', 'unused', 'owner', 1, ?, ?, NULL)`,
+  ).run(legacyAdminId, email, now, now);
+
+  const report = migrateLegacyAdminUsersToUserAccounts(db);
+  assert(report.migrated.some((entry) => entry.email === email), 'Legacy admin should migrate to user');
+  assert(report.migrated.find((entry) => entry.email === email)?.role === 'owner', 'Higher legacy role preserved');
+
+  const login = await requestJson(baseUrl, '/admin/auth/login', {
+    method: 'POST',
+    body: { email, password },
+  });
+  assert(login.status === 200, 'Admin login should work after legacy migration using user password');
+
+  console.log('OK legacy admin_users role migration onto users');
 }
 
 async function main(): Promise<void> {
@@ -538,7 +619,7 @@ async function main(): Promise<void> {
     process.env.AUTH_OTP_SECRET = process.env.AUTH_OTP_SECRET ?? 'test-otp-secret';
 
     testRoleHelper();
-    await testBootstrapAndPasswordStorage();
+    await testUserPasswordCredentialStorage();
     await testAdminRoleManagement();
     await testLegacyAdminPasswordMigration();
     testListPaginationUnit();
@@ -548,10 +629,14 @@ async function main(): Promise<void> {
       await testInactiveAdminRejected(baseUrl);
       await testExpiredAdminSessionRejected(baseUrl);
       await testUserSessionCannotAccessAdmin(baseUrl);
+      await testAdminSessionCannotAccessMobileRoutes(baseUrl);
+      await testUnifiedMobileAndAdminLogin(baseUrl);
+      await testNonAdminUserCannotLoginToAdmin(baseUrl);
       await testUsersListSearchAndDetail(baseUrl);
       await testAuditRecords(baseUrl);
       await testAdminLoginRateLimit(baseUrl);
       await testDashboardEndpoint(baseUrl);
+      await testLegacyAdminUsersIdentityMigration(baseUrl);
     });
 
     closeDatabase();

@@ -11,6 +11,8 @@ const ADMIN_TEST_EMAIL_PREFIXES = [
   'default-role-',
   'role-cli-',
   'legacy-admin-',
+  'unified-admin-',
+  'no-admin-role-',
 ] as const;
 
 const ADMIN_TEST_EMAIL_REGEXES = [
@@ -40,12 +42,13 @@ export function isAdminTestEmail(email: string): boolean {
 
 function findTestAdminUserIds(): string[] {
   const db = getDatabase();
-  const rows = db.prepare('SELECT id, email FROM admin_users').all() as Array<{
-    id: string;
-    email: string;
-  }>;
+  const rows = db
+    .prepare('SELECT id, email FROM users WHERE admin_role IS NOT NULL')
+    .all() as Array<{ id: string; email: string | null }>;
 
-  return rows.filter((row) => isAdminTestEmail(row.email)).map((row) => row.id);
+  return rows
+    .filter((row) => row.email !== null && isAdminTestEmail(row.email))
+    .map((row) => row.id);
 }
 
 export function countAdminTestDataRows(): number {
@@ -54,27 +57,28 @@ export function countAdminTestDataRows(): number {
 
 export function deleteAdminTestDataRows(): { adminUsers: number } {
   const db = getDatabase();
-  const adminUserIds = findTestAdminUserIds();
+  const userIds = findTestAdminUserIds();
 
-  if (adminUserIds.length === 0) {
+  if (userIds.length === 0) {
     return { adminUsers: 0 };
   }
 
-  const deleteSessions = db.prepare(
-    'DELETE FROM admin_sessions WHERE admin_user_id = ?',
-  );
+  const deleteSessions = db.prepare('DELETE FROM admin_sessions WHERE user_id = ?');
   const deleteAudit = db.prepare('DELETE FROM admin_audit_log WHERE admin_user_id = ?');
-  const deleteAdmin = db.prepare('DELETE FROM admin_users WHERE id = ?');
+  const clearAdminRole = db.prepare(
+    'UPDATE users SET admin_role = NULL, admin_is_active = 1, updated_at = ? WHERE id = ?',
+  );
+  const now = new Date().toISOString();
 
   const deleteOne = db.transaction((ids: string[]) => {
     for (const id of ids) {
       deleteSessions.run(id);
       deleteAudit.run(id);
-      deleteAdmin.run(id);
+      clearAdminRole.run(now, id);
     }
   });
 
-  deleteOne(adminUserIds);
+  deleteOne(userIds);
 
-  return { adminUsers: adminUserIds.length };
+  return { adminUsers: userIds.length };
 }

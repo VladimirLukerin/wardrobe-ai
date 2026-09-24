@@ -4,6 +4,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 
 import { migrateAdminPasswordCredentialColumns } from '../admin/db/admin-password-migration';
+import { migrateLegacyAdminUsersToUserAccounts } from '../admin/db/admin-identity-migration';
 
 const DATA_DIR = path.join(__dirname, '../../data');
 const DEFAULT_DB_PATH = path.join(DATA_DIR, 'wardrobe-ai.sqlite');
@@ -124,6 +125,7 @@ function runMigrations(db: Database.Database): void {
   migrateAiUsageEvents(db);
   migrateAppSettings(db);
   migrateAdminPasswordCredentialColumns(db);
+  migrateLegacyAdminUsersToUserAccounts(db);
 }
 
 function migrateSavedPairedOutfitsTable(db: Database.Database): void {
@@ -182,16 +184,16 @@ function migrateAdminTables(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS admin_sessions (
       id TEXT PRIMARY KEY,
-      admin_user_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
       token_hash TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL,
-      FOREIGN KEY (admin_user_id) REFERENCES admin_users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_admin_sessions_token_hash ON admin_sessions(token_hash);
-    CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin_user_id ON admin_sessions(admin_user_id);
+    CREATE INDEX IF NOT EXISTS idx_admin_sessions_user_id ON admin_sessions(user_id);
 
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id TEXT PRIMARY KEY,
@@ -202,7 +204,7 @@ function migrateAdminTables(db: Database.Database): void {
       metadata_json TEXT NULL,
       created_at TEXT NOT NULL,
       ip TEXT NULL,
-      FOREIGN KEY (admin_user_id) REFERENCES admin_users(id)
+      FOREIGN KEY (admin_user_id) REFERENCES users(id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_admin_audit_log_admin_user_id ON admin_audit_log(admin_user_id);
@@ -240,7 +242,7 @@ function migrateAppSettings(db: Database.Database): void {
       value_json TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       updated_by_admin_id TEXT NULL,
-      FOREIGN KEY (updated_by_admin_id) REFERENCES admin_users(id)
+      FOREIGN KEY (updated_by_admin_id) REFERENCES users(id)
     );
   `);
 }

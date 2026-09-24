@@ -3,19 +3,21 @@ import crypto from 'crypto';
 import { generateSessionToken, hashSessionToken } from '../../db/token-hash';
 import { getDatabase } from '../../db/database';
 import { getAdminSessionTtlMs } from '../admin-config';
-import type { DbAdminUser } from './admin-users-repository';
-import { findAdminUserById } from './admin-users-repository';
+import {
+  findAdminIdentityByUserId,
+  type AdminUserIdentity,
+} from './admin-identity-repository';
 
 export type DbAdminSession = {
   id: string;
-  admin_user_id: string;
+  user_id: string;
   token_hash: string;
   created_at: string;
   expires_at: string;
   last_seen_at: string;
 };
 
-export function createAdminSession(adminUserId: string): { token: string; session: DbAdminSession } {
+export function createAdminSession(userId: string): { token: string; session: DbAdminSession } {
   const db = getDatabase();
   const now = new Date();
   const nowIso = now.toISOString();
@@ -29,9 +31,9 @@ export function createAdminSession(adminUserId: string): { token: string; sessio
     try {
       db.prepare(
         `INSERT INTO admin_sessions (
-          id, admin_user_id, token_hash, created_at, expires_at, last_seen_at
+          id, user_id, token_hash, created_at, expires_at, last_seen_at
         ) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(sessionId, adminUserId, tokenHash, nowIso, expiresAt, nowIso);
+      ).run(sessionId, userId, tokenHash, nowIso, expiresAt, nowIso);
 
       const session = db
         .prepare('SELECT * FROM admin_sessions WHERE id = ?')
@@ -81,7 +83,7 @@ export function touchAdminSession(sessionId: string): void {
   db.prepare('UPDATE admin_sessions SET last_seen_at = ? WHERE id = ?').run(now, sessionId);
 }
 
-export function findAdminUserBySessionToken(token: string): DbAdminUser | null {
+export function findAdminIdentityBySessionToken(token: string): AdminUserIdentity | null {
   const session = findAdminSessionByToken(token);
 
   if (!session) {
@@ -93,12 +95,15 @@ export function findAdminUserBySessionToken(token: string): DbAdminUser | null {
     return null;
   }
 
-  const adminUser = findAdminUserById(session.admin_user_id);
+  const identity = findAdminIdentityByUserId(session.user_id);
 
-  if (!adminUser || adminUser.is_active !== 1) {
+  if (!identity) {
     return null;
   }
 
   touchAdminSession(session.id);
-  return adminUser;
+  return identity;
 }
+
+/** @deprecated Use findAdminIdentityBySessionToken */
+export const findAdminUserBySessionToken = findAdminIdentityBySessionToken;
