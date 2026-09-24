@@ -15,6 +15,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ForgotPasswordSheet from '@/components/forgot-password-sheet';
 import { PasswordInput } from '@/components/password-input';
 import { ThemedText } from '@/components/themed-text';
+import {
+  authSheetOverlayStyle,
+  PrikinColors,
+  PrikinRadii,
+  PrikinTypography,
+  type AuthSheetOverlayStyle,
+} from '@/constants/prikin-tokens';
 import { Colors, Spacing } from '@/constants/theme';
 import type { ConfirmAccountSwitchFn } from '@/hooks/use-auth-account-switch';
 import { AccountApiError } from '@/services/account';
@@ -344,7 +351,7 @@ export default function EmailLoginSheet({
   return (
     <>
       <Modal visible={visible && !isForgotPasswordVisible} transparent animationType="slide" onRequestClose={onClose}>
-        <View style={[styles.overlay, overlayStyle === 'transparent' && styles.overlayTransparent]}>
+        <View style={[styles.overlay, authSheetOverlayStyle(overlayStyle)]}>
           <KeyboardAvoidingView
             style={styles.keyboardAvoid}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -392,7 +399,7 @@ export default function EmailLoginSheet({
                         pressed && styles.pressed,
                       ]}>
                       {isLookingUp ? (
-                        <ActivityIndicator color={Colors.light.background} />
+                        <ActivityIndicator color={PrikinColors.buttonPrimaryText} />
                       ) : (
                         <ThemedText style={styles.primaryButtonText}>Продолжить</ThemedText>
                       )}
@@ -436,7 +443,7 @@ export default function EmailLoginSheet({
                           pressed && styles.pressed,
                         ]}>
                         {isPasswordLoggingIn ? (
-                          <ActivityIndicator color={Colors.light.background} />
+                          <ActivityIndicator color={PrikinColors.buttonPrimaryText} />
                         ) : (
                           <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
                         )}
@@ -486,7 +493,7 @@ export default function EmailLoginSheet({
                         pressed && styles.pressed,
                       ]}>
                       {isRequesting ? (
-                        <ActivityIndicator color={Colors.light.background} />
+                        <ActivityIndicator color={PrikinColors.buttonPrimaryText} />
                       ) : (
                         <ThemedText style={styles.primaryButtonText}>Войти по коду из email</ThemedText>
                       )}
@@ -526,7 +533,7 @@ export default function EmailLoginSheet({
                         pressed && styles.pressed,
                       ]}>
                       {isCreatingAccount ? (
-                        <ActivityIndicator color={Colors.light.background} />
+                        <ActivityIndicator color={PrikinColors.buttonPrimaryText} />
                       ) : (
                         <ThemedText style={styles.primaryButtonText}>Создать аккаунт</ThemedText>
                       )}
@@ -574,7 +581,7 @@ export default function EmailLoginSheet({
                         pressed && styles.pressed,
                       ]}>
                       {isVerifying ? (
-                        <ActivityIndicator color={Colors.light.background} />
+                        <ActivityIndicator color={PrikinColors.buttonPrimaryText} />
                       ) : (
                         <ThemedText style={styles.primaryButtonText}>Войти</ThemedText>
                       )}
@@ -607,6 +614,7 @@ export default function EmailLoginSheet({
         confirmAndSwitch={confirmAndSwitch}
         initialEmail={email}
         skipEmailEntry
+        overlayStyle={overlayStyle}
         onClose={() => setIsForgotPasswordVisible(false)}
         onSuccess={onSuccess}
       />
@@ -618,10 +626,7 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-  },
-  overlayTransparent: {
-    backgroundColor: 'transparent',
+    backgroundColor: PrikinColors.scrim,
   },
   keyboardAvoid: {
     flex: 1,
@@ -629,9 +634,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     maxHeight: '80%',
-    backgroundColor: Colors.light.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: PrikinColors.surface,
+    borderTopLeftRadius: PrikinRadii.sheet,
+    borderTopRightRadius: PrikinRadii.sheet,
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.three,
   },
@@ -642,9 +647,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.three,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.light.text,
+    ...PrikinTypography.sheetTitle,
+    color: PrikinColors.textPrimary,
   },
   closeButton: {
     fontSize: 28,
@@ -685,10 +689,10 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     minHeight: 48,
-    borderRadius: 14,
+    borderRadius: PrikinRadii.button,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.light.text,
+    backgroundColor: PrikinColors.buttonPrimary,
     paddingHorizontal: Spacing.three,
   },
   primaryButtonDisabled: {
@@ -697,7 +701,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.light.background,
+    color: PrikinColors.buttonPrimaryText,
   },
   linkButton: {
     alignItems: 'center',

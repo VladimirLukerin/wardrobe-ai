@@ -4,6 +4,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import EmailLoginSheet from '@/components/email-login-sheet';
 import { ThemedText } from '@/components/themed-text';
+import {
+  authSheetOverlayStyle,
+  PrikinColors,
+  PrikinRadii,
+  PrikinTypography,
+} from '@/constants/prikin-tokens';
 import { Colors, Spacing } from '@/constants/theme';
 import type { ConfirmAccountSwitchFn } from '@/hooks/use-auth-account-switch';
 import { useAuthEntryAccountSwitch } from '@/hooks/use-auth-account-switch';
@@ -45,7 +51,7 @@ function AccountLoginChoiceSheetBody({
   return (
     <>
       <Modal visible={showChoice} transparent animationType="slide" onRequestClose={onClose}>
-        <View style={[styles.overlay, overlayStyle === 'transparent' && styles.overlayTransparent]}>
+        <View style={[styles.overlay, authSheetOverlayStyle(overlayStyle)]}>
           <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
             <View style={styles.header}>
               <ThemedText style={styles.title}>Войти в Wardrobe AI</ThemedText>
@@ -105,15 +111,12 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-  },
-  overlayTransparent: {
-    backgroundColor: 'transparent',
+    backgroundColor: PrikinColors.scrim,
   },
   sheet: {
-    backgroundColor: Colors.light.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: PrikinColors.surface,
+    borderTopLeftRadius: PrikinRadii.sheet,
+    borderTopRightRadius: PrikinRadii.sheet,
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.three,
     gap: Spacing.three,
@@ -124,9 +127,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.light.text,
+    ...PrikinTypography.sheetTitle,
+    color: PrikinColors.textPrimary,
   },
   closeButton: {
     fontSize: 28,
@@ -139,16 +141,16 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     minHeight: 48,
-    borderRadius: 14,
+    borderRadius: PrikinRadii.button,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.light.text,
+    backgroundColor: PrikinColors.buttonPrimary,
     paddingHorizontal: Spacing.three,
   },
   primaryButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.light.background,
+    color: PrikinColors.buttonPrimaryText,
   },
   secondaryButton: {
     minHeight: 48,

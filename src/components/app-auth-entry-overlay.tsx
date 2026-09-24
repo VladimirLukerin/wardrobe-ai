@@ -1,9 +1,18 @@
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ThemedText } from '@/components/themed-text';
-import { APP_BRAND_NAME } from '@/constants/app-brand';
-import { Colors, Spacing } from '@/constants/theme';
+import { PrimaryButton } from '@/components/ui/primary-button';
+import { TextAction } from '@/components/ui/text-action';
+import { PrikinLogo } from '@/components/welcome/prikin-logo';
+import { PrikinTagline } from '@/components/welcome/prikin-tagline';
+import {
+  PrikinColors,
+  PrikinSpacing,
+  PrikinTypography,
+} from '@/constants/prikin-tokens';
+
+const welcomeBackground = require('@/assets/welcome/paper_city_background.png');
 
 type AppAuthEntryOverlayProps = {
   visible: boolean;
@@ -16,15 +25,18 @@ type AppAuthEntryOverlayProps = {
 
 export function AppAuthEntryOverlay({
   visible,
-  variant,
+  variant: _variant,
   isLoading = false,
   errorMessage = null,
   onStartGuest,
   onLogin,
 }: AppAuthEntryOverlayProps) {
   const insets = useSafeAreaInsets();
-  const isFirstLaunch = variant === 'firstLaunch';
-  const primaryLabel = isFirstLaunch ? 'Начать без входа' : 'Продолжить без входа';
+  const { width: windowWidth } = useWindowDimensions();
+
+  const horizontalInset = PrikinSpacing.welcomeHorizontal;
+  const logoWidth = Math.min(windowWidth - horizontalInset * 2, 318);
+  const taglineWidth = Math.min(windowWidth - horizontalInset * 2 + 12, 336);
 
   if (!visible) {
     return null;
@@ -35,56 +47,41 @@ export function AppAuthEntryOverlay({
       pointerEvents="box-none"
       style={[StyleSheet.absoluteFill, styles.overlayRoot]}
       accessibilityViewIsModal>
+      <Image
+        source={welcomeBackground}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        contentPosition="center"
+        accessibilityIgnoresInvertColors
+      />
+
       <View
         style={[
           styles.container,
-          { paddingTop: insets.top + Spacing.six, paddingBottom: insets.bottom + Spacing.four },
+          {
+            paddingTop: insets.top + PrikinSpacing.welcomeHeroGap,
+            paddingBottom: insets.bottom + PrikinSpacing.welcomeBottomExtra,
+            paddingHorizontal: horizontalInset,
+          },
         ]}>
-        <View style={styles.content}>
-          {isFirstLaunch ? (
-            <>
-              <ThemedText style={styles.brand}>{APP_BRAND_NAME}</ThemedText>
-              <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                Соберите свой гардероб, а AI поможет выбирать образы под погоду и ваш стиль.
-              </ThemedText>
-            </>
-          ) : (
-            <>
-              <ThemedText style={styles.title}>Добро пожаловать</ThemedText>
-              <ThemedText themeColor="textSecondary" style={styles.subtitle}>
-                Войдите в существующий аккаунт или продолжите без входа.
-              </ThemedText>
-            </>
-          )}
+        <View style={styles.hero}>
+          <PrikinLogo width={logoWidth} />
+          <View style={styles.taglineWrap}>
+            <PrikinTagline width={taglineWidth} />
+          </View>
         </View>
 
         <View style={styles.actions}>
-          {errorMessage ? (
-            <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-          ) : null}
+          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-          <Pressable
+          <PrimaryButton
+            label="Продолжить без входа"
             onPress={onStartGuest}
             disabled={isLoading}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              isLoading && styles.primaryButtonDisabled,
-              pressed && styles.pressed,
-            ]}>
-            {isLoading ? (
-              <ActivityIndicator color={Colors.light.background} />
-            ) : (
-              <ThemedText style={styles.primaryButtonText}>{primaryLabel}</ThemedText>
-            )}
-          </Pressable>
+            loading={isLoading}
+          />
 
-          <Pressable
-            onPress={onLogin}
-            disabled={isLoading}
-            hitSlop={8}
-            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-            <ThemedText style={styles.secondaryButtonText}>Уже есть аккаунт? Войти</ThemedText>
-          </Pressable>
+          <TextAction label="Уже есть аккаунт? Войти" onPress={onLogin} disabled={isLoading} />
         </View>
       </View>
     </View>
@@ -95,72 +92,27 @@ const styles = StyleSheet.create({
   overlayRoot: {
     zIndex: 1000,
     elevation: 1000,
-    backgroundColor: Colors.light.background,
+    backgroundColor: PrikinColors.background,
   },
   container: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
     justifyContent: 'space-between',
   },
-  content: {
+  hero: {
     flex: 1,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.four,
-    paddingHorizontal: Spacing.two,
+    paddingBottom: PrikinSpacing.welcomeHeroGap,
   },
-  brand: {
-    fontSize: 34,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textAlign: 'center',
-    color: Colors.light.text,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: Colors.light.text,
-  },
-  subtitle: {
-    fontSize: 17,
-    lineHeight: 26,
-    textAlign: 'center',
+  taglineWrap: {
+    marginTop: PrikinSpacing.welcomeTaglineTop,
+    alignItems: 'center',
   },
   actions: {
-    gap: Spacing.three,
+    gap: PrikinSpacing.welcomeActionsGap,
   },
   errorText: {
-    fontSize: 14,
-    lineHeight: 20,
+    ...PrikinTypography.error,
     textAlign: 'center',
-    color: '#DC2626',
-  },
-  primaryButton: {
-    minHeight: 52,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.light.text,
-    paddingHorizontal: Spacing.three,
-  },
-  primaryButtonDisabled: {
-    opacity: 0.7,
-  },
-  primaryButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colors.light.background,
-  },
-  secondaryButton: {
-    alignItems: 'center',
-    paddingVertical: Spacing.two,
-  },
-  secondaryButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: Colors.light.text,
-  },
-  pressed: {
-    opacity: 0.85,
   },
 });
