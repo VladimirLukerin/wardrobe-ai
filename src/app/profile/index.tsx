@@ -1,7 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AccountLoginChoiceSheet from '@/components/account-login-choice-sheet';
@@ -10,11 +10,22 @@ import AccountSheet from '@/components/account-sheet';
 import AddMemberSheet from '@/components/add-member-sheet';
 import BodyParametersSheet from '@/components/body-parameters-sheet';
 import { NetworkErrorState } from '@/components/network-error-state';
+import {
+  PrikinBrandHeader,
+  PrikinHandwritten,
+} from '@/components/prikin/prikin-brand-header';
+import { PrikinPrimaryButton } from '@/components/prikin/prikin-primary-button';
 import StylistSettingsSheet from '@/components/stylist-settings-sheet';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getFamilyMemberLabel } from '@/constants/family';
-import { Colors, MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
+import {
+  PrikinColors,
+  PrikinRadii,
+  PrikinSpacing,
+  PrikinTypography,
+} from '@/constants/prikin-tokens';
+import { MaxContentWidth, Spacing, TabScreenScrollPadding } from '@/constants/theme';
 import { useAccount } from '@/contexts/account-context';
 import { useAccountProfile } from '@/contexts/account-profile-context';
 import { useFamily } from '@/contexts/family-context';
@@ -45,21 +56,72 @@ import { isAccountProtected } from '@/utils/account-is-protected';
 import { isRetryableNetworkError, NETWORK_ERROR_HINT, NETWORK_ERROR_TITLE } from '@/utils/network-error';
 import { getLocalCalendarDateKeyForTimezone } from '@/utils/wear-date';
 
-const STYLE_HINT = 'Ваш стиль пока изучается';
-const STYLE_TOOLTIP =
-  'Оценивайте образы, чтобы мы лучше понимали ваши предпочтения.';
-
 const LOGOUT_TITLE = 'Выйти из профиля?';
 
 const MINI_AVATAR_SIZE = 48;
 const FAMILY_ROW_HEIGHT = MINI_AVATAR_SIZE + Spacing.one + 16;
+const AVATAR_SIZE = 88;
+const STYLE_ICON_SIZE = 40;
+
+const MY_STYLE_ICONS = [
+  { ios: 'tshirt', android: 'checkroom', web: 'checkroom' },
+  { ios: 'figure.stand', android: 'accessibility', web: 'accessibility' },
+  { ios: 'shoeprints.fill', android: 'hiking', web: 'hiking' },
+] as const;
+
+type SymbolIconName = { ios: string; android: string; web: string };
 
 function getInitial(name: string) {
   return name.trim().charAt(0).toUpperCase();
 }
 
+function ProfileSettingsRow({
+  title,
+  subtitle,
+  icon,
+  onPress,
+  isFirst,
+}: {
+  title: string;
+  subtitle: string;
+  icon: SymbolIconName;
+  onPress: () => void;
+  isFirst?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.settingsRow,
+        !isFirst && styles.settingsRowBorder,
+        pressed && styles.pressed,
+      ]}>
+      <View style={styles.settingsIconCircle}>
+        <SymbolView
+          name={{
+            ios: icon.ios as 'person',
+            android: icon.android as 'person',
+            web: icon.web as 'person',
+          }}
+          size={20}
+          tintColor={PrikinColors.textPrimary}
+        />
+      </View>
+      <View style={styles.settingsRowContent}>
+        <Text style={styles.settingsTitle}>{title}</Text>
+        <Text style={styles.settingsSubtitle}>{subtitle}</Text>
+      </View>
+      <SymbolView
+        name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+        size={14}
+        tintColor={PrikinColors.textSecondary}
+      />
+    </Pressable>
+  );
+}
+
 export default function ProfileScreen() {
-  const [isTooltipVisible, setIsTooltipVisible] = useState(false);
   const [isAddMemberSheetVisible, setIsAddMemberSheetVisible] = useState(false);
   const [isBodyParametersSheetVisible, setIsBodyParametersSheetVisible] = useState(false);
   const [isStylistSettingsSheetVisible, setIsStylistSettingsSheetVisible] = useState(false);
@@ -100,9 +162,6 @@ export default function ProfileScreen() {
     rejectInvite,
   } = useFamily();
   const isProtected = isAccountProtected(user);
-  const { height: viewportHeight } = useWindowDimensions();
-  const guestDevSpacerHeight = viewportHeight * 0.8;
-
   useFocusEffect(
     useCallback(() => {
       void refreshFamilyIfStale();
@@ -325,126 +384,107 @@ export default function ProfileScreen() {
     );
   };
 
-  const toggleTooltip = () => {
-    setIsTooltipVisible((visible) => !visible);
-  };
-
   const displayedStyles = preferredStyles.slice(0, 3).join('   ');
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {isTooltipVisible && (
-          <Pressable style={styles.dismissOverlay} onPress={() => setIsTooltipVisible(false)} />
-        )}
-
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
+          <PrikinBrandHeader />
+
+          <Text style={styles.screenTitle}>Профиль</Text>
+          <PrikinHandwritten style={styles.tagline}>Всё о тебе</PrikinHandwritten>
+
+          <View style={styles.heroSection}>
             {isProtected ? (
-              <>
+              <View style={styles.userBlock}>
                 <View style={styles.avatar}>
-                  <ThemedText style={styles.avatarLetter}>{getInitial(displayName)}</ThemedText>
+                  <Text style={styles.avatarLetter}>{getInitial(displayName)}</Text>
                 </View>
-
-                <ThemedText style={styles.name}>{displayName}</ThemedText>
-
-                <View style={styles.styleSection}>
-                  <View style={styles.styleRow}>
-                    <ThemedText themeColor="textSecondary" style={styles.styleHint}>
-                      {STYLE_HINT}
-                    </ThemedText>
-                    <Pressable
-                      onPress={toggleTooltip}
-                      hitSlop={8}
-                      style={({ pressed }) => pressed && styles.pressed}>
-                      <SymbolView
-                        name={{ ios: 'info.circle', android: 'info', web: 'info' }}
-                        size={16}
-                        tintColor={Colors.light.textSecondary}
-                      />
-                    </Pressable>
-                  </View>
-
-                  {isTooltipVisible && (
-                    <View style={styles.tooltip}>
-                      <ThemedText style={styles.tooltipText}>{STYLE_TOOLTIP}</ThemedText>
-                    </View>
-                  )}
-                </View>
-              </>
+                <Text style={styles.userName}>{displayName}</Text>
+              </View>
             ) : (
-              <>
-                <ThemedText style={styles.name}>Гостевой профиль</ThemedText>
-
-                <View style={styles.guestCard}>
-                  <ThemedText style={styles.guestCardTitle}>Аккаунт не сохранён</ThemedText>
-                  <ThemedText themeColor="textSecondary" style={styles.guestCardText}>
-                    Гардероб и настройки работают на этом устройстве. Подключите email или телефон,
-                    чтобы восстановить аккаунт и использовать семейные функции.
-                  </ThemedText>
-
-                  <Pressable
-                    onPress={() => setIsSaveAccountVisible(true)}
-                    style={({ pressed }) => [styles.guestPrimaryButton, pressed && styles.pressed]}>
-                    <ThemedText style={styles.guestPrimaryButtonText}>Сохранить аккаунт</ThemedText>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => setIsLoginChoiceVisible(true)}
-                    style={({ pressed }) => [styles.guestSecondaryButton, pressed && styles.pressed]}>
-                    <ThemedText style={styles.guestSecondaryButtonText}>
-                      Войти в существующий аккаунт
-                    </ThemedText>
-                  </Pressable>
+              <View style={styles.guestBlock}>
+                <View style={styles.guestAvatar}>
+                  <SymbolView
+                    name={{ ios: 'person', android: 'person', web: 'person' }}
+                    size={36}
+                    tintColor={PrikinColors.textSecondary}
+                    weight="regular"
+                  />
                 </View>
-              </>
+                <Text style={styles.guestTitle}>Давай знакомиться</Text>
+                <Text style={styles.guestSubtitle}>Настроим всё под тебя</Text>
+                <PrikinPrimaryButton
+                  label="Войти"
+                  variant="outline"
+                  onPress={() => setIsLoginChoiceVisible(true)}
+                  style={styles.guestLoginButton}
+                />
+                <Pressable
+                  onPress={() => setIsSaveAccountVisible(true)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.guestSaveLink, pressed && styles.pressed]}>
+                  <Text style={styles.guestSaveLinkText}>Сохранить аккаунт</Text>
+                </Pressable>
+              </View>
             )}
           </View>
 
-          {isProtected ? (
-            <>
+          <>
               <Pressable
                 onPress={() => router.push('/profile/my-style')}
-                style={({ pressed }) => [styles.myStyleBlock, pressed && styles.pressed]}>
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.myStyleCard, pressed && styles.pressed]}>
                 <View style={styles.myStyleHeader}>
-                  <ThemedText style={styles.myStyleTitle}>МОЙ СТИЛЬ</ThemedText>
+                  <Text style={styles.cardTitle}>Мой стиль</Text>
                   <SymbolView
                     name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
                     size={14}
-                    tintColor={Colors.light.textSecondary}
+                    tintColor={PrikinColors.textSecondary}
                   />
+                </View>
+
+                <View style={styles.myStyleIconRow}>
+                  {MY_STYLE_ICONS.map((icon) => (
+                    <View key={icon.ios} style={styles.myStyleIconCircle}>
+                      <SymbolView
+                        name={{
+                          ios: icon.ios as 'tshirt',
+                          android: icon.android as 'checkroom',
+                          web: icon.web as 'checkroom',
+                        }}
+                        size={20}
+                        tintColor={PrikinColors.textPrimary}
+                      />
+                    </View>
+                  ))}
                 </View>
 
                 {hasStylePreferences ? (
                   <View style={styles.myStyleContent}>
                     {preferredStyles.length > 0 && (
-                      <ThemedText style={styles.myStyleValues}>{displayedStyles}</ThemedText>
+                      <Text style={styles.myStyleValues}>{displayedStyles}</Text>
                     )}
 
                     {preferredColors.length > 0 && (
                       <View style={styles.favoriteColors}>
-                        <ThemedText themeColor="textSecondary" style={styles.favoriteColorsLabel}>
-                          Любимые цвета
-                        </ThemedText>
-                        <ThemedText style={styles.myStyleValues}>
-                          {preferredColors.join(' · ')}
-                        </ThemedText>
+                        <Text style={styles.favoriteColorsLabel}>Любимые цвета</Text>
+                        <Text style={styles.myStyleValues}>{preferredColors.join(' · ')}</Text>
                       </View>
                     )}
                   </View>
                 ) : (
-                  <ThemedText themeColor="textSecondary" style={styles.myStyleEmpty}>
-                    Добавьте стили и любимые цвета
-                  </ThemedText>
+                  <Text style={styles.myStyleEmpty}>Добавьте стили и любимые цвета</Text>
                 )}
               </Pressable>
 
-              <View style={styles.familyBlock}>
+              <View style={styles.familyCard}>
               <View style={styles.familyHeader}>
-                <ThemedText style={styles.familyTitle}>СЕМЬЯ</ThemedText>
+                <Text style={styles.cardTitle}>Семья</Text>
                 {pendingIncomingCount > 0 ? (
                   <View style={styles.familyBadge}>
                     <ThemedText style={styles.familyBadgeText}>{pendingIncomingCount}</ThemedText>
@@ -578,53 +618,34 @@ export default function ProfileScreen() {
               </ScrollView>
             </View>
 
-              <Pressable
-                onPress={() => setIsBodyParametersSheetVisible(true)}
-                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-                <ThemedText style={styles.settingsTitle}>Мои параметры</ThemedText>
-                <SymbolView
-                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-                  size={12}
-                  tintColor={Colors.light.textSecondary}
+              <View style={styles.settingsCard}>
+                <ProfileSettingsRow
+                  isFirst
+                  title="Мои параметры"
+                  subtitle="Для более точного подбора"
+                  icon={{ ios: 'ruler', android: 'straighten', web: 'straighten' }}
+                  onPress={() => setIsBodyParametersSheetVisible(true)}
                 />
-              </Pressable>
-
-              <Pressable
-                onPress={() => setIsStylistSettingsSheetVisible(true)}
-                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-                <ThemedText style={styles.settingsTitle}>Настройки стилиста</ThemedText>
-                <SymbolView
-                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-                  size={12}
-                  tintColor={Colors.light.textSecondary}
+                <ProfileSettingsRow
+                  title="Настройки стилиста"
+                  subtitle="Твои пожелания к образам"
+                  icon={{ ios: 'sparkles', android: 'auto_awesome', web: 'auto_awesome' }}
+                  onPress={() => setIsStylistSettingsSheetVisible(true)}
                 />
-              </Pressable>
-
-              <Pressable
-                onPress={() => router.push('/profile/paired-outfits')}
-                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-                <ThemedText style={styles.settingsTitle}>Совместные образы</ThemedText>
-                <SymbolView
-                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-                  size={12}
-                  tintColor={Colors.light.textSecondary}
+                <ProfileSettingsRow
+                  title="Совместные образы"
+                  subtitle="Образы с близкими"
+                  icon={{ ios: 'person.2', android: 'people', web: 'people' }}
+                  onPress={() => router.push('/profile/paired-outfits')}
                 />
-              </Pressable>
-
-              <Pressable
-                onPress={() => setIsAccountSheetVisible(true)}
-                style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>
-                <ThemedText style={styles.settingsTitle}>Аккаунт</ThemedText>
-                <SymbolView
-                  name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-                  size={12}
-                  tintColor={Colors.light.textSecondary}
+                <ProfileSettingsRow
+                  title="Аккаунт"
+                  subtitle="Вход и данные профиля"
+                  icon={{ ios: 'person.crop.circle', android: 'account_circle', web: 'account_circle' }}
+                  onPress={() => setIsAccountSheetVisible(true)}
                 />
-              </Pressable>
+              </View>
             </>
-          ) : (
-            <View style={{ minHeight: guestDevSpacerHeight }} />
-          )}
 
           <View style={styles.logoutBlock}>
             {isProtected ? (
@@ -647,7 +668,7 @@ export default function ProfileScreen() {
                     isDevDailyGenerateInProgress && styles.devRefreshButtonDisabled,
                   ]}>
                   {isDevDailyGenerateInProgress ? (
-                    <ActivityIndicator color={Colors.light.textSecondary} />
+                    <ActivityIndicator color={PrikinColors.textSecondary} />
                   ) : (
                     <ThemedText style={styles.devServerRestoreText}>
                       Сгенерировать образ на сегодня
@@ -663,7 +684,7 @@ export default function ProfileScreen() {
                     isDevDailyNotificationTestInProgress && styles.devRefreshButtonDisabled,
                   ]}>
                   {isDevDailyNotificationTestInProgress ? (
-                    <ActivityIndicator color={Colors.light.textSecondary} />
+                    <ActivityIndicator color={PrikinColors.textSecondary} />
                   ) : (
                     <ThemedText style={styles.devServerRestoreText}>
                       Тест уведомления через 5 секунд
@@ -679,7 +700,7 @@ export default function ProfileScreen() {
                     isDevServerRestoreInProgress && styles.devRefreshButtonDisabled,
                   ]}>
                   {isDevServerRestoreInProgress ? (
-                    <ActivityIndicator color={Colors.light.textSecondary} />
+                    <ActivityIndicator color={PrikinColors.textSecondary} />
                   ) : (
                     <ThemedText style={styles.devServerRestoreText}>
                       Восстановить тестовые данные с сервера
@@ -695,7 +716,7 @@ export default function ProfileScreen() {
                     isDevRefreshInProgress && styles.devRefreshButtonDisabled,
                   ]}>
                   {isDevRefreshInProgress ? (
-                    <ActivityIndicator color={Colors.light.textSecondary} />
+                    <ActivityIndicator color={PrikinColors.textSecondary} />
                   ) : (
                     <ThemedText style={styles.devRefreshText}>Обновить тестовые данные</ThemedText>
                   )}
@@ -739,12 +760,10 @@ export default function ProfileScreen() {
   );
 }
 
-const AVATAR_SIZE = 88;
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+    backgroundColor: PrikinColors.background,
   },
   safeArea: {
     flex: 1,
@@ -756,215 +775,186 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.four,
+    paddingHorizontal: PrikinSpacing.screenHorizontal,
     paddingBottom: TabScreenScrollPadding,
   },
-  familyScroll: {
-    flexGrow: 0,
-    height: FAMILY_ROW_HEIGHT,
+  screenTitle: {
+    ...PrikinTypography.screenTitle,
+    marginTop: Spacing.one,
   },
-  dismissOverlay: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 1,
+  tagline: {
+    marginTop: PrikinSpacing.welcomeTaglineTop / 2,
+    marginBottom: PrikinSpacing.sectionGap,
   },
-  header: {
+  heroSection: {
+    marginBottom: PrikinSpacing.sectionGap,
+  },
+  userBlock: {
     alignItems: 'center',
-    paddingTop: Spacing.five,
     gap: Spacing.two,
-    zIndex: 2,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.card,
+    paddingVertical: Spacing.four,
+    paddingHorizontal: PrikinSpacing.cardPadding,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   avatar: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: Colors.light.backgroundElement,
+    backgroundColor: PrikinColors.profileAvatarCircle,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.one,
   },
   avatarLetter: {
     fontSize: 32,
     fontWeight: '600',
-    color: Colors.light.textSecondary,
+    color: PrikinColors.textSecondary,
   },
-  name: {
-    fontSize: 26,
-    fontWeight: '600',
-    lineHeight: 32,
-    color: Colors.light.text,
+  userName: {
+    ...PrikinTypography.sectionTitle,
     textAlign: 'center',
   },
-  styleSection: {
+  guestBlock: {
     alignItems: 'center',
     gap: Spacing.two,
-    zIndex: 3,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.card,
+    paddingVertical: Spacing.five,
+    paddingHorizontal: PrikinSpacing.cardPadding,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
-  styleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  styleHint: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  tooltip: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 10,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    maxWidth: 280,
-  },
-  tooltipText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.light.text,
-    textAlign: 'center',
-  },
-  familyLockedText: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  familyLockedButton: {
-    alignSelf: 'flex-start',
-    minHeight: 40,
-    borderRadius: 10,
+  guestAvatar: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    backgroundColor: PrikinColors.profileAvatarCircle,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.light.text,
-    paddingHorizontal: Spacing.three,
   },
-  familyLockedButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.light.background,
+  guestTitle: {
+    ...PrikinTypography.sectionTitle,
+    textAlign: 'center',
   },
-  settingsRowContent: {
-    flex: 1,
-    gap: 2,
-    paddingRight: Spacing.two,
+  guestSubtitle: {
+    ...PrikinTypography.bodySecondary,
+    textAlign: 'center',
   },
-  settingsSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  guestCard: {
-    width: '100%',
+  guestLoginButton: {
+    alignSelf: 'stretch',
     marginTop: Spacing.two,
-    borderRadius: 16,
-    backgroundColor: Colors.light.backgroundElement,
-    padding: Spacing.four,
+  },
+  guestSaveLink: {
+    paddingVertical: Spacing.two,
+  },
+  guestSaveLinkText: {
+    ...PrikinTypography.textAction,
+    color: PrikinColors.textSecondary,
+  },
+  myStyleCard: {
+    backgroundColor: PrikinColors.profileMutedGreenAlt,
+    borderRadius: PrikinRadii.card,
+    padding: PrikinSpacing.cardPadding,
     gap: Spacing.three,
-  },
-  guestCardTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: Colors.light.text,
-    textAlign: 'center',
-  },
-  guestCardText: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  guestPrimaryButton: {
-    minHeight: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.light.text,
-    paddingHorizontal: Spacing.three,
-  },
-  guestPrimaryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.light.background,
-  },
-  guestSecondaryButton: {
-    minHeight: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.light.backgroundSelected,
-    paddingHorizontal: Spacing.three,
-  },
-  guestSecondaryButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.light.text,
-  },
-  myStyleBlock: {
-    marginTop: Spacing.five,
-    paddingTop: Spacing.four,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.light.backgroundSelected,
-    gap: Spacing.two,
+    marginBottom: PrikinSpacing.sectionGap,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   myStyleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  myStyleTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.6,
-    color: Colors.light.text,
+  cardTitle: {
+    ...PrikinTypography.sectionTitle,
+  },
+  myStyleIconRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  myStyleIconCircle: {
+    width: STYLE_ICON_SIZE,
+    height: STYLE_ICON_SIZE,
+    borderRadius: STYLE_ICON_SIZE / 2,
+    backgroundColor: PrikinColors.profileAvatarCircle,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   myStyleContent: {
     gap: Spacing.two,
   },
   myStyleValues: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: Colors.light.text,
+    ...PrikinTypography.body,
   },
   favoriteColors: {
     gap: Spacing.one,
   },
   favoriteColorsLabel: {
-    fontSize: 13,
-    lineHeight: 18,
+    ...PrikinTypography.caption,
   },
   myStyleEmpty: {
-    fontSize: 15,
-    lineHeight: 22,
+    ...PrikinTypography.bodySecondary,
+  },
+  settingsCard: {
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.card,
+    overflow: 'hidden',
+    marginTop: PrikinSpacing.sectionGap,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
   },
   settingsRow: {
-    marginTop: Spacing.four,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.one,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.light.backgroundSelected,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 36,
+    gap: Spacing.three,
+    paddingVertical: Spacing.three,
+    paddingHorizontal: PrikinSpacing.cardPadding,
+    minHeight: 64,
+  },
+  settingsRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: PrikinColors.divider,
+  },
+  settingsIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: PrikinColors.profileAvatarCircle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsRowContent: {
+    flex: 1,
+    gap: 2,
+    paddingRight: Spacing.two,
   },
   settingsTitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '500',
-    color: Colors.light.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '600',
+    color: PrikinColors.textPrimary,
   },
-  familyBlock: {
-    marginTop: Spacing.five,
-    paddingTop: Spacing.four,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.light.backgroundSelected,
+  settingsSubtitle: {
+    ...PrikinTypography.caption,
+  },
+  familyCard: {
+    backgroundColor: PrikinColors.profileMutedGreen,
+    borderRadius: PrikinRadii.card,
+    padding: PrikinSpacing.cardPadding,
     gap: Spacing.three,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PrikinColors.borderSubtle,
+  },
+  familyScroll: {
+    flexGrow: 0,
+    height: FAMILY_ROW_HEIGHT,
   },
   familyHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-  },
-  familyTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.6,
-    color: Colors.light.text,
   },
   familyBadge: {
     minWidth: 20,
@@ -995,18 +985,16 @@ const styles = StyleSheet.create({
   familyRetryButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: PrikinColors.textPrimary,
   },
   familyInviteCard: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 12,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.input,
     padding: Spacing.three,
     gap: Spacing.three,
   },
   familyInviteText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: Colors.light.text,
+    ...PrikinTypography.body,
   },
   familyInviteActions: {
     flexDirection: 'row',
@@ -1015,33 +1003,33 @@ const styles = StyleSheet.create({
   familyAcceptButton: {
     flex: 1,
     minHeight: 40,
-    borderRadius: 10,
+    borderRadius: PrikinRadii.input,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.light.text,
+    backgroundColor: PrikinColors.buttonPrimary,
   },
   familyAcceptButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: Colors.light.background,
+    color: PrikinColors.buttonPrimaryText,
   },
   familyRejectButton: {
     flex: 1,
     minHeight: 40,
-    borderRadius: 10,
+    borderRadius: PrikinRadii.input,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.light.backgroundSelected,
+    borderWidth: 1.5,
+    borderColor: PrikinColors.borderSubtle,
   },
   familyRejectButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: PrikinColors.textPrimary,
   },
   familyOutgoingCard: {
-    backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 12,
+    backgroundColor: PrikinColors.surface,
+    borderRadius: PrikinRadii.input,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
   },
@@ -1066,42 +1054,43 @@ const styles = StyleSheet.create({
     width: MINI_AVATAR_SIZE,
     height: MINI_AVATAR_SIZE,
     borderRadius: MINI_AVATAR_SIZE / 2,
-    backgroundColor: Colors.light.backgroundElement,
+    backgroundColor: PrikinColors.profileAvatarCircle,
     alignItems: 'center',
     justifyContent: 'center',
   },
   miniAvatarLetter: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.light.textSecondary,
+    color: PrikinColors.textSecondary,
   },
   addMemberAvatar: {
     width: MINI_AVATAR_SIZE,
     height: MINI_AVATAR_SIZE,
     borderRadius: MINI_AVATAR_SIZE / 2,
     borderWidth: 1.5,
-    borderColor: Colors.light.backgroundSelected,
+    borderStyle: 'dashed',
+    borderColor: PrikinColors.textSecondary,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   addMemberPlus: {
     fontSize: 24,
     fontWeight: '400',
-    color: Colors.light.textSecondary,
+    color: PrikinColors.textSecondary,
     lineHeight: 28,
   },
   memberLabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: Colors.light.text,
+    ...PrikinTypography.caption,
+    color: PrikinColors.textPrimary,
     textAlign: 'center',
     maxWidth: 64,
   },
   logoutBlock: {
-    marginTop: Spacing.four,
+    marginTop: PrikinSpacing.sectionGap,
     paddingTop: Spacing.three,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.light.backgroundSelected,
+    borderTopColor: PrikinColors.divider,
     alignItems: 'center',
   },
   logoutButton: {
@@ -1109,9 +1098,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
   },
   logoutText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#DC2626',
+    ...PrikinTypography.textAction,
+    color: PrikinTypography.error.color,
   },
   devResetButton: {
     marginTop: Spacing.two,
@@ -1138,20 +1126,14 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   devRefreshText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.light.textSecondary,
+    ...PrikinTypography.bodySecondary,
   },
   devServerRestoreText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.light.textSecondary,
+    ...PrikinTypography.bodySecondary,
     textAlign: 'center',
   },
   devResetText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.light.textSecondary,
+    ...PrikinTypography.bodySecondary,
   },
   pressed: {
     opacity: 0.7,

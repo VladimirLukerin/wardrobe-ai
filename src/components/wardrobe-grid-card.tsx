@@ -63,8 +63,10 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: Colors.light.backgroundElement,
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(32, 35, 29, 0.08)',
   },
   cardImage: {
     width: '100%',

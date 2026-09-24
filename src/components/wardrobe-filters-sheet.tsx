@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
-import { Colors, OutfitColors } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
+import { PrikinColors, PrikinRadii } from '@/constants/prikin-tokens';
 import type { WardrobeItem } from '@/contexts/wardrobe-context';
 import { WARDROBE_FILTER_OPTIONS } from '@/utils/wardrobe-category-groups';
 import { EMPTY_WARDROBE_FILTERS, filterWardrobe, type WardrobeFilters } from '@/utils/wardrobe-filters';
@@ -49,11 +50,11 @@ const styles = StyleSheet.create({
   label: { fontSize: 16, fontWeight: '600', marginTop: 8, color: Colors.light.text },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 14, minHeight: 44, justifyContent: 'center', borderRadius: 22, borderWidth: 1, borderColor: Colors.light.backgroundSelected },
-  selected: { backgroundColor: OutfitColors.button, borderColor: OutfitColors.accent },
+  selected: { backgroundColor: PrikinColors.paper, borderColor: PrikinColors.accent },
   text: { fontSize: 14, color: Colors.light.text },
   hint: { fontSize: 14, color: Colors.light.textSecondary },
   footer: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 8 },
   reset: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 12 },
-  apply: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: OutfitColors.accent, borderRadius: 16 },
-  applyText: { color: '#FFFFFF', fontWeight: '600' },
+  apply: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: PrikinColors.buttonPrimary, borderRadius: PrikinRadii.button },
+  applyText: { color: PrikinColors.buttonPrimaryText, fontWeight: '600' },
 });

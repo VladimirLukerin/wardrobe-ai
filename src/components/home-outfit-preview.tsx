@@ -2,7 +2,8 @@ import { Image } from 'expo-image';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { getWardrobeItemDisplayImageUri } from '@/constants/wardrobe-item';
-import { Colors, OutfitColors, Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
+import { PrikinColors, PrikinRadii } from '@/constants/prikin-tokens';
 import type { WardrobeItem } from '@/contexts/wardrobe-context';
 import { sortOutfitItems } from '@/utils/outfit-item-replacement';
 
@@ -48,6 +49,14 @@ const styles = StyleSheet.create({
   details: { flex: 1, gap: Spacing.one, paddingVertical: Spacing.two },
   category: { fontSize: 12, color: Colors.light.textSecondary },
   name: { fontSize: 15, fontWeight: '600', lineHeight: 21 },
-  replace: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, marginTop: 4, borderRadius: 14, backgroundColor: OutfitColors.button },
-  replaceText: { color: OutfitColors.accent, fontSize: 14, fontWeight: '600' },
+  replace: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    marginTop: 4,
+    borderRadius: PrikinRadii.button,
+    backgroundColor: PrikinColors.paper,
+  },
+  replaceText: { color: PrikinColors.accent, fontSize: 14, fontWeight: '600' },
 });

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 
@@ -23,6 +24,10 @@ export function useDailyStylistNotificationNavigation(): void {
   const handledResponseKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
     const handleResponse = (response: Notifications.NotificationResponse) => {
       const responseKey = `${response.notification.request.identifier}:${response.actionIdentifier}`;
 

@@ -42,14 +42,16 @@ export type DailyStylistReminderReconcileResult = {
 
 let androidChannelReady = false;
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 function isDailyStylistNotificationData(data: unknown): data is DailyStylistNotificationData {
   if (!data || typeof data !== 'object') {
@@ -215,6 +217,10 @@ export async function reconcileDailyStylistReminder({
   reminderState?: DailyStylistReminderState;
 }): Promise<DailyStylistReminderReconcileResult> {
   const currentState = reminderState ?? (await loadDailyStylistReminderState());
+
+  if (Platform.OS === 'web') {
+    return { state: currentState, action: 'none' };
+  }
 
   if (!stylistPreferences.dailyStylistEnabled) {
     const scheduled = await findScheduledDailyStylistReminder();

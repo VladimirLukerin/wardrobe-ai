@@ -28,6 +28,7 @@ import { WearHistorySyncProvider } from '@/contexts/wear-history-sync-context';
 import { WardrobeSyncProvider } from '@/contexts/wardrobe-sync-context';
 import { WardrobeProvider } from '@/contexts/wardrobe-context';
 import { useCameraPermissionStartup } from '@/hooks/use-camera-permission-startup';
+import { usePrikinFonts } from '@/hooks/use-prikin-fonts';
 import type { ServerUser } from '@/services/account';
 import { isOnboardingCompleted, markOnboardingCompleted } from '@/storage/onboarding-storage';
 import {
@@ -51,6 +52,7 @@ export function AccountScopedApp() {
     completeAuthEntry,
     applyAuthenticatedUser,
   } = useAccount();
+  const { fontsLoaded: prikinFontsLoaded } = usePrikinFonts();
   const [showLaunch, setShowLaunch] = useState(!launchPlayed);
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
@@ -196,7 +198,7 @@ export function AccountScopedApp() {
                             <ThemeProvider value={DefaultTheme}>
                               <HomeDailyContentProvider key={accountSessionKey}>
                                 <View style={{ flex: 1 }}>
-                                  {showMainApp ? <AppTabs /> : null}
+                                  {showMainApp && prikinFontsLoaded ? <AppTabs /> : null}
                                   {showMainApp && showLaunch && !isRestoringAccount ? (
                                     <HomeLaunchOverlay onComplete={finishLaunch} />
                                   ) : null}
